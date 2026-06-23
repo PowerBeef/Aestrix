@@ -1,0 +1,23 @@
+# SwiftPM
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj
+Package.resolved
+AestrixDemo/AestrixDemo.xcodeproj
+AestrixDemo/project.xcworkspace/
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.swp
+
+# macOS
+.DS_Store
+
+# Downloaded model weights (never commit ~4.6 GB)
+AestrixDemo/Models/
+*.safetensors
+
+# tool caches
+.impeccable/

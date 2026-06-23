@@ -1,0 +1,39 @@
+name: AestrixDemo
+options:
+  bundleIdPrefix: ai.aestrix
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+# Local Swift package: the AestrixEngine MLX engine.
+packages:
+  AestrixEngine:
+    path: ../AestrixEngine
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  AestrixDemo:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: AestrixDemo
+    dependencies:
+      - package: AestrixEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.aestrix.demo
+        PRODUCT_NAME: Aestrix
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        TARGETED_DEVICE_FAMILY: "1"
