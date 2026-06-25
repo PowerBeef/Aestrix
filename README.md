@@ -1,6 +1,7 @@
 # Aestrix
 
-An MLX-Swift port of FLUX.2-klein-4B for on-device image generation and editing on iOS.
+A Swift inference engine that runs [FLUX.2-klein-4B](https://huggingface.co/mlx-community/flux2-klein-4b-4bit)
+on iOS devices via Apple's MLX framework.
 
 The engine runs a 4-billion-parameter rectified-flow transformer (Black Forest Labs,
 Apache-2.0) entirely on the device's GPU via Apple's MLX framework. Model weights are
