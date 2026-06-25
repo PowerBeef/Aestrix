@@ -10,7 +10,7 @@ generation and single-image instruction editing on-device, targeting iPhone 15 P
 | M0 — scaffold + build green | ✅ done |
 | M1 — IO (downloader, weights, tokenizer) | ✅ done |
 | M2 — VAE | ✅ port proven correct (float32 parity Δ<1e-4 vs mflux); float32 decode (diffusers `force_upcast`) |
-| M3 — Qwen3 text encoder | pending |
+| M3 — Qwen3 text encoder | ✅ ported (loads 2.26 GB 4-bit, ctx (1,512,7680)); exact mflux parity pending |
 | M4 — Klein transformer + RoPE4D | pending |
 | M5 — t2i pipeline (first image) | pending |
 | M6 — image edit | pending |
