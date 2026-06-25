@@ -1,149 +1,94 @@
-<div align="center">
-
 # Aestrix
 
-On-device FLUX.2-klein-4B image generation and editing for iOS, built on MLX-Swift.
+An MLX-Swift port of FLUX.2-klein-4B for on-device image generation and editing on iOS.
 
-[![Platform](https://img.shields.io/badge/platform-iOS%2026%2B-blue)](https://developer.apple.com/ios/)
-[![Swift](https://img.shields.io/badge/Swift-6.3-orange)](https://swift.org)
-[![MLX-Swift](https://img.shields.io/badge/MLX--Swift-0.31.4-green)](https://github.com/ml-explore/mlx-swift)
-[![License](https://img.shields.io/badge/license-Apache--2.0-lightgrey)](LICENSE)
+The engine runs a 4-billion-parameter rectified-flow transformer (Black Forest Labs,
+Apache-2.0) entirely on the device's GPU via Apple's MLX framework. Model weights are
+4-bit quantized (~4.6 GB total). The three components — Qwen3-4B text encoder, Klein
+diffusion transformer, and FLUX.2 VAE — are loaded and freed in sequence to stay within
+the 8 GB memory budget of an iPhone 15 Pro.
 
-</div>
-
----
-
-## Overview
-
-Aestrix is an MLX inference engine for running [FLUX.2-klein-4B](https://huggingface.co/mlx-community/flux2-klein-4b-4bit)
-— a 4-billion-parameter rectified-flow transformer from Black Forest Labs — on iOS devices.
-The engine performs text-to-image generation and natural-language instruction editing
-entirely on-device, with no server or network dependency during inference.
-
-The project ports the model's three components (Qwen3 text encoder, Klein diffusion
-transformer, FLUX.2 VAE) from Python/MLX to Swift/MLX-Swift, using 4-bit quantized
-weights to fit within the 8 GB memory budget of an iPhone 15 Pro. Staged model loading
-frees each submodel after use, keeping peak wired memory tractable.
-
-**Status:** Components M0–M4 are ported and load/run correctly. The end-to-end pipeline
-(M5) is the next milestone. On-device performance has not yet been measured — the sub-second
-target referenced in the FLUX.2-klein model card is aspirational, not validated.
-
----
-
-## Architecture
+## Pipeline
 
 ```
-prompt → Qwen3-4B [layers 9,18,27] → ctx (512, 7680)
-                                            ↓
-noise (128ch, H/16×W/16) → Klein Transformer (4 steps, guidance=1.0)
-                                            ↓
-              latent → VAE.decode (float32) → image
+prompt → Qwen3-4B → ctx (512, 7680)
+                        ↓
+noise → Klein Transformer (4 Euler steps, no CFG) → latent
+                                                        ↓
+                                            VAE decode (float32) → image
 ```
 
-| Component | Implementation | Verified |
+FLUX.2-klein uses a distilled 4-step rectified-flow schedule with guidance fixed at 1.0,
+so each denoising step requires a single transformer forward pass. Image editing reuses
+the same transformer: reference-image latents are concatenated to the noise tokens with
+a distinct `t` coordinate in the 4D RoPE, requiring no separate model or mask.
+
+## Component Status
+
+| Component | Implementation | Verification |
 |---|---|---|
-| **Tokenizer** | Qwen3 BPE via swift-transformers, chat template, 512-token pad | Exact token-id parity vs Python |
-| **Text encoder** | Qwen3-4B (4-bit QuantizedLinear + QuantizedEmbedding), 36-layer GQA | Loads + runs, ctx shape confirmed |
-| **Transformer** | 5 double-stream + 20 single-stream blocks, inner_dim 3072, 4D RoPE (t,h,w,l) | Loads + runs, forward output confirmed |
-| **VAE** | AutoencoderKLFlux2, 32-ch latent, float32 decode (diffusers `force_upcast`) | float32 parity Δ<1e-4 vs mflux |
-| **Scheduler** | Rectified-flow Euler, Karras power schedule, 4 steps | Implemented (M5) |
-| **Editing** | Reference latents concatenated with t=10 RoPE offset | Planned (M6) |
+| Tokenizer | Qwen3 BPE (swift-transformers), chat template, 512-token pad | Exact token-id match vs Python |
+| Text encoder | Qwen3-4B, 36-layer GQA, 4-bit QuantizedLinear + QuantizedEmbedding | Loads and runs; ctx shape confirmed |
+| Transformer | 5 double-stream + 20 single-stream blocks, inner_dim 3072, 4D RoPE | Loads and runs; output shape confirmed |
+| VAE | AutoencoderKLFlux2 (32-ch latent), float32 decode | float32 parity max&#124;Δ&#124; < 1e-4 vs mflux |
+| Scheduler | Rectified-flow Euler, Karras power schedule | Implemented |
+| Editing | Reference latents concatenated with t=10 RoPE offset | Not yet implemented |
 
----
+Numerical parity is validated against a Python mflux/MLX reference for each component.
+MLX-Metal bf16 reductions are not bit-deterministic across invocations; the VAE decodes
+in float32 to avoid amplified drift, matching diffusers' `force_upcast` setting.
 
 ## Build
 
+Requires Xcode 26+, Swift 6.3+, and an Apple Silicon Mac. On-device execution requires
+an iPhone 15 Pro or later — the iOS Simulator cannot run MLX GPU operations.
+
 ```bash
-git clone https://github.com/PowerBeef/Aestrix.git
-cd Aestrix
-
-# Build the engine
 swift build --package-path AestrixEngine
+```
 
-# Build the iOS demo app
+For the demo app:
+
+```bash
 cd AestrixDemo && xcodegen generate
 ```
 
-**Requirements:** Xcode 26+, Swift 6.3+. Development on Apple Silicon; on-device execution
-requires an iPhone 15 Pro or later (the iOS Simulator cannot run MLX GPU operations).
-
----
-
-## Testing
+## Tests
 
 ```bash
-# MLX-free tests (tokenizer parity, config, downloader)
+# MLX-free unit tests
 swift test --package-path AestrixEngine
 
-# Full suite including MLX execution (xcodebuild compiles Metal shaders)
+# Full suite (xcodebuild compiles Metal shaders that swift test cannot)
 TEST_RUNNER_AESTRIX_HEAVY_TESTS=1 \
 TEST_RUNNER_AESTRIX_FIXTURES="$(pwd)/AestrixEngine/.build/fixtures/flux2-klein-4b-4bit" \
   xcodebuild test -scheme AestrixEngine -destination 'platform=macOS'
 ```
 
-Tests requiring multi-GB model downloads are gated on `AESTRIX_HEAVY_TESTS`. The parity
-harness uses a Python mflux/MLX reference (`tools/vae_reference.py`) to validate each
-component numerically. See [`CLAUDE.md`](CLAUDE.md) for MLX-specific build constraints.
-
----
+11 tests across 7 suites. Heavy tests (multi-GB model downloads) are gated on
+`AESTRIX_HEAVY_TESTS`. Parity references are generated by `tools/vae_reference.py`
+(mflux/MLX). Build constraints are documented in [`CLAUDE.md`](CLAUDE.md).
 
 ## Roadmap
 
 | # | Milestone | Status |
 |---|---|---|
-| 0 | Scaffold — SwiftPM, iOS demo, MLX verified | ✅ |
-| 1 | IO — downloader, safetensors loader, tokenizer | ✅ |
-| 2 | VAE — ported, float32 parity Δ<1e-4 | ✅ |
-| 3 | Text encoder — Qwen3-4B loads, ctx (512, 7680) | ✅ |
-| 4 | Transformer — Klein DiT forward, 4D RoPE | ✅ |
-| 5 | Pipeline — wire components, first image | Next |
-| 6 | Single-image instruction editing | Planned |
-| 7 | Optimization — compile, Metal kernels | Planned |
-| 8 | Production hardening — memory, thermal, error handling | Planned |
-
----
-
-## Repository
-
-```
-Aestrix/
-├── AestrixEngine/              # Swift package
-│   ├── Sources/AestrixEngine/
-│   │   ├── Models/             # FluxVAE, Qwen3TextEncoder, KleinTransformer
-│   │   ├── IO/                 # HF downloader, safetensors loader, tokenizer
-│   │   └── Support/            # Errors, logging
-│   ├── Tests/                  # 11 tests across 7 suites
-│   ├── tools/                  # Python reference generators
-│   └── Package.swift
-├── AestrixDemo/                # SwiftUI app (xcodegen project)
-├── docs/PLAN.md                # Architecture document
-└── CLAUDE.md                   # Developer guide
-```
-
----
-
-## Parity Testing
-
-Each component is compared against a Python (mflux/MLX) reference to verify the port is
-structurally correct:
-
-- **VAE**: float32 reductions are deterministic — Swift matches mflux at max|Δ| < 1e-4.
-- **Tokenizer**: exact token-id match against Python `tokenizers`.
-- **Qwen3 / Transformer**: load and run with correct output shapes; exact numerical parity
-  pending full reference harness.
-
-MLX-Metal bf16 reductions are not bit-deterministic across runs (a known platform property).
-The VAE decodes in float32 to avoid this, matching diffusers' `force_upcast = true`.
-
----
+| 0 | Package scaffold, MLX integration | Done |
+| 1 | Downloader, safetensors loader, tokenizer | Done |
+| 2 | VAE (float32 parity proven) | Done |
+| 3 | Qwen3 text encoder | Done |
+| 4 | Klein transformer + 4D RoPE | Done |
+| 5 | End-to-end pipeline, first image | In progress |
+| 6 | Image editing | Planned |
+| 7 | Optimization (compile, Metal kernels) | Planned |
+| 8 | Memory/thermal hardening | Planned |
 
 ## Dependencies
 
-- [FLUX.2-klein-4B](https://huggingface.co/mlx-community/flux2-klein-4b-4bit) — model weights (Apache-2.0, Black Forest Labs)
-- [MLX-Swift](https://github.com/ml-explore/mlx-swift) 0.31.4 — Apple's ML framework for Swift
-- [swift-transformers](https://github.com/huggingface/swift-transformers) 1.1.0 — BPE tokenizer
-- [mflux](https://github.com/filipstrand/mflux) — Python MLX reference implementation used for parity testing
+- [FLUX.2-klein-4B](https://huggingface.co/mlx-community/flux2-klein-4b-4bit) — 4-bit MLX weights (Apache-2.0)
+- [MLX-Swift](https://github.com/ml-explore/mlx-swift) 0.31.4 — Apple ML framework
+- [swift-transformers](https://github.com/huggingface/swift-transformers) 1.1.0 — tokenizer
+- [mflux](https://github.com/filipstrand/mflux) — Python reference for parity testing
 
 ## License
 
