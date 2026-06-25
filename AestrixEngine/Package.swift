@@ -17,6 +17,9 @@ let package = Package(
     dependencies: [
         // Pinned MLX-Swift (see plan risk: "research not production" → pin a version).
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.31.4"),
+        // HuggingFace tokenizers port — loads tokenizer.json (BPE/Qwen2) + chat templates.
+        // Same dependency ml-explore/mlx-swift-examples uses for all its models.
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.0"),
     ],
     targets: [
         .target(
@@ -25,6 +28,7 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "Transformers", package: "swift-transformers"),
             ]
         ),
         .testTarget(

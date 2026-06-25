@@ -54,11 +54,21 @@ public struct LoadReport: Sendable {
     public let modelDir: URL
     public let wiredBytes: Int64
     public let modelSizeBytes: Int64
+    public let filesPresent: Int
+    public let filesTotal: Int
+    public let missingFiles: [String]
 
-    public init(modelDir: URL, wiredBytes: Int64, modelSizeBytes: Int64) {
+    /// `true` when every file in the manifest is present and size-verified.
+    public var isComplete: Bool { filesPresent == filesTotal }
+
+    public init(modelDir: URL, wiredBytes: Int64, modelSizeBytes: Int64,
+                filesPresent: Int, filesTotal: Int, missingFiles: [String]) {
         self.modelDir = modelDir
         self.wiredBytes = wiredBytes
         self.modelSizeBytes = modelSizeBytes
+        self.filesPresent = filesPresent
+        self.filesTotal = filesTotal
+        self.missingFiles = missingFiles
     }
 }
 
@@ -80,11 +90,63 @@ public struct IntegrationReport: Sendable {
 /// never touch the non-`Sendable` `MLXArray` graph directly.
 public actor AestrixEngine {
 
-    public init() {}
+    private let manifestFiles: [ModelFile]
+    private let manifestBaseURL: URL
+    private var modelDir: URL?
 
-    /// Load the model from `modelDir` (staged; reports wired bytes). Not yet implemented.
+    public init(
+        files: [ModelFile] = Flux2Klein4B4Bit.files,
+        baseURL: URL = Flux2Klein4B4Bit.baseURL
+    ) {
+        self.manifestFiles = files
+        self.manifestBaseURL = baseURL
+    }
+
+    /// Default on-device storage: `<Application Support>/Aestrix/models/flux2-klein-4b-4bit`.
+    public static func defaultModelDirectory() throws -> URL {
+        let appSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        let dir = appSupport
+            .appendingPathComponent("Aestrix", isDirectory: true)
+            .appendingPathComponent("models", isDirectory: true)
+            .appendingPathComponent("flux2-klein-4b-4bit", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Download every missing model file into `overrideDir` (default: app-support dir).
+    /// Idempotent — files already present and size-verified are skipped.
+    public func downloadModel(
+        into overrideDir: URL? = nil,
+        onProgress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
+    ) async throws -> URL {
+        let dir = try overrideDir ?? Self.defaultModelDirectory()
+        let downloader = ModelDownloader(
+            files: manifestFiles, baseURL: manifestBaseURL, destinationRoot: dir)
+        try await downloader.ensureDownloaded(onProgress: onProgress)
+        return dir
+    }
+
+    /// Verify the model at `modelDir` is fully present and mark the engine ready.
+    ///
+    /// M1 only verifies + records the directory — it does NOT load weights into modules
+    /// (that staged wiring begins in M3/M4), so `wiredBytes` is 0 here. Call
+    /// ``downloadModel(into:onProgress:)`` first if ``LoadReport/missingFiles`` is non-empty.
     public func load(modelDir: URL) async throws -> LoadReport {
-        throw AestrixError.notImplemented("load(modelDir:) — Milestone 1 (IO layer)")
+        let total = manifestFiles.count
+        let downloader = ModelDownloader(
+            files: manifestFiles, baseURL: manifestBaseURL, destinationRoot: modelDir)
+        let missing = await downloader.missingFiles().map(\.relativePath)
+        let present = total - missing.count
+        self.modelDir = modelDir
+        return LoadReport(
+            modelDir: modelDir,
+            wiredBytes: 0,
+            modelSizeBytes: manifestFiles.reduce(0) { $0 + $1.size },
+            filesPresent: present,
+            filesTotal: total,
+            missingFiles: missing)
     }
 
     /// Generate an image from a text prompt. Not yet implemented.
@@ -97,9 +159,9 @@ public actor AestrixEngine {
         throw AestrixError.notImplemented("edit(image:instruction:config:) — Milestone 6 (image edit)")
     }
 
-    /// Free all wired memory. Not yet implemented.
+    /// Free all wired memory. Nothing resident in M1 yet.
     public func unload() async throws {
-        throw AestrixError.notImplemented("unload() — Milestone 1 (IO layer)")
+        modelDir = nil
     }
 
     /// Sanity check that MLX is wired up and the GPU backend executes on this device.

@@ -8,7 +8,7 @@ generation and single-image instruction editing on-device, targeting iPhone 15 P
 | Milestone | Status |
 |---|---|
 | M0 — scaffold + build green | ✅ done |
-| M1 — IO (downloader, weights, tokenizer) | pending |
+| M1 — IO (downloader, weights, tokenizer) | ✅ done |
 | M2 — VAE | pending |
 | M3 — Qwen3 text encoder | pending |
 | M4 — Klein transformer + RoPE4D | pending |
@@ -43,6 +43,17 @@ TEST_RUNNER_AESTRIX_RUN_MLX_TESTS=1 \
 
 (`TEST_RUNNER_<NAME>=1` is how xcodebuild injects an env var into the test runner; the
 `mlxExecutes` test is gated on `AESTRIX_RUN_MLX_TESTS`.)
+
+The VAE weight-load test (`loadVAEWeights`) also needs xcodebuild (it calls MLX) and
+additionally downloads a 165 MB shard, so it is gated on `AESTRIX_HEAVY_TESTS`:
+
+```bash
+TEST_RUNNER_AESTRIX_RUN_MLX_TESTS=1 TEST_RUNNER_AESTRIX_HEAVY_TESTS=1 \
+  xcodebuild test -scheme AestrixEngine -destination 'platform=macOS'
+```
+
+The remaining tests (downloader, tokenizer parity, index parsing) are MLX-free and run
+under plain `swift test`.
 
 > ⚠️ **iOS Simulator limitation:** MLX cannot run its GPU ops on the iOS Simulator (it
 > requires a physical Apple Silicon device). Host-side `xcodebuild test` on macOS proves
