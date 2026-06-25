@@ -16,10 +16,19 @@ import sys
 import numpy as np
 import mlx.core as mx
 from mlx import nn
+from mflux.models.common.config.model_config import ModelConfig
 from mflux.models.flux2.model.flux2_vae.vae import Flux2VAE
 
-model_dir = sys.argv[1] if len(sys.argv) > 1 else ".build/fixtures/flux2-klein-4b-4bit"
-out_path = sys.argv[2] if len(sys.argv) > 2 else f"{model_dir}/parity/vae_reference.safetensors"
+# --fp32 runs the VAE in float32 (mflux default is bf16). Used to validate the Swift port
+# independent of MLX-Metal bf16 non-determinism (float32 reductions are deterministic).
+fp32 = "--fp32" in sys.argv
+argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+model_dir = argv[0] if len(argv) > 0 else ".build/fixtures/flux2-klein-4b-4bit"
+suffix = "_fp32" if fp32 else ""
+if fp32:
+    ModelConfig.precision = mx.float32
+out_path = argv[1] if len(argv) > 1 else f"{model_dir}/parity/vae_reference{suffix}.safetensors"
+print(f"precision = {ModelConfig.precision}")
 
 raw = mx.load(f"{model_dir}/vae/0.safetensors")
 

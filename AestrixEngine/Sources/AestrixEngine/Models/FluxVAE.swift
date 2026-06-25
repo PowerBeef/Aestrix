@@ -2,11 +2,12 @@ import Foundation
 import MLX
 import MLXNN
 
-/// GroupNorm matching mflux/diffusers: computed in float32, output cast to bf16
-/// (mflux `ModelConfig.precision`). Use via `gnorm(norm, x)` so the cast is uniform.
+/// GroupNorm matching mflux/diffusers: computed in float32, output cast to `precision`
+/// (mflux casts to `ModelConfig.precision`). `precision` is threaded from `FluxVAE` so the
+/// VAE can decode in float32 (diffusers `AutoencoderKLFlux2.force_upcast = true`) or bf16.
 @inline(__always)
-private func gnorm(_ gn: GroupNorm, _ x: MLXArray) -> MLXArray {
-    gn(x.asType(.float32)).asType(.bfloat16)
+private func gnorm(_ gn: GroupNorm, _ x: MLXArray, _ precision: MLX.DType) -> MLXArray {
+    gn(x.asType(.float32)).asType(precision)
 }
 
 // MARK: - ResnetBlock2D
@@ -18,8 +19,10 @@ final class ResnetBlock2D: Module, UnaryLayer {
     @ModuleInfo(key: "norm2") var norm2: GroupNorm
     @ModuleInfo(key: "conv2") var conv2: Conv2d
     @ModuleInfo(key: "conv_shortcut") var convShortcut: Conv2d?
+    private let precision: MLX.DType
 
-    init(inChannels: Int, outChannels: Int, groups: Int = 32) {
+    init(inChannels: Int, outChannels: Int, precision: MLX.DType = .bfloat16, groups: Int = 32) {
+        self.precision = precision
         self._norm1.wrappedValue = GroupNorm(groupCount: groups, dimensions: inChannels, eps: 1e-6, pytorchCompatible: true)
         self._conv1.wrappedValue = Conv2d(inputChannels: inChannels, outputChannels: outChannels, kernelSize: 3, padding: 1)
         self._norm2.wrappedValue = GroupNorm(groupCount: groups, dimensions: outChannels, eps: 1e-6, pytorchCompatible: true)
@@ -31,10 +34,10 @@ final class ResnetBlock2D: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        var h = gnorm(norm1, x)
+        var h = gnorm(norm1, x, precision)
         h = silu(h)
         h = conv1(h)
-        h = gnorm(norm2, h)
+        h = gnorm(norm2, h, precision)
         h = silu(h)
         h = conv2(h)
         let shortcut = convShortcut?(x) ?? x
@@ -63,7 +66,7 @@ final class Downsample2D: Module, UnaryLayer {
     }
 }
 
-/// diffusers `Upsample2D`: nearest-neighbour ×2 then conv (3×3, pad 1).
+/// diffusers/mflux `Upsample2D`: nearest-neighbour ×2 via element repeat, then conv (pad 1).
 final class Upsample2D: Module, UnaryLayer {
     @ModuleInfo(key: "conv") var conv: Conv2d
     init(channels: Int) {
@@ -71,7 +74,6 @@ final class Upsample2D: Module, UnaryLayer {
         super.init()
     }
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        // Nearest-neighbour ×2 via element repeat (matches mflux `mx.repeat`), then conv.
         let y = repeated(repeated(x, count: 2, axis: 1), count: 2, axis: 2)
         return conv(y)
     }
@@ -84,11 +86,11 @@ final class DownEncoderBlock: Module, UnaryLayer {
     @ModuleInfo(key: "resnets") var resnets: [ResnetBlock2D]
     @ModuleInfo(key: "downsamplers") var downsamplers: [Downsample2D]?
 
-    init(inChannels: Int, outChannels: Int, layersPerBlock: Int = 2, addDown: Bool) {
+    init(inChannels: Int, outChannels: Int, precision: MLX.DType, layersPerBlock: Int = 2, addDown: Bool) {
         var res: [ResnetBlock2D] = []
         for i in 0..<layersPerBlock {
             let inCh = (i == 0) ? inChannels : outChannels
-            res.append(ResnetBlock2D(inChannels: inCh, outChannels: outChannels))
+            res.append(ResnetBlock2D(inChannels: inCh, outChannels: outChannels, precision: precision))
         }
         self._resnets.wrappedValue = res
         self._downsamplers.wrappedValue = addDown ? [Downsample2D(channels: outChannels)] : nil
@@ -108,11 +110,11 @@ final class UpDecoderBlock: Module, UnaryLayer {
     @ModuleInfo(key: "resnets") var resnets: [ResnetBlock2D]
     @ModuleInfo(key: "upsamplers") var upsamplers: [Upsample2D]?
 
-    init(inChannels: Int, outChannels: Int, layersPerBlock: Int = 3, addUp: Bool) {
+    init(inChannels: Int, outChannels: Int, precision: MLX.DType, layersPerBlock: Int = 3, addUp: Bool) {
         var res: [ResnetBlock2D] = []
         for i in 0..<layersPerBlock {
             let inCh = (i == 0) ? inChannels : outChannels
-            res.append(ResnetBlock2D(inChannels: inCh, outChannels: outChannels))
+            res.append(ResnetBlock2D(inChannels: inCh, outChannels: outChannels, precision: precision))
         }
         self._resnets.wrappedValue = res
         self._upsamplers.wrappedValue = addUp ? [Upsample2D(channels: outChannels)] : nil
@@ -127,21 +129,22 @@ final class UpDecoderBlock: Module, UnaryLayer {
     }
 }
 
-// MARK: - Mid-block spatial self-attention (4-bit quantized Q/K/V/out)
+// MARK: - Mid-block spatial self-attention
 
 /// diffusers VAE mid-block `Attention`: group_norm → (B, H·W, C) tokens → Q/K/V →
-/// single-head SDPA → to_out → reshape back → residual. mflux dequantizes these to bf16
-/// `Linear` at load (the VAE attention is tiny), so we do too — plain `Linear` here.
+/// single-head SDPA → to_out → reshape back → residual. mflux dequantizes the 4-bit
+/// projections to bf16 `Linear` at load (tiny), so we use plain `Linear` here.
 final class VAEMidAttention: Module, UnaryLayer {
     @ModuleInfo(key: "group_norm") var groupNorm: GroupNorm
     @ModuleInfo(key: "to_q") var toQ: Linear
     @ModuleInfo(key: "to_k") var toK: Linear
     @ModuleInfo(key: "to_v") var toV: Linear
     @ModuleInfo(key: "to_out") var toOut: Linear
-
+    private let precision: MLX.DType
     private let scale: Float
 
-    init(channels: Int) {
+    init(channels: Int, precision: MLX.DType) {
+        self.precision = precision
         self.scale = 1.0 / sqrt(Float(channels))
         self._groupNorm.wrappedValue = GroupNorm(groupCount: 32, dimensions: channels, eps: 1e-6, pytorchCompatible: true)
         func mk() -> Linear { Linear(channels, channels, bias: true) }
@@ -156,14 +159,11 @@ final class VAEMidAttention: Module, UnaryLayer {
         let s = x.shape
         let (b, h, w, c) = (s[0], s[1], s[2], s[3])
         let residual = x
-        // group_norm → tokens; Q/K/V project the normed tokens (single-head).
-        let normed = gnorm(groupNorm, x).reshaped([b, h * w, c])
+        let normed = gnorm(groupNorm, x, precision).reshaped([b, h * w, c])
         let q = toQ(normed).reshaped([b, 1, h * w, c])
         let k = toK(normed).reshaped([b, 1, h * w, c])
         let v = toV(normed).reshaped([b, 1, h * w, c])
-        // Same MLX fast SDPA kernel mflux uses (float32 softmax internally).
-        let attended = scaledDotProductAttention(
-            queries: q, keys: k, values: v, scale: scale, mask: nil)
+        let attended = scaledDotProductAttention(queries: q, keys: k, values: v, scale: scale, mask: nil)
         let out = toOut(attended.reshaped([b, h, w, c]))
         return residual + out
     }
@@ -174,12 +174,12 @@ final class MidBlock: Module, UnaryLayer {
     @ModuleInfo(key: "resnets") var resnets: [ResnetBlock2D]
     @ModuleInfo(key: "attentions") var attentions: [VAEMidAttention]
 
-    init(channels: Int) {
+    init(channels: Int, precision: MLX.DType) {
         self._resnets.wrappedValue = [
-            ResnetBlock2D(inChannels: channels, outChannels: channels),
-            ResnetBlock2D(inChannels: channels, outChannels: channels),
+            ResnetBlock2D(inChannels: channels, outChannels: channels, precision: precision),
+            ResnetBlock2D(inChannels: channels, outChannels: channels, precision: precision),
         ]
-        self._attentions.wrappedValue = [VAEMidAttention(channels: channels)]
+        self._attentions.wrappedValue = [VAEMidAttention(channels: channels, precision: precision)]
         super.init()
     }
 
@@ -200,19 +200,20 @@ final class FluxVAEEncoder: Module, UnaryLayer {
     @ModuleInfo(key: "mid_block") var midBlock: MidBlock
     @ModuleInfo(key: "conv_norm_out") var convNormOut: GroupNorm
     @ModuleInfo(key: "conv_out") var convOut: Conv2d
+    private let precision: MLX.DType
 
-    /// `blockOutChannels` defaults to FLUX.2's `(128, 256, 512, 512)`.
-    init(blockOutChannels: [Int] = [128, 256, 512, 512]) {
+    init(blockOutChannels: [Int] = [128, 256, 512, 512], precision: MLX.DType) {
+        self.precision = precision
         let first = blockOutChannels[0]
         self._convIn.wrappedValue = Conv2d(inputChannels: 3, outputChannels: first, kernelSize: 3, padding: 1)
         var blocks: [DownEncoderBlock] = []
         for i in 0..<blockOutChannels.count {
             let inCh = blockOutChannels[max(i - 1, 0)]
             let outCh = blockOutChannels[i]
-            blocks.append(DownEncoderBlock(inChannels: inCh, outChannels: outCh, addDown: i < blockOutChannels.count - 1))
+            blocks.append(DownEncoderBlock(inChannels: inCh, outChannels: outCh, precision: precision, addDown: i < blockOutChannels.count - 1))
         }
         self._downBlocks.wrappedValue = blocks
-        self._midBlock.wrappedValue = MidBlock(channels: blockOutChannels.last!)
+        self._midBlock.wrappedValue = MidBlock(channels: blockOutChannels.last!, precision: precision)
         self._convNormOut.wrappedValue = GroupNorm(groupCount: 32, dimensions: blockOutChannels.last!, eps: 1e-6, pytorchCompatible: true)
         self._convOut.wrappedValue = Conv2d(inputChannels: blockOutChannels.last!, outputChannels: 64, kernelSize: 3, padding: 1)
         super.init()
@@ -222,8 +223,8 @@ final class FluxVAEEncoder: Module, UnaryLayer {
         var h = convIn(x)
         for b in downBlocks { h = b(h) }
         h = midBlock(h)
-        h = gnorm(convNormOut, h)
-        h = silu(h)
+        h = gnorm(convNormOut, h, precision)
+        h = silu(h).asType(precision)
         return convOut(h)
     }
 }
@@ -235,17 +236,19 @@ final class FluxVAEDecoder: Module, UnaryLayer {
     @ModuleInfo(key: "up_blocks") var upBlocks: [UpDecoderBlock]
     @ModuleInfo(key: "conv_norm_out") var convNormOut: GroupNorm
     @ModuleInfo(key: "conv_out") var convOut: Conv2d
+    private let precision: MLX.DType
 
-    init(blockOutChannels: [Int] = [128, 256, 512, 512]) {
+    init(blockOutChannels: [Int] = [128, 256, 512, 512], precision: MLX.DType) {
+        self.precision = precision
         let rev = Array(blockOutChannels.reversed())  // [512, 512, 256, 128]
         let last = rev[0]                               // 512 (channels after conv_in)
         self._convIn.wrappedValue = Conv2d(inputChannels: 32, outputChannels: last, kernelSize: 3, padding: 1)
-        self._midBlock.wrappedValue = MidBlock(channels: last)
+        self._midBlock.wrappedValue = MidBlock(channels: last, precision: precision)
         var blocks: [UpDecoderBlock] = []
         var prev = last
         for i in 0..<rev.count {
             let out = rev[i]
-            blocks.append(UpDecoderBlock(inChannels: prev, outChannels: out, addUp: i < rev.count - 1))
+            blocks.append(UpDecoderBlock(inChannels: prev, outChannels: out, precision: precision, addUp: i < rev.count - 1))
             prev = out
         }
         self._upBlocks.wrappedValue = blocks
@@ -258,8 +261,8 @@ final class FluxVAEDecoder: Module, UnaryLayer {
         var h = convIn(z)
         h = midBlock(h)
         for b in upBlocks { h = b(h) }
-        h = gnorm(convNormOut, h)
-        h = silu(h)
+        h = gnorm(convNormOut, h, precision)
+        h = silu(h).asType(precision)
         return convOut(h)
     }
 }
@@ -270,16 +273,24 @@ final class FluxVAEDecoder: Module, UnaryLayer {
 ///
 /// `encode(_:)` returns the deterministic latent mode (32-ch, H/8, W/8) — the `bn` +
 /// pixel-unshuffle to the transformer's 128-ch latent is applied at the pipeline level (M5).
-/// The mid-block attention projections (`to_q/k/v/out`) are 4-bit quantized; convs/norms are bf16.
+/// The mid-block attention projections are 4-bit in the checkpoint but mflux dequantizes them
+/// to bf16 `Linear` at load; convs/norms are bf16.
+///
+/// `precision` controls the running dtype (mflux `ModelConfig.precision`): `.bfloat16` for the
+/// encode path, `.float32` for decode (diffusers `force_upcast = true`) to avoid bf16 drift.
 public final class FluxVAE: Module {
     @ModuleInfo(key: "encoder") var encoder: FluxVAEEncoder
     @ModuleInfo(key: "decoder") var decoder: FluxVAEDecoder
     @ModuleInfo(key: "quant_conv") var quantConv: Conv2d
     @ModuleInfo(key: "post_quant_conv") var postQuantConv: Conv2d
 
-    public override init() {
-        self._encoder.wrappedValue = FluxVAEEncoder()
-        self._decoder.wrappedValue = FluxVAEDecoder()
+    public let precision: MLX.DType
+
+    /// - Parameter precision: running dtype — `.float32` for decode (recommended), `.bfloat16` otherwise.
+    public init(precision: MLX.DType = .float32) {
+        self.precision = precision
+        self._encoder.wrappedValue = FluxVAEEncoder(precision: precision)
+        self._decoder.wrappedValue = FluxVAEDecoder(precision: precision)
         self._quantConv.wrappedValue = Conv2d(inputChannels: 64, outputChannels: 64, kernelSize: 1)
         self._postQuantConv.wrappedValue = Conv2d(inputChannels: 32, outputChannels: 32, kernelSize: 1)
         super.init()

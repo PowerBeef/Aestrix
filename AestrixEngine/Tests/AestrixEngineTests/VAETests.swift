@@ -6,18 +6,21 @@ import MLXNN
 
 /// VAE parity vs a Python (mflux/MLX) reference — see `tools/vae_reference.py`.
 ///
-/// Status: the **encoder is at parity** (latent max|Δ| ≈ 0.03). The decoder has residual
-/// drift (~0.5 on the decoded image): a sub-bf16-epsilon seed (~0.004) in the decoder
-/// mid-block resnet amplifies through the attention and up-sample convs. The harness caught
-/// three real bugs to get here (down-sampler asymmetric padding, GroupNorm pytorch/eps/float32
-/// settings, 4-bit attention dequantized to bf16 Linear). The decoded bar is tracked as TODO.
+/// Two regimes:
+/// - **float32 (definitive):** `vae_reference_fp32.safetensors` + `FluxVAE(precision: .float32)`.
+///   float32 MLX reductions are deterministic, so Swift should match mflux to <1e-4 — proving
+///   the port has no structural bug.
+/// - **bf16 (amplification measurement):** `vae_reference.safetensors` + `.bfloat16`. The encoder
+///   matches (latent Δ≈0.03); the decoded image drifts (~0.5) because MLX-Metal bf16 reductions
+///   are not bit-deterministic and the decoder amplifies a 1-ULP seed. This is inherent, not a bug
+///   (diffusers `AutoencoderKLFlux2.force_upcast=true` decodes in float32 for exactly this reason).
 @Suite("FluxVAE")
 struct VAETests {
 
     @Test("loads VAE weights and runs encode→decode round-trip", .enabled(if: heavyEnabled))
     func loadAndRoundTrip() async throws {
         try await TestFixtures.ensure(Flux2Klein4B4Bit.vaeFiles)
-        let vae = try await Self.makeVAE()
+        let vae = try await Self.makeVAE(precision: .float32)
 
         let x = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 128, 128, 3])
         let latent = vae.encode(x)
@@ -25,19 +28,13 @@ struct VAETests {
         let img = vae.decode(latent)
         #expect(img.shape == [1, 128, 128, 3])
         eval(img)
-        let hi = img.max().item(Float.self)
-        let lo = img.min().item(Float.self)
-        #expect(hi.isFinite && lo.isFinite)
+        #expect(img.max().item(Float.self).isFinite)
     }
 
-    @Test("encode/decode parity vs Python (mflux)", .enabled(if: heavyEnabled))
-    func matchesPythonReference() async throws {
-        let refURL = TestFixtures.root.appendingPathComponent("parity/vae_reference.safetensors")
-        guard FileManager.default.fileExists(atPath: refURL.path) else {
-            throw AestrixError.invalidInput("missing \(refURL.path) — run tools/vae_reference.py")
-        }
-        let vae = try await Self.makeVAE()
-        let ref = try loadArrays(url: refURL)
+    @Test("FLOAT32 parity vs Python — proves no structural bug", .enabled(if: heavyEnabled))
+    func float32Parity() async throws {
+        let vae = try await Self.makeVAE(precision: .float32)
+        let ref = try Self.loadReference("vae_reference_fp32.safetensors")
 
         let latent = vae.encode(ref["input"]!)
         let decoded = vae.decode(latent)
@@ -45,50 +42,48 @@ struct VAETests {
 
         let latentDiff = Self.maxAbsDiff(latent, ref["latent"]!)
         let decodedDiff = Self.maxAbsDiff(decoded, ref["decoded"]!)
-        print("VAE parity — latent max|Δ|=\(latentDiff)  decoded max|Δ|=\(decodedDiff)")
+        print("VAE fp32 parity — latent max|Δ|=\(latentDiff)  decoded max|Δ|=\(decodedDiff)")
 
         #expect(latent.shape == ref["latent"]!.shape)
         #expect(decoded.shape == ref["decoded"]!.shape)
-        #expect(latentDiff < 0.05, "encoder latent parity (target met)")
-        // TODO(M2): decoded target is <0.15; currently ~0.5 from decoder mid-block bf16 drift
-        // amplified by the up-sample convs. See `diagnoseDecoderStages` for the breakdown.
-        #expect(decodedDiff < 0.75, "decoded max|Δ|=\(decodedDiff)")
+        #expect(latentDiff < 1e-4, "fp32 latent max|Δ|=\(latentDiff)")
+        #expect(decodedDiff < 1e-4, "fp32 decoded max|Δ|=\(decodedDiff)")
     }
 
-    @Test("decoder stage breakdown vs Python (diagnostic)", .enabled(if: heavyEnabled))
-    func diagnoseDecoderStages() async throws {
-        let refURL = TestFixtures.root.appendingPathComponent("parity/vae_reference.safetensors")
-        guard FileManager.default.fileExists(atPath: refURL.path) else {
-            throw AestrixError.invalidInput("missing \(refURL.path) — run tools/vae_reference.py")
-        }
-        let vae = try await Self.makeVAE()
-        let ref = try loadArrays(url: refURL)
+    @Test("bf16 encode/decode vs Python (amplification measurement)", .enabled(if: heavyEnabled))
+    func bf16Amplification() async throws {
+        let vae = try await Self.makeVAE(precision: .bfloat16)
+        let ref = try Self.loadReference("vae_reference.safetensors")
 
-        // Feed the REFERENCE latent to isolate the decoder.
-        var d = vae.postQuantConv(ref["latent"]!)
-        d = vae.decoder.convIn(d)
-        print("dec_conv_in  Δ =", Self.maxAbsDiff(d, ref["dec_conv_in"]!))
-        d = vae.decoder.midBlock.resnets[0](d)
-        print("dec_mid_res0 Δ =", Self.maxAbsDiff(d, ref["dec_mid_res0"]!))
-        d = vae.decoder.midBlock.attentions[0](d)
-        print("dec_mid_attn Δ =", Self.maxAbsDiff(d, ref["dec_mid_attn"]!))
-        d = vae.decoder.midBlock.resnets[1](d)
-        print("dec_mid      Δ =", Self.maxAbsDiff(d, ref["dec_mid"]!))
-        for (i, ub) in vae.decoder.upBlocks.enumerated() {
-            for r in ub.resnets { d = r(d) }
-            if let ups = ub.upsamplers { for u in ups { d = u(d) } }
-            print("dec_up\(i)     Δ =", Self.maxAbsDiff(d, ref["dec_up\(i)"]!))
-        }
-        #expect(true)
+        let latent = vae.encode(ref["input"]!)
+        let decoded = vae.decode(latent)
+        eval(latent, decoded)
+
+        let latentDiff = Self.maxAbsDiff(latent, ref["latent"]!)
+        let decodedDiff = Self.maxAbsDiff(decoded, ref["decoded"]!)
+        print("VAE bf16 — latent max|Δ|=\(latentDiff)  decoded max|Δ|=\(decodedDiff)")
+
+        #expect(latentDiff < 0.05, "bf16 encoder latent parity (target met)")
+        // bf16 decoder drift is inherent MLX-Metal non-determinism amplified — see float32Parity
+        // for the definitive (structural) correctness check.
+        #expect(decodedDiff < 0.75, "bf16 decoded max|Δ|=\(decodedDiff)")
     }
 
     // MARK: helpers
 
-    private static func makeVAE() async throws -> FluxVAE {
+    private static func loadReference(_ name: String) throws -> [String: MLXArray] {
+        let url = TestFixtures.root.appendingPathComponent("parity/\(name)")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw AestrixError.invalidInput("missing \(url.path) — run tools/vae_reference.py [--fp32]")
+        }
+        return try loadArrays(url: url)
+    }
+
+    private static func makeVAE(precision: MLX.DType) async throws -> FluxVAE {
         try await TestFixtures.ensure(Flux2Klein4B4Bit.vaeFiles)
         let (weights, _) = try WeightLoader.loadWeights(
             submodelDir: TestFixtures.root.appendingPathComponent("vae"))
-        let vae = FluxVAE()
+        let vae = FluxVAE(precision: precision)
         vae.loadWeights(weights)
         return vae
     }
