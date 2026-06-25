@@ -58,6 +58,8 @@ public enum Flux2Klein4B4Bit {
     public static let vaeFiles: [ModelFile] = files.filter { $0.relativePath.hasPrefix("vae/") }
     /// The subset needed to exercise the Qwen3 text encoder (M3).
     public static let textEncoderFiles: [ModelFile] = files.filter { $0.relativePath.hasPrefix("text_encoder/") }
+    /// The subset needed to exercise the Klein transformer (M4).
+    public static let transformerFiles: [ModelFile] = files.filter { $0.relativePath.hasPrefix("transformer/") }
 }
 
 /// Downloads model files from Hugging Face with progress, size verification, skip-if-complete,
