@@ -102,7 +102,7 @@ Heavy tests (multi-GB model downloads) are gated on `AESTRIX_HEAVY_TESTS`. See
 | 1 | IO — HF downloader, safetensors loader, Qwen3 tokenizer | ✅ |
 | 2 | VAE — encoder/decoder ported, **float32 parity Δ<1e-4** vs mflux | ✅ |
 | 3 | Text encoder — Qwen3-4B loads + runs, ctx (1, 512, 7680) | ✅ |
-| 4 | Transformer + 4D RoPE | ⏳ |
+| 4 | Transformer — 4B Klein DiT loads + runs forward (5 double + 20 single blocks) | ✅ |
 | 5 | Pipeline (t2i) — first image | ⏳ |
 | 6 | Single-image edit | ⏳ |
 | 7 | Optimization — compile, custom Metal kernels | ⏳ |
