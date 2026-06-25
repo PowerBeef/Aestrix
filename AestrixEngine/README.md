@@ -9,7 +9,7 @@ generation and single-image instruction editing on-device, targeting iPhone 15 P
 |---|---|
 | M0 — scaffold + build green | ✅ done |
 | M1 — IO (downloader, weights, tokenizer) | ✅ done |
-| M2 — VAE | ✅ ported (round-trip runs; exact Python parity pending) |
+| M2 — VAE | ✅ ported; encoder at parity (latent Δ=0.03 vs mflux); decoder drift under investigation |
 | M3 — Qwen3 text encoder | pending |
 | M4 — Klein transformer + RoPE4D | pending |
 | M5 — t2i pipeline (first image) | pending |
@@ -54,6 +54,20 @@ TEST_RUNNER_AESTRIX_RUN_MLX_TESTS=1 TEST_RUNNER_AESTRIX_HEAVY_TESTS=1 \
 
 The remaining tests (downloader, tokenizer parity, index parsing) are MLX-free and run
 under plain `swift test`.
+
+### Numeric parity vs Python (mflux)
+
+`tools/vae_reference.py` generates an MLX reference (encode/decode + intermediate stages)
+for the VAE, saved as safetensors under the fixtures dir. Generate it, then run the parity
+suite (same `TEST_RUNNER_AESTRIX_HEAVY_TESTS=1 … xcodebuild test` command):
+
+```bash
+.build/venv/bin/python tools/vae_reference.py   # one-time: install mlx+mflux into .build/venv
+```
+
+The encoder matches the reference (latent max|Δ| ≈ 0.03). The decoder has residual drift
+(~0.5): a sub-bf16-epsilon seed in the decoder mid-block amplifies through the up-sample
+convs — tracked as a TODO in `VAETests`.
 
 > ⚠️ **iOS Simulator limitation:** MLX cannot run its GPU ops on the iOS Simulator (it
 > requires a physical Apple Silicon device). Host-side `xcodebuild test` on macOS proves
