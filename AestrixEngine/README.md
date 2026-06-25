@@ -9,7 +9,7 @@ generation and single-image instruction editing on-device, targeting iPhone 15 P
 |---|---|
 | M0 — scaffold + build green | ✅ done |
 | M1 — IO (downloader, weights, tokenizer) | ✅ done |
-| M2 — VAE | ✅ ported; encoder at parity (latent Δ=0.03 vs mflux); decoder drift under investigation |
+| M2 — VAE | ✅ port proven correct (float32 parity Δ<1e-4 vs mflux); float32 decode (diffusers `force_upcast`) |
 | M3 — Qwen3 text encoder | pending |
 | M4 — Klein transformer + RoPE4D | pending |
 | M5 — t2i pipeline (first image) | pending |
@@ -65,9 +65,11 @@ suite (same `TEST_RUNNER_AESTRIX_HEAVY_TESTS=1 … xcodebuild test` command):
 .build/venv/bin/python tools/vae_reference.py   # one-time: install mlx+mflux into .build/venv
 ```
 
-The encoder matches the reference (latent max|Δ| ≈ 0.03). The decoder has residual drift
-(~0.5): a sub-bf16-epsilon seed in the decoder mid-block amplifies through the up-sample
-convs — tracked as a TODO in `VAETests`.
+`FluxVAE(precision: .float32)` (the default) matches the float32 reference to **max|Δ| < 1e-4**
+(latent 3.9e-6, decoded 8.7e-5) — proving the port has no structural bug. In bf16 the decoded
+image drifts (~0.5) due to inherent MLX-Metal bf16 reduction non-determinism amplified through
+the decoder (diffusers `AutoencoderKLFlux2.force_upcast=true` decodes in float32 for this reason).
+`float32Parity` is the strict gate; `bf16Amplification` documents the phenomenon.
 
 > ⚠️ **iOS Simulator limitation:** MLX cannot run its GPU ops on the iOS Simulator (it
 > requires a physical Apple Silicon device). Host-side `xcodebuild test` on macOS proves
