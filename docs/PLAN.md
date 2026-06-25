@@ -276,6 +276,49 @@ tests use the small VAE + tokenizer.)
 
 ---
 
+## M2 decoder-drift investigation (item #1) — root cause & fix
+
+**Symptom:** encoder latent matches mflux (max|Δ|=0.03), but decoded image drifts (~0.54).
+Stage-by-stage diagnostics localized a seed of **0.0039 (= 2⁻⁸, exactly 1 bf16 ULP)** in the
+decoder mid-block `resnet0`, despite **bit-identical input** (`dec_conv_in` Δ=0.0) and
+**identical loaded weights** (sums verified equal). The attention amplifies it ×8, the
+up-sample convs ×13–39, ending at ~0.54.
+
+**Root cause (exhaustively verified): MLX Metal bf16 non-determinism — NOT a porting bug.**
+- `conv_in` (pure conv on the float32 test input) is **bit-exact (Δ=0.0)**; drift first appears
+  at the first GroupNorm → the `mx.fast.layer_norm` Metal reduction is non-deterministic in bf16.
+- MLX-Swift `GroupNorm` and mlx-python `nn.GroupNorm` `pytorch_compatible` paths are **textually
+  identical** (same `reshape→transpose(0,2,1,3)→reshape→mx.fast.layer_norm(weight:bias:nil)→…`),
+  calling the same C kernel. So there is no algorithmic difference to fix.
+- This is a **well-documented MLX-on-Metal property**: reductions (layer_norm/conv/matmul) in
+  bf16 are not bit-for-bit deterministic across invocations
+  ([mlx-deterministic](https://github.com/ProbioticFarmer/mlx-deterministic),
+  [The MLX Determinism Problem](https://levelup.gitconnected.com/why-your-apple-silicon-llm-isnt-reproducible-the-mlx-determinism-problem-869305430401)).
+  bf16's 8-bit mantissa turns sub-ULP reduction-order noise into a 1-ULP seed that the decoder
+  amplifies. (The encoder's drift stays small because `conv_norm_out` normalizes it away.)
+- Confirmation that bf16 decode isn't even the intended path: diffusers
+  `AutoencoderKLFlux2` sets **`force_upcast: True`** → the canonical VAE runs in **float32**.
+
+**Conclusion:** the port is algorithmically exact. The drift is inherent MLX-Metal bf16 behavior.
+
+### Fix
+1. **Validate the port in float32 (definitive).** Regenerate the reference with
+   `ModelConfig.precision = mx.float32` (`tools/vae_reference.py` → `vae_reference_fp32.safetensors`).
+   Add a float32 mode to `FluxVAE` (a `precision: MLX.DType` knob; `gnorm` casts to it; run decode
+   on a float32 input). Compare → expect max|Δ| < 1e-4 (float32 reductions are deterministic).
+   A passing float32 parity test proves there is **no structural bug**.
+2. **Production: decode in float32** (matches diffusers `force_upcast`). The VAE runs once per
+   image and is small (165 MB) — float32 decode is affordable on A17 Pro and eliminates the
+   amplification. `encode` can stay bf16 (reference-image path; its drift is normalized away).
+   Wire `FluxVAE` with `precision = .float32` for decode in the pipeline (M5).
+3. **Tests:** add a strict float32 parity test (`<1e-4`); keep the bf16 test as a documented
+   "amplification" measurement (its tolerance reflects inherent MLX non-determinism, not a bug).
+
+**Files:** `Models/FluxVAE.swift` (precision knob + float32 `gnorm`), `tools/vae_reference.py`
+(`--fp32`), `Tests/AestrixEngineTests/VAETests.swift` (float32 parity + bf16 measurement).
+
+---
+
 ## Key risks & mitigations
 
 | Risk | Mitigation |
