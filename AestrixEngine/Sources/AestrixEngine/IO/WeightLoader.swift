@@ -94,4 +94,38 @@ public enum WeightLoader {
         for url in urls { weights.merge(try loadArrays(url: url)) { _, new in new } }
         return weights
     }
+
+    /// Dequantize every quantized linear in a flat weight dict: a `name.weight` that carries a
+    /// companion `name.scales` (and optional `name.biases`) is replaced by a full-precision
+    /// `name.weight`, and the scales/biases are dropped. Use when the target modules are plain
+    /// `Linear` (e.g. the VAE attention) instead of `QuantizedLinear`.
+    public static func dequantized(
+        _ flat: [String: MLXArray], groupSize: Int, bits: Int
+    ) -> [String: MLXArray] {
+        func base(_ key: String, suffix: String) -> String? {
+            key.hasSuffix(suffix) ? String(key.dropLast(suffix.count)) : nil
+        }
+        let quantized = Set(flat.keys.compactMap { base($0, suffix: ".weight") }.filter {
+            flat[$0 + ".scales"] != nil
+        })
+        guard !quantized.isEmpty else { return flat }
+
+        var out: [String: MLXArray] = [:]
+        for (key, value) in flat {
+            if let b = base(key, suffix: ".weight"), quantized.contains(b) {
+                out[key] = MLX.dequantized(
+                    value,
+                    scales: flat[b + ".scales"]!,
+                    biases: flat[b + ".biases"],
+                    groupSize: groupSize, bits: bits)
+            } else if let b = base(key, suffix: ".scales"), quantized.contains(b) {
+                continue
+            } else if let b = base(key, suffix: ".biases"), quantized.contains(b) {
+                continue
+            } else {
+                out[key] = value
+            }
+        }
+        return out
+    }
 }

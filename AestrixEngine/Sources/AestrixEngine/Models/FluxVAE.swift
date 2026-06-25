@@ -2,6 +2,13 @@ import Foundation
 import MLX
 import MLXNN
 
+/// GroupNorm matching mflux/diffusers: computed in float32, output cast to bf16
+/// (mflux `ModelConfig.precision`). Use via `gnorm(norm, x)` so the cast is uniform.
+@inline(__always)
+private func gnorm(_ gn: GroupNorm, _ x: MLXArray) -> MLXArray {
+    gn(x.asType(.float32)).asType(.bfloat16)
+}
+
 // MARK: - ResnetBlock2D
 
 /// diffusers `ResnetBlock2D` (no time embedding). NHWC. norm → silu → conv → norm → silu → conv + shortcut.
@@ -13,9 +20,9 @@ final class ResnetBlock2D: Module, UnaryLayer {
     @ModuleInfo(key: "conv_shortcut") var convShortcut: Conv2d?
 
     init(inChannels: Int, outChannels: Int, groups: Int = 32) {
-        self._norm1.wrappedValue = GroupNorm(groupCount: groups, dimensions: inChannels)
+        self._norm1.wrappedValue = GroupNorm(groupCount: groups, dimensions: inChannels, eps: 1e-6, pytorchCompatible: true)
         self._conv1.wrappedValue = Conv2d(inputChannels: inChannels, outputChannels: outChannels, kernelSize: 3, padding: 1)
-        self._norm2.wrappedValue = GroupNorm(groupCount: groups, dimensions: outChannels)
+        self._norm2.wrappedValue = GroupNorm(groupCount: groups, dimensions: outChannels, eps: 1e-6, pytorchCompatible: true)
         self._conv2.wrappedValue = Conv2d(inputChannels: outChannels, outputChannels: outChannels, kernelSize: 3, padding: 1)
         self._convShortcut.wrappedValue = (inChannels != outChannels)
             ? Conv2d(inputChannels: inChannels, outputChannels: outChannels, kernelSize: 1)
@@ -24,10 +31,10 @@ final class ResnetBlock2D: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        var h = norm1(x)
+        var h = gnorm(norm1, x)
         h = silu(h)
         h = conv1(h)
-        h = norm2(h)
+        h = gnorm(norm2, h)
         h = silu(h)
         h = conv2(h)
         let shortcut = convShortcut?(x) ?? x
@@ -37,14 +44,23 @@ final class ResnetBlock2D: Module, UnaryLayer {
 
 // MARK: - Down/Up samplers
 
-/// diffusers `Downsample2D`: stride-2 conv (3×3, pad 1).
+/// diffusers/mflux `Downsample2D`: asymmetric pad (0,1) on H,W (bottom/right) then a
+/// stride-2, padding=0 conv. (Symmetric padding=1 gives different border values.)
 final class Downsample2D: Module, UnaryLayer {
     @ModuleInfo(key: "conv") var conv: Conv2d
     init(channels: Int) {
-        self._conv.wrappedValue = Conv2d(inputChannels: channels, outputChannels: channels, kernelSize: 3, stride: 2, padding: 1)
+        self._conv.wrappedValue = Conv2d(inputChannels: channels, outputChannels: channels, kernelSize: 3, stride: 2, padding: 0)
         super.init()
     }
-    func callAsFunction(_ x: MLXArray) -> MLXArray { conv(x) }
+    func callAsFunction(_ x: MLXArray) -> MLXArray {
+        let s = x.shape
+        let (b, h, w, c) = (s[0], s[1], s[2], s[3])
+        let row = MLXArray.zeros([b, 1, w, c], dtype: x.dtype)
+        var p = concatenated([x, row], axis: 1)            // [b, h+1, w, c]
+        let col = MLXArray.zeros([b, h + 1, 1, c], dtype: x.dtype)
+        p = concatenated([p, col], axis: 2)                // [b, h+1, w+1, c]
+        return conv(p)
+    }
 }
 
 /// diffusers `Upsample2D`: nearest-neighbour ×2 then conv (3×3, pad 1).
@@ -55,11 +71,8 @@ final class Upsample2D: Module, UnaryLayer {
         super.init()
     }
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let s = x.shape
-        let (b, h, w, c) = (s[0], s[1], s[2], s[3])
-        // Insert singleton axes on H and W, broadcast to 2×, then flatten back → nearest ×2.
-        let y0 = x.reshaped([b, h, 1, w, 1, c])
-        let y = broadcast(y0, to: [b, h, 2, w, 2, c]).reshaped([b, h * 2, w * 2, c])
+        // Nearest-neighbour ×2 via element repeat (matches mflux `mx.repeat`), then conv.
+        let y = repeated(repeated(x, count: 2, axis: 1), count: 2, axis: 2)
         return conv(y)
     }
 }
@@ -116,21 +129,22 @@ final class UpDecoderBlock: Module, UnaryLayer {
 
 // MARK: - Mid-block spatial self-attention (4-bit quantized Q/K/V/out)
 
-/// diffusers VAE mid-block `Attention`: group_norm → (B, H·W, C) tokens → Q/K/V (quantized) →
-/// single-head SDPA → to_out (quantized) → reshape back → residual.
+/// diffusers VAE mid-block `Attention`: group_norm → (B, H·W, C) tokens → Q/K/V →
+/// single-head SDPA → to_out → reshape back → residual. mflux dequantizes these to bf16
+/// `Linear` at load (the VAE attention is tiny), so we do too — plain `Linear` here.
 final class VAEMidAttention: Module, UnaryLayer {
     @ModuleInfo(key: "group_norm") var groupNorm: GroupNorm
-    @ModuleInfo(key: "to_q") var toQ: QuantizedLinear
-    @ModuleInfo(key: "to_k") var toK: QuantizedLinear
-    @ModuleInfo(key: "to_v") var toV: QuantizedLinear
-    @ModuleInfo(key: "to_out") var toOut: QuantizedLinear
+    @ModuleInfo(key: "to_q") var toQ: Linear
+    @ModuleInfo(key: "to_k") var toK: Linear
+    @ModuleInfo(key: "to_v") var toV: Linear
+    @ModuleInfo(key: "to_out") var toOut: Linear
 
     private let scale: Float
 
-    init(channels: Int, groupSize: Int = 64, bits: Int = 4) {
+    init(channels: Int) {
         self.scale = 1.0 / sqrt(Float(channels))
-        self._groupNorm.wrappedValue = GroupNorm(groupCount: 32, dimensions: channels)
-        func mk() -> QuantizedLinear { QuantizedLinear(channels, channels, bias: true, groupSize: groupSize, bits: bits) }
+        self._groupNorm.wrappedValue = GroupNorm(groupCount: 32, dimensions: channels, eps: 1e-6, pytorchCompatible: true)
+        func mk() -> Linear { Linear(channels, channels, bias: true) }
         self._toQ.wrappedValue = mk()
         self._toK.wrappedValue = mk()
         self._toV.wrappedValue = mk()
@@ -142,16 +156,16 @@ final class VAEMidAttention: Module, UnaryLayer {
         let s = x.shape
         let (b, h, w, c) = (s[0], s[1], s[2], s[3])
         let residual = x
-        var q = groupNorm(x).reshaped([b, h * w, c])
-        // Q/K/V project to `channels` (single-head).
-        let k = toK(q)
-        let v = toV(q)
-        q = toQ(q)
-        // scores = softmax(Q·Kᵀ / √C) · V
-        let scores = softmax(matmul(q, k.transposed(0, 2, 1)) * scale, axis: -1)
-        var out = matmul(scores, v)
-        out = toOut(out)
-        return residual + out.reshaped([b, h, w, c])
+        // group_norm → tokens; Q/K/V project the normed tokens (single-head).
+        let normed = gnorm(groupNorm, x).reshaped([b, h * w, c])
+        let q = toQ(normed).reshaped([b, 1, h * w, c])
+        let k = toK(normed).reshaped([b, 1, h * w, c])
+        let v = toV(normed).reshaped([b, 1, h * w, c])
+        // Same MLX fast SDPA kernel mflux uses (float32 softmax internally).
+        let attended = scaledDotProductAttention(
+            queries: q, keys: k, values: v, scale: scale, mask: nil)
+        let out = toOut(attended.reshaped([b, h, w, c]))
+        return residual + out
     }
 }
 
@@ -199,7 +213,7 @@ final class FluxVAEEncoder: Module, UnaryLayer {
         }
         self._downBlocks.wrappedValue = blocks
         self._midBlock.wrappedValue = MidBlock(channels: blockOutChannels.last!)
-        self._convNormOut.wrappedValue = GroupNorm(groupCount: 32, dimensions: blockOutChannels.last!)
+        self._convNormOut.wrappedValue = GroupNorm(groupCount: 32, dimensions: blockOutChannels.last!, eps: 1e-6, pytorchCompatible: true)
         self._convOut.wrappedValue = Conv2d(inputChannels: blockOutChannels.last!, outputChannels: 64, kernelSize: 3, padding: 1)
         super.init()
     }
@@ -208,7 +222,7 @@ final class FluxVAEEncoder: Module, UnaryLayer {
         var h = convIn(x)
         for b in downBlocks { h = b(h) }
         h = midBlock(h)
-        h = convNormOut(h)
+        h = gnorm(convNormOut, h)
         h = silu(h)
         return convOut(h)
     }
@@ -235,7 +249,7 @@ final class FluxVAEDecoder: Module, UnaryLayer {
             prev = out
         }
         self._upBlocks.wrappedValue = blocks
-        self._convNormOut.wrappedValue = GroupNorm(groupCount: 32, dimensions: rev.last!)
+        self._convNormOut.wrappedValue = GroupNorm(groupCount: 32, dimensions: rev.last!, eps: 1e-6, pytorchCompatible: true)
         self._convOut.wrappedValue = Conv2d(inputChannels: rev.last!, outputChannels: 3, kernelSize: 3, padding: 1)
         super.init()
     }
@@ -244,7 +258,7 @@ final class FluxVAEDecoder: Module, UnaryLayer {
         var h = convIn(z)
         h = midBlock(h)
         for b in upBlocks { h = b(h) }
-        h = convNormOut(h)
+        h = gnorm(convNormOut, h)
         h = silu(h)
         return convOut(h)
     }
@@ -272,9 +286,11 @@ public final class FluxVAE: Module {
     }
 
     /// Load weights from a `[String: MLXArray]` dict (as produced by `WeightLoader`).
-    /// The `bn.*` buffers are pipeline-level and ignored here (no affine, applied in M5).
+    /// The 4-bit attention linears are dequantized to bf16 to match mflux; `bn.*` buffers are
+    /// pipeline-level (no affine, applied in M5) and ignored here.
     public func loadWeights(_ flat: [String: MLXArray]) {
-        let filtered = flat.filter { !$0.key.hasPrefix("bn.") }
+        let deq = WeightLoader.dequantized(flat, groupSize: 64, bits: 4)
+        let filtered = deq.filter { !$0.key.hasPrefix("bn.") }
         update(parameters: NestedDictionary(flatWeights: filtered))
     }
 
