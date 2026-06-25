@@ -33,7 +33,11 @@ let package = Package(
         ),
         .testTarget(
             name: "AestrixEngineTests",
-            dependencies: ["AestrixEngine"]
+            dependencies: [
+                "AestrixEngine",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ]
         ),
     ]
 )

@@ -9,7 +9,7 @@ generation and single-image instruction editing on-device, targeting iPhone 15 P
 |---|---|
 | M0 — scaffold + build green | ✅ done |
 | M1 — IO (downloader, weights, tokenizer) | ✅ done |
-| M2 — VAE | pending |
+| M2 — VAE | ✅ ported (round-trip runs; exact Python parity pending) |
 | M3 — Qwen3 text encoder | pending |
 | M4 — Klein transformer + RoPE4D | pending |
 | M5 — t2i pipeline (first image) | pending |

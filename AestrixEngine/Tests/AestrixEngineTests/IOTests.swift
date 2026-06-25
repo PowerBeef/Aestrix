@@ -2,28 +2,7 @@ import Foundation
 import Testing
 @testable import AestrixEngine
 
-/// Fixtures live under `.build/fixtures/flux2-klein-4b-4bit` (gitignored, cached across runs).
-/// `swift test` runs from the package dir, so this relative path resolves correctly.
-private enum TestFixtures {
-    static let root = URL(fileURLWithPath: ".build/fixtures/flux2-klein-4b-4bit")
-
-    /// Ensure the given subset of model files is present (downloads + size-verifies).
-    static func ensure(_ files: [ModelFile]) async throws {
-        let downloader = ModelDownloader(
-            files: files, baseURL: Flux2Klein4B4Bit.baseURL, destinationRoot: root)
-        try await downloader.ensureDownloaded()
-    }
-
-    /// Pull a single file from the manifest by relative path.
-    static func manifestFile(_ relativePath: String) -> ModelFile {
-        guard let f = Flux2Klein4B4Bit.files.first(where: { $0.relativePath == relativePath }) else {
-            fatalError("unknown manifest file: \(relativePath)")
-        }
-        return f
-    }
-}
-
-private let heavyEnabled = ProcessInfo.processInfo.environment["AESTRIX_HEAVY_TESTS"] != nil
+// Shared helpers (TestFixtures, heavyEnabled) live in TestSupport.swift.
 
 // MARK: - ModelDownloader
 
