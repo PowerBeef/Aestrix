@@ -56,6 +56,8 @@ public enum Flux2Klein4B4Bit {
     public static let tokenizerFiles: [ModelFile] = files.filter { $0.relativePath.hasPrefix("tokenizer/") }
     /// The subset needed to exercise the VAE weight loader (M1 test fixtures).
     public static let vaeFiles: [ModelFile] = files.filter { $0.relativePath.hasPrefix("vae/") }
+    /// The subset needed to exercise the Qwen3 text encoder (M3).
+    public static let textEncoderFiles: [ModelFile] = files.filter { $0.relativePath.hasPrefix("text_encoder/") }
 }
 
 /// Downloads model files from Hugging Face with progress, size verification, skip-if-complete,
