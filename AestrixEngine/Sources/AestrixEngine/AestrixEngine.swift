@@ -149,9 +149,73 @@ public actor AestrixEngine {
             missingFiles: missing)
     }
 
-    /// Generate an image from a text prompt. Not yet implemented.
+    /// Generate an image from a text prompt.
+    ///
+    /// Requires the model to be downloaded first (`downloadModel`). Loads all three
+    /// submodels, runs the 4-step rectified-flow denoise loop, and decodes via the VAE.
     public func generate(prompt: String, config: GenConfig) async throws -> AestrixImage {
-        throw AestrixError.notImplemented("generate(prompt:config:) — Milestone 5 (t2i pipeline)")
+        guard let dir = modelDir else { throw AestrixError.modelNotLoaded }
+
+        let vaeScaleFactor = 8   // VAE spatial downscale
+        let latentH = config.height / (vaeScaleFactor * 2)   // H/16 (after patchify)
+        let latentW = config.width / (vaeScaleFactor * 2)
+        let imageSeqLen = latentH * latentW
+
+        // 1. Tokenize + encode prompt
+        AestrixLog.notice("Encoding prompt…")
+        let tokenizer = try await AestrixTokenizer(modelDir: dir)
+        let inputIds = tokenizer.encode(prompt: prompt)
+        let (teWeights, _) = try WeightLoader.loadWeights(submodelDir: dir.appendingPathComponent("text_encoder"))
+        let textEncoder = Qwen3TextEncoder()
+        textEncoder.loadWeights(teWeights)
+        let ctx = textEncoder.promptEmbeds(MLXArray(inputIds, [1, inputIds.count]))
+        eval(ctx)
+
+        // 2. Build coordinates
+        let txtIds = CoordinateBuilder.textIds(seqLen: 512)
+        let imgIds = CoordinateBuilder.imageIds(height: latentH, width: latentW)
+
+        // 3. Noise → patchify → pack
+        MLXRandom.seed(config.seed)
+        let noise = MLXRandom.normal([1, 128, latentH, latentW])
+        var latents = LatentTransforms.pack(noise)   // [1, latentH*latentW, 128]
+
+        // 4. Scheduler
+        let scheduler = RectifiedFlowScheduler(numSteps: config.steps, imageSeqLen: imageSeqLen)
+
+        // 5. Load transformer + denoise loop
+        AestrixLog.notice("Loading transformer…")
+        let (trWeights, _) = try WeightLoader.loadWeights(submodelDir: dir.appendingPathComponent("transformer"))
+        let transformer = KleinTransformer()
+        transformer.loadWeights(trWeights)
+
+        for t in 0..<config.steps {
+            let ts = scheduler.timesteps[t]  // scalar MLXArray (0-dim), passed as-is
+            AestrixLog.notice("Denoise step \(t + 1)/\(config.steps)")
+            let pred = transformer(latents, ctx, imgIds: imgIds, txtIds: txtIds, timestep: ts)
+            latents = scheduler.step(noise: pred, timestepIndex: t, latents: latents)
+            eval(latents)
+        }
+
+        // 6. Unpack → bn denormalize → unpatchify → VAE decode
+        AestrixLog.notice("Decoding…")
+        let packed = LatentTransforms.unpack(latents, height: latentH, width: latentW)  // [1, 128, lH, lW]
+
+        // Load VAE weights + bn stats
+        let (vaeWeights, vaeQuant) = try WeightLoader.loadWeights(submodelDir: dir.appendingPathComponent("vae"))
+        let vae = FluxVAE(precision: .float32)
+        vae.loadWeights(vaeWeights)
+
+        // bn denormalize using running_mean/var from the VAE checkpoint
+        let bnMean = vaeWeights["bn.running_mean"]!
+        let bnVar = vaeWeights["bn.running_var"]!
+        let denormed = LatentTransforms.bnDenormalize(packed, runningMean: bnMean, runningVar: bnVar, eps: 1e-4)
+        let unpatchified = LatentTransforms.unpatchify(denormed)  // [1, 32, H/8, W/8]
+        let decoded = vae.decode(unpatchified)                    // [1, H, W, 3]
+        eval(decoded)
+
+        // 7. Convert to AestrixImage
+        return ImageConversion.toAestrixImage(decoded)
     }
 
     /// Edit `image` following a natural-language `instruction`. Not yet implemented.

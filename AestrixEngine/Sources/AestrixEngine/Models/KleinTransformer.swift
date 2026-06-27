@@ -99,10 +99,12 @@ final class TimeGuidanceEmbed: Module {
     }
 
     func callAsFunction(_ timestep: MLXArray) -> MLXArray {
+        // Expand 0-dim timestep to [B] (batch=1) — mflux: `if ndim==0: full((B,), timestep)`.
+        let ts = timestep.ndim == 0 ? MLXArray([timestep.item(Float.self) as Float]) : timestep
         // Sinusoidal embedding (256-ch, flip_sin_to_cos).
         let half = KleinCfg.timeChannels / 2
         let freqs = exp(-log(Float(10000)) * (MLX.arange(0, half).asType(.float32) / Float(half)))
-        let args = timestep.expandedDimensions(axis: 1) * freqs.expandedDimensions(axis: 0)
+        let args = ts.expandedDimensions(axis: 1) * freqs.expandedDimensions(axis: 0)
         var emb = concatenated([sin(args), cos(args)], axis: -1)
         emb = concatenated([emb[.ellipsis, half...], emb[.ellipsis, 0..<half]], axis: -1)  // flip
         return lin2(silu(lin1(emb)))
@@ -390,8 +392,9 @@ public final class KleinTransformer: Module {
     ///   - timestep: [B] scalar in [0, 1].
     /// - Returns: velocity prediction [B, N_img, 128].
     public func callAsFunction(_ latent: MLXArray, _ ctx: MLXArray, imgIds: MLXArray, txtIds: MLXArray, timestep: MLXArray) -> MLXArray {
-        // Scale timestep (×1000 if ≤1, matching mflux).
-        let ts = timestep * MLXArray(Float(1000.0))
+        // Scale timestep: mflux does `where(max(t) <= 1.0, 1000.0, 1.0)`.
+        // Our scheduler already produces timesteps in [0, 1000], so scale = 1.0.
+        let ts = timestep.asType(.float32)
         let temb = timeEmbed(ts)
 
         // Embed.
