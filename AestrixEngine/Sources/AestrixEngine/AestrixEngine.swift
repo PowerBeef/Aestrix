@@ -1,5 +1,8 @@
 import Foundation
 import MLX
+#if canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Public configuration & result types
 
@@ -47,6 +50,35 @@ public struct AestrixImage: Sendable {
         self.height = height
         self.rgba = rgba
     }
+
+    #if canImport(AppKit)
+    /// Save as a PNG file (macOS). Returns the file URL.
+    /// Parent directories are created automatically.
+    @discardableResult
+    public func savePNG(to url: URL) throws -> URL {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let provider = CGDataProvider(data: Data(rgba) as CFData),
+              let cgImage = CGImage(
+                width: width, height: height,
+                bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: width * 4, space: cs,
+                bitmapInfo: CGBitmapInfo(rawValue: info),
+                provider: provider, decode: nil,
+                shouldInterpolate: false, intent: .defaultIntent) else {
+            throw AestrixError.invalidInput("failed to create CGImage")
+        }
+        let bitmap = NSBitmapImageRep(cgImage: cgImage)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw AestrixError.invalidInput("failed to encode PNG")
+        }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try png.write(to: url)
+        return url
+    }
+    #endif
 }
 
 /// Report returned by ``AestrixEngine/load(modelDir:)``.

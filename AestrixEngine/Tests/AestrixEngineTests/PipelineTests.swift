@@ -18,6 +18,13 @@ struct PipelineTests {
         let config = GenConfig(width: 256, height: 256, steps: 4, seed: 42)
         let image = try await engine.generate(prompt: "a cat sitting on a windowsill", config: config)
 
+        // Save to disk so we can see it (macOS only; savePNG is AppKit-gated)
+        #if canImport(AppKit)
+        let outURL = TestFixtures.outputsRoot.appendingPathComponent("first_image.png")
+        try image.savePNG(to: outURL)
+        print("🖼️ Image saved to \(outURL.path)")
+        #endif
+
         #expect(image.width == 256)
         #expect(image.height == 256)
         #expect(image.rgba.count == 256 * 256 * 4)

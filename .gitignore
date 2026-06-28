@@ -21,3 +21,6 @@ AestrixDemo/Models/
 
 # tool caches
 .impeccable/
+
+# Generated outputs (test images, artifacts)
+outputs/
