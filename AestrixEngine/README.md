@@ -7,17 +7,17 @@ generation and single-image instruction editing on-device, targeting iPhone 15 P
 
 | Milestone | Status |
 |---|---|
-| M0 — scaffold + build green | ✅ done |
-| M1 — IO (downloader, weights, tokenizer) | ✅ done |
-| M2 — VAE | ✅ port proven correct (float32 parity Δ<1e-4 vs mflux); float32 decode (diffusers `force_upcast`) |
-| M3 — Qwen3 text encoder | ✅ ported (loads 2.26 GB 4-bit, ctx (1,512,7680)); exact mflux parity pending |
-| M4 — Klein transformer + RoPE4D | pending |
-| M5 — t2i pipeline (first image) | pending |
-| M6 — image edit | pending |
+| M0 — scaffold (build green) | done |
+| M1 — IO (downloader, weights, tokenizer) | done |
+| M2 — VAE | done — port proven correct (float32 parity Δ<1e-4 vs mflux); float32 decode (diffusers `force_upcast`) |
+| M3 — Qwen3 text encoder | done — ported (loads 2.26 GB 4-bit, ctx (1, 512, 7680)); exact mflux parity pending |
+| M4 — Klein transformer + RoPE4D | done |
+| M5 — text-to-image pipeline (first image) | in progress (`generate(prompt:config:)` wired; verified first image pending) |
+| M6 — single-image instruction editing | pending |
 | M7 — optimization (custom Metal kernels) | pending |
 | M8 — harden | pending |
 
-See `/Users/patricedery/.claude/plans/i-want-to-research-unified-horizon.md` for the full plan.
+See `../docs/PLAN.md` for the full plan.
 
 ## Build & test
 
@@ -28,6 +28,10 @@ swift build
 # Fast, MLX-free unit tests (config invariants)
 swift test
 ```
+
+The MLX-free suite currently has **18 tests across 10 suites**.
+
+Generated test outputs (e.g. images from `PipelineTests`) are written to `outputs/` at the package root; override with `AESTRIX_OUTPUTS=<path>`.
 
 ### MLX execution tests (require xcodebuild, NOT `swift test`)
 

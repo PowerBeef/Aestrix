@@ -1,4 +1,4 @@
-# CLAUDE.md — Aestrix
+# AGENTS.md — Aestrix
 
 On-device FLUX.2-klein-4B image generation & editing for iOS via **MLX-Swift**.
 Target: iPhone 15 Pro (8 GB) / iOS 26. Full design + roadmap in `docs/PLAN.md`.
@@ -14,26 +14,55 @@ Aestrix/
 │   │   │   ├── FluxVAE.swift          AutoencoderKLFlux2 (encoder/decoder, 4-bit attn, float32 decode)
 │   │   │   ├── Qwen3TextEncoder.swift  36-layer GQA, 4-bit, extracts layers [9,18,27] → ctx (512,7680)
 │   │   │   └── KleinTransformer.swift  5 double-stream + 20 single-stream blocks, 4D RoPE, 4-bit
+│   │   ├── Pipeline/
+│   │   │   ├── RectifiedFlowScheduler.swift   rectified-flow Euler + Karras schedule
+│   │   │   ├── CoordinateBuilder.swift        txt_ids/img_ids/ref_ids builders
+│   │   │   └── LatentTransforms.swift         pack/unpack, patchify/unpatchify, bn denorm
 │   │   ├── IO/                        ModelDownloader, WeightLoader, NestedWeights, Tokenizer
+│   │   ├── Image/
+│   │   │   └── ImageConversion.swift  MLXArray ↔ AestrixImage / normalization helpers
 │   │   └── Support/                   Errors, Logging
-│   ├── Tests/AestrixEngineTests/      11 tests, 7 suites (config, IO, VAE parity, Qwen3, transformer)
+│   ├── Tests/AestrixEngineTests/      18 tests, 10 suites (config, IO, scheduler, VAE parity, Qwen3, transformer, pipeline, integration, output paths)
 │   ├── tools/vae_reference.py         Python mflux/MLX parity-reference generator (--fp32 for float32)
-│   └── Package.swift                  MLX-Swift 0.31.4, swift-transformers 1.1.0
+│   ├── Package.swift                  MLX-Swift 0.31.4, swift-transformers 1.1.0
+│   └── README.md                      Engine-specific build/parity notes
 ├── AestrixDemo/                       Thin SwiftUI iOS app (xcodegen-generated .xcodeproj)
 └── docs/PLAN.md                       Full architecture + M0–M8 roadmap
 ```
 
-## Build & test (read carefully — MLX has sharp edges)
+- `.gitignore` excludes `.build/`, `.swiftpm/`, `DerivedData/`, `xcuserdata/`, `*.xcodeproj`, `Package.resolved`, `*.safetensors`, `AestrixDemo/Models/`, `outputs/`, `.impeccable/`, `.DS_Store`.
+
+## Agent/tooling guide (Kimi Code CLI)
+
+This project is developed with **Kimi Code CLI**. When you work here, prefer Kimi-native tools over generic shell work.
+
+- **Skills first.** Before any non-trivial task, invoke the relevant skill with the `Skill` tool. Likely skills for this codebase:
+  - `using-superpowers` — skill discovery and workflow.
+  - `writing-plans` — for multi-step planning.
+  - `subagent-driven-development` or `executing-plans` — for implementation.
+  - `verification-before-completion` — before claiming work is done.
+  - `xcodebuildmcp` — for iOS/macOS build, test, simulator, and UI automation.
+  - `axiom` — for profiling, log capture, and crash symbolication.
+  - `systematic-debugging` / `test-driven-development` as appropriate.
+- **Subagents.** Use the `Agent` tool:
+  - `subagent_type: "explore"` for read-only codebase investigation.
+  - `subagent_type: "plan"` for architecture/implementation planning.
+  - `subagent_type: "coder"` for implementation, review, or spec tasks.
+- **Build & test.** See the `## Build & test` section below for exact commands. Use XcodeBuildMCP tools (`build_run_sim`, `launch_app_sim`, etc.) for the demo app after configuring session defaults.
+- **Profiling & diagnostics.** Use Axiom MCP tools (`axiom_xcprof_record`, `axiom_xclog_launch`, `axiom_xcsym_crash`) for on-device performance, logs, and crash symbolication.
+- **Environment-gated tests.** Heavy tests (multi-GB downloads / full MLX models) are opt-in only. Never run them without `AESTRIX_HEAVY_TESTS=1` / `TEST_RUNNER_AESTRIX_HEAVY_TESTS=1`.
+- **Don't touch tool caches.** `.impeccable/` is a local tool cache and is already gitignored; do not edit it manually.
+
+## Build & test
 
 ```bash
 # Compile + run MLX-free unit tests (config, JSON parse, tokenizer, downloader)
 swift test --package-path AestrixEngine
 
-# MLX execution REQUIRES xcodebuild (SwiftPM CLI can't build the Metal shaders /
-# default.metallib → MLX ops crash under plain `swift test`). macOS host proves execution;
-# the iOS Simulator cannot run MLX (needs a physical Apple-Silicon device).
+# MLX execution REQUIRES xcodebuild because plain swift test cannot build the Metal shaders / default.metallib.
+cd AestrixEngine
 TEST_RUNNER_AESTRIX_RUN_MLX_TESTS=1 \
-TEST_RUNNER_AESTRIX_FIXTURES="$(pwd)/AestrixEngine/.build/fixtures/flux2-klein-4b-4bit" \
+TEST_RUNNER_AESTRIX_FIXTURES="$(pwd)/.build/fixtures/flux2-klein-4b-4bit" \
   xcodebuild test -scheme AestrixEngine -destination 'platform=macOS'
 ```
 
@@ -41,7 +70,7 @@ TEST_RUNNER_AESTRIX_FIXTURES="$(pwd)/AestrixEngine/.build/fixtures/flux2-klein-4
 - `TEST_RUNNER_<NAME>=1` is how xcodebuild injects an env var into the test runner; tests read `<NAME>`.
 - iOS demo: `cd AestrixDemo && xcodegen generate`, then build via Xcode/xcodebuild.
 
-## MLX-Swift gotchas (all learned the hard way)
+## MLX-Swift gotchas
 
 **Weight loading:**
 - **Conv2d is channels-last (NHWC)**; weight shape `[out, kh, kw, in]`. mflux saves convs in this layout → load directly, no permute.
@@ -88,10 +117,12 @@ latent → VAE.decode (float32) → image
 ## Conventions
 
 - **Public surface:** `public actor AestrixEngine` (`load / downloadModel / generate / edit / unload`). All MLX state stays behind the actor (MLXArray is not Sendable).
-- **Commit messages** end with `Co-Authored-By: Claude <noreply@anthropic.com>`. Don't commit on the user's behalf unless asked.
-- `.gitignore` excludes `.build/`, `DerivedData/`, `*.xcodeproj`, `*.safetensors`, `.impeccable/`.
+- **Do not run git mutations unless explicitly asked.** `git commit`, `git push`, `git reset`, `git rebase`, and similar operations require user confirmation each time.
+- **Do not commit on the user's behalf.** If the user asks for a commit, confirm the message and scope first.
+- **Keep this file current.** If you change project conventions, build commands, or tool usage, update `AGENTS.md` so the next agent sees the ground truth.
 
 ## Status
 
-M0 (scaffold), M1 (IO), M2 (VAE — float32 parity Δ<1e-4), M3 (Qwen3 text encoder), M4 (Klein transformer) ✅.
-Next: **M5 — end-to-end pipeline** (wire Qwen3 → transformer 4-step denoise → VAE decode → first image). See `docs/PLAN.md`.
+M0 (scaffold), M1 (IO), M2 (VAE — float32 parity Δ<1e-4), M3 (Qwen3 text encoder), M4 (Klein transformer) — done.
+**M5 — end-to-end pipeline** is in progress (`generate(prompt:config:)` is wired; the remaining milestone goal is to produce a verified first image). See `docs/PLAN.md`.
+M6 (image edit), M7 (optimization), M8 (harden) — pending.
