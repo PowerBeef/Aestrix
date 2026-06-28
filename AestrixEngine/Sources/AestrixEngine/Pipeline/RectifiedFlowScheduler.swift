@@ -24,35 +24,41 @@ public struct RectifiedFlowScheduler {
     }
 
     // MARK: - Schedule computation (ports mflux FlowMatchEulerDiscreteScheduler)
+    //
+    // FLUX.2-klein's model config has `requires_sigma_shift=True`, so mflux calls
+    // `set_image_seq_len(image_seq_len)` → `get_timesteps_and_sigmas(...)`. That path is what
+    // actually runs at generation time (the constructor path with `sigma_min` spacing + a
+    // `stretch_to_terminal` is overridden). We port that exact path here:
+    //   sigmas   = linspace(1.0, 1.0/num_steps, num_steps)
+    //   mu       = empirical_mu(image_seq_len, num_steps)
+    //   sigmas   = time_shift_exponential(mu, 1.0, sigmas)   # elementwise
+    //   timesteps = sigmas * num_train_timesteps
+    //   sigmas   = sigmas ++ [0.0]
+    // (no terminal stretch.)
 
     private static func compute(numSteps: Int, imageSeqLen: Int) -> (MLXArray, MLXArray) {
-        let numTrainTimesteps = 1000
-        let sigmaMin = 1.0 / Float(numTrainTimesteps)
-        let sigmaMax: Float = 1.0
+        let (sigmas, timesteps) = computeFloats(numSteps: numSteps, imageSeqLen: imageSeqLen)
+        return (MLXArray(sigmas), MLXArray(timesteps))
+    }
 
-        // Linear sigmas
+    /// Pure-Swift schedule computation (no Metal) — exposed for the mflux-parity unit test.
+    /// Returns `(sigmas, timesteps)` where `sigmas` has the trailing 0 appended.
+    static func computeFloats(numSteps: Int, imageSeqLen: Int) -> (sigmas: [Float], timesteps: [Float]) {
+        let numTrainTimesteps: Float = 1000
+
+        // linspace(1.0, 1.0/num_steps, num_steps)
+        let stop = 1.0 / Float(numSteps)
         var sigmasLinear: [Float] = []
         for i in 0..<numSteps {
-            let t = sigmaMax - Float(i) * (sigmaMax - sigmaMin) / Float(numSteps - 1)
-            sigmasLinear.append(t)
+            sigmasLinear.append(1.0 + Float(i) * (stop - 1.0) / Float(numSteps - 1))
         }
 
-        // Empirical mu from image_seq_len + num_steps
         let mu = empiricalMu(imageSeqLen: imageSeqLen, numSteps: numSteps)
-
-        // Time-shift exponential
         let sigmasShifted = sigmasLinear.map { timeShiftExp(mu: mu, sigmaPower: 1.0, t: $0) }
 
-        // Stretch to terminal (0.02)
-        let terminal: Float = 0.02
-        let oneMinusLast = 1.0 - sigmasShifted.last!
-        let scaleFactor = oneMinusLast / (1.0 - terminal)
-        let sigmasFinal = sigmasShifted.map { 1.0 - ((1.0 - $0) / scaleFactor) }
-
-        let timesteps = sigmasFinal.map { $0 * Float(numTrainTimesteps) }
-        let sigmasWithZero = sigmasFinal + [Float(0)]
-
-        return (MLXArray(sigmasWithZero), MLXArray(timesteps))
+        let timesteps = sigmasShifted.map { $0 * numTrainTimesteps }
+        let sigmasWithZero = sigmasShifted + [Float(0)]
+        return (sigmasWithZero, timesteps)
     }
 
     private static func empiricalMu(imageSeqLen: Int, numSteps: Int) -> Float {
