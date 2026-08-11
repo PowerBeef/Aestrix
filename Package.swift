@@ -89,6 +89,7 @@ let package = Package(
             dependencies: [
                 "AestrixCore",
                 "AestrixRuntime",
+                "AestrixDiT",
                 "AestrixEval",
                 .product(name: "MLX", package: "mlx-swift"),
             ]
@@ -98,6 +99,7 @@ let package = Package(
             dependencies: [
                 "AestrixCore",
                 "AestrixRuntime",
+                "AestrixDiT",
                 "AestrixEval",
                 "AestrixBench",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -139,6 +141,13 @@ let package = Package(
             name: "AestrixBenchTests",
             dependencies: [
                 "AestrixBench",
+                "AestrixCore",
+            ]
+        ),
+        .testTarget(
+            name: "AestrixVAETests",
+            dependencies: [
+                "AestrixVAE",
                 "AestrixCore",
             ]
         ),

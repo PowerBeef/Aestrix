@@ -650,6 +650,21 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Optional MLX cacheLimit in bytes (e.g. 2147483648).")
     var cacheLimit: UInt64?
 
+    @Option(name: .long, help: "DiT SDPA query chunk size (default 256). Sweep: 128|256|512.")
+    var attnChunkSize: Int?
+
+    @Option(name: .long, help: "Seq length above which query-chunked SDPA is used (default 1536).")
+    var attnChunkThreshold: Int?
+
+    @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 2048).")
+    var attnF16Threshold: Int?
+
+    @Option(name: .long, help: "Sequence Linear chunk size (default 512).")
+    var attnLinearChunk: Int?
+
+    @Option(name: .long, help: "Seq length above which Linear is chunked (default 1536).")
+    var attnLinearThreshold: Int?
+
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"
 
@@ -717,7 +732,12 @@ struct Bench: AsyncParsableCommand {
             cacheLimitBytes: cacheLimit,
             probeDensity: effectiveDensity,
             resetPeakEachPhase: effectiveReset,
-            failSoft: effectiveFailSoft
+            failSoft: effectiveFailSoft,
+            attentionQueryChunkSize: attnChunkSize,
+            attentionQueryChunkThreshold: attnChunkThreshold,
+            attentionF16SeqThreshold: attnF16Threshold,
+            attentionLinearChunkSize: attnLinearChunk,
+            attentionLinearChunkThreshold: attnLinearThreshold
         )
 
         let aestrixConfig = AestrixConfig.autoDetectingTier()

@@ -50,7 +50,8 @@ public final class Flux2ParallelSelfAttention: Module {
 
         // Norm in f32 for stability, then store Q/K/V in f16 for long sequences
         // (L≈4608 @ 1024²: f32 QKV alone ≈1.7 GB).
-        let attnDType: DType = seq > 2048 ? .float16 : .float32
+        let f16Thr = AttentionTuning.current.f16SeqThreshold
+        let attnDType: DType = seq > f16Thr ? .float16 : .float32
         query = normQ(query.asType(.float32)).asType(attnDType)
         key = normK(key.asType(.float32)).asType(attnDType)
         value = value.asType(attnDType)

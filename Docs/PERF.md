@@ -173,16 +173,42 @@ Prioritize only after a **baseline** report exists on the target machine. IDs ma
 
 ## Measured results (keep updating)
 
-**Machine:** Mac mini, 8 GB unified, thermal nominal  
-**Protocol:** `swift build -c release`, `ensure-metallib`, 512² × 4 steps, seed 42, warmup 1, trials 3  
+**Machine:** Mac mini, Apple M2, 8 GB unified, thermal nominal  
+**Build:** `swift build -c release` + `Scripts/ensure-metallib.sh`, **4-bit** weights  
+
+### Fair A/B: 512² vs 1024² (same binary, same settings)
+
+Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fair-512` / `fair-1024`.
+
+| Metric | **512²** | **1024²** | **1024 / 512** |
+|--------|---------:|----------:|---------------:|
+| **e2e (mean)** | **30.6 s** | **96.0 s** | **3.14×** |
+| denoise total | 23.8 s | 84.2 s | 3.53× |
+| denoise / step | 5.96 s | 21.0 s | 3.53× |
+| encode TE | 2.10 s | 2.11 s | ~1.0× |
+| decode VAE | 1.72 s | 6.70 s | 3.90× |
+| **peak RSS** | **1.73 GiB** | **1.77 GiB** | **1.02×** |
+| **peak MLX active** | **2.04 GiB** | **2.04 GiB** | **1.00×** |
+| **peak MLX watermark** | **2.99 GiB** | **3.29 GiB** | **1.10×** |
+| joint_seq_len | 1536 | 4608 | 3.0× |
+
+**How to read RAM:** With the current low-RAM path, **live peak active is dominated by DiT weights (~2 GB)** at both sizes (after `load_dit`). Watermark is only **~10% higher** at 1024² because activations are checkpointed/chunked/tiled instead of held as one fat graph. Older tables that showed **higher** RSS/watermark at 512 than at 1024 mixed **pre- and post-optimization** runs — not a fair comparison.
+
+```bash
+.build/release/aestrix bench --label fair-512  --width 512  --height 512  \
+  --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-512.json
+.build/release/aestrix bench --label fair-1024 --width 1024 --height 1024 \
+  --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-1024.json
+.build/release/aestrix bench-compare /tmp/fair-512.json /tmp/fair-1024.json
+```
+
+### Historical snapshots (not for cross-size RAM A/B)
 
 | Label | e2e mean | denoise/step | peak RSS | peak MLX active | peak MLX watermark | Notes |
 |-------|----------|--------------|----------|-----------------|--------------------|-------|
-| `baseline-rel` | 28.80 s | 5.54 s | 2.13 GB | 2.04 GB | 4.30 GB | Pre-opt release |
-| `opt-v3-scope` | 27.39 s (−4.9%) | 5.24 s (−5.4%) | 2.14 GB | 2.09 GB | 4.31 GB | S2/S5/S9 + scope |
-| `m2-opt` / `working-512-4bit` | **27.45 s** | **5.25 s** | 2.14 GB | 2.11 GB | **4.25 GB** | Default path on 8 GB M2 (4-bit) |
-| `probe-768-4bit` | **49.6 s** (1 cold) | **10.3 s** | 2.14 GB | 2.13 GB | **8.27 GB** | Near memory ceiling |
-| `success-1024-4bit` | **96.5 s** | **21.1 s** | **1.80 GB** | **2.05 GB** | **3.29 GB** | Checkpoint DiT + f16 long-seq attn + tiled VAE (4-bit) |
+| `baseline-rel` | 28.80 s | 5.54 s | 2.13 GB | 2.04 GB | 4.30 GB | Pre low-RAM path; 512 only |
+| `opt-v3-scope` | 27.39 s | 5.24 s | 2.14 GB | 2.09 GB | 4.31 GB | Mid-series 512 |
+| `probe-768-4bit` | 49.6 s (1 cold) | 10.3 s | 2.14 GB | 2.13 GB | 8.27 GB | Pre full checkpoint/tile path |
 
 **Shipped optimizations (cumulative in tree):**
 
@@ -198,7 +224,52 @@ Prioritize only after a **baseline** report exists on the target machine. IDs ma
 | M2 | Cache RoPE ω, temb freqs, TE causal-512 mask | Less host/graph churn each step/encode |
 | M2 | Precompute Euler `dt` arrays once per schedule | No per-step scalar `MLXArray` alloc |
 | M5→M2 | **VAE decode-only load for T2I/I2I decode** | ~67 MB fewer weights; **load_vae ~115→69 ms**; peak watermark slightly lower |
+| M5 tile | **VAE tiled decode** (default **overlap + cosine blend**, `VAETileConfig` tile=72/overlap=16) | Seams blended; cold 1024 decode ~8 s (was ~6.7 s hard 2×2); live VAE active still ~100 MB; e2e ~99 s cold |
+| S4/M10 | **SDPA query chunk size 256→512** (`AttentionTuning`) | ~1% faster denoise/step @ 1024²; peak RAM unchanged |
 | Harness | Report `gpu=Apple M2 metal=Metal 4 neuralAccel=no` | Avoid confusing M5-only Metal 4 claims |
+
+### Draw Things / PDF report mapping (2026-08-11)
+
+External report claimed “1024 → OOM” and ranked tiled VAE as the unlock. **Grounded status in this tree:**
+
+| PDF technique | Status | Notes |
+|---------------|--------|-------|
+| Tiled VAE (overlap + blend) | **Done** (default cosine) | Was partial hard 2×2; now `VAETileConfig` + blend |
+| Partial / JIT DiT **weights** | **Not done** | Activation checkpointing only; ~2 GiB DiT floor remains |
+| Metal FlashAttention | **Parked** | MLX SDPA + query-chunked + f16 QKV |
+| Intermediate release / pacing | **Done** | Block eval + clearCache + cacheLimit |
+| Further quant | **Out of product scope** | 4-bit lock |
+| Pressure harness | **Done** | `pressure-map` / `res-ladder` / `dit-one-step` |
+
+**Priority now:** quality (VAE blend) → optional DiT weight streaming for iOS → attention knobs — not “make 1024 run” (already green on 8 GB M2).
+
+### Phase C — Attention knob sweep (2026-08-11, M2 8 GB)
+
+Configurable via `AttentionTuning` / CLI: `--attn-chunk-size`, `--attn-chunk-threshold`, `--attn-f16-threshold`, `--attn-linear-chunk`, `--attn-linear-threshold`.
+
+**Protocol A** (cold `dit-one-step`, 1 trial) — ranking only; first run cold-biased:
+
+| Label | knobs | denoise/step |
+|-------|-------|-------------:|
+| baseline | q256 / t1536 / f16@2048 / lin512 | 21.52 s |
+| **q512** | **chunk 512** | **20.68 s** |
+| f16_1024 | f16@1024 | 20.93 s |
+| t1024 | chunk threshold 1024 | 21.04 s |
+| q128 | chunk 128 | 21.39 s |
+| others | lin256/1024, t2048 | ~21.2–21.4 s |
+
+**Protocol B** (warm `dit-steps` steps=1, warmup 1 + trials 2) — fair:
+
+| Label | denoise/step mean | vs baseline |
+|-------|------------------:|------------:|
+| baseline / baseline_b | 21.08 / 21.12 s | — |
+| **q512 / q512_b** | **20.82 / 20.84 s** | **≈ −1.1 %** |
+| f16_1024 | 21.09 s | ~0 |
+| combo q512+f16@1024 | 21.69 s (noisy) | worse |
+
+Peak MLX active **2.05 GiB** and watermark **3.75 GiB** unchanged across all knobs.
+
+**Shipped default change:** `AttentionTuning.queryChunkSize` **256 → 512**. Other defaults unchanged (threshold 1536, f16@2048, linear 512/1536). Custom Metal FA remains parked.
 
 **Still dominant (~76% of e2e):** DiT denoise compute itself. M2 has Metal 4 **API** but **no Neural Accelerators** — further large speedups need silicon (M5) or algorithm (res/bits/steps), not custom MTL4 kernels.
 

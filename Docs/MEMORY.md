@@ -26,13 +26,25 @@ I2I adds VAE encode (then unload) before TE/DiT.
 
 | Policy | Behavior |
 |--------|----------|
-| `staged` (default) | One heavy module at a time |
-| `stagedAggressive` | + lower res + optional DiT block streaming |
+| `staged` (default) | One heavy module at a time; DiT **activation** checkpointing + chunked attention; VAE decode-only + **tiled decode** |
+| `stagedAggressive` | Reserved for tighter devices (optional DiT **weight** streaming — not default; measure first) |
 | `resident` | Keep quant modules warm (Tier H only) |
+
+## Low-RAM path (shipped)
+
+| Technique | Status |
+|-----------|--------|
+| Staged TE → DiT → VAE | Done (default) |
+| DiT per-block `eval` + `clearCache` | Done |
+| Query-chunked SDPA + f16 QKV (long seq) | Done |
+| VAE decode-only for T2I | Done |
+| VAE tiled decode (overlap + cosine blend default) | Done |
+| DiT **weight** streaming (block JIT load) | Not default — iOS headroom spike |
+| Custom Metal FlashAttention | Parked (MLX SDPA + chunking) |
 
 ## Measurement
 
-- CLI: `aestrix mem-selftest` (fake stages) and later `aestrix bench-mem`  
+- CLI: `aestrix bench` (`pressure-map`, `dit-one-step`, `res-ladder`, `mem-stages`)  
 - Instrument with `Memory.activeMemory` / process footprint around each stage  
 - Tests must assert TE and DiT are never both loaded  
 
@@ -42,6 +54,6 @@ I2I adds VAE encode (then unload) before TE/DiT.
 |--------|----------------|
 | TE | 2.26 GB |
 | DiT | 2.18 GB |
-| VAE | 0.17 GB |
+| VAE | 0.17 GB (decode-only ~97 MB) |
 
-Activations at 1024² dominate mid-tier peaks; prefer 512² on Tier L.
+On 8 GB M2 after the low-RAM path, **live peak active ≈ DiT weights (~2 GiB)** at both 512² and 1024²; watermark ~3.0–3.3 GiB. Prefer **512² for interactive speed**, not because 1024² OOMs.

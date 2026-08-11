@@ -94,9 +94,14 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
         throw AestrixError.moduleNotLoaded(moduleName)
     }
 
-    public func decodePacked(_ packed: MLXArray) throws -> MLXArray {
-        if let model, isLoaded { return model.decodePackedLatents(packed) }
-        if let decodeOnlyModel, isLoaded { return decodeOnlyModel.decodePackedLatents(packed) }
+    public func decodePacked(
+        _ packed: MLXArray,
+        tileConfig: VAETileConfig = .default
+    ) throws -> MLXArray {
+        if let model, isLoaded { return model.decodePackedLatents(packed, tileConfig: tileConfig) }
+        if let decodeOnlyModel, isLoaded {
+            return decodeOnlyModel.decodePackedLatents(packed, tileConfig: tileConfig)
+        }
         throw AestrixError.moduleNotLoaded(moduleName)
     }
 }

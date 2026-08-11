@@ -1,6 +1,7 @@
 import Foundation
 import AestrixCore
 import AestrixRuntime
+import AestrixDiT
 import AestrixEval
 
 /// Runs multi-trial generation / micro-benchmarks with full stage + memory metrics.
@@ -13,8 +14,20 @@ public actor BenchRunner {
         self.config = config
     }
 
+    private func applyAttentionTuningFromConfig() {
+        var t = AttentionTuning.default
+        if let v = config.attentionQueryChunkSize { t.queryChunkSize = v }
+        if let v = config.attentionQueryChunkThreshold { t.queryChunkThreshold = v }
+        if let v = config.attentionF16SeqThreshold { t.f16SeqThreshold = v }
+        if let v = config.attentionLinearChunkSize { t.linearChunkSize = v }
+        if let v = config.attentionLinearChunkThreshold { t.linearChunkThreshold = v }
+        AttentionTuning.current = t
+    }
+
     public func run() async throws -> BenchReport {
         MemorySampler.applyCacheLimit(config.cacheLimitBytes)
+        applyAttentionTuningFromConfig()
+        defer { AttentionTuning.resetToDefault() }
 
         let system = SystemInfo.snapshot(
             mlxCacheLimit: MemorySampler.cacheLimit,

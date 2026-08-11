@@ -27,16 +27,17 @@ enum AttentionUtils {
         value = value.reshaped([batch, seq, numHeads, headDim]).transposed(0, 2, 1, 3)
 
         // Prefer f16 for long sequences after f32 RMSNorm (memory).
-        let attnDType: DType = seq > 2048 ? .float16 : query.dtype
+        let f16Thr = AttentionTuning.current.f16SeqThreshold
+        let attnDType: DType = seq > f16Thr ? .float16 : query.dtype
         query = normQ(query.asType(.float32)).asType(attnDType)
         key = normK(key.asType(.float32)).asType(attnDType)
         value = value.asType(attnDType)
         return (query, key, value)
     }
 
-    /// 1024² single-stream L≈4608: always chunk above this seq length.
-    static let attentionQueryChunkThreshold = 1536
-    static let attentionQueryChunkSize = 256
+    /// Defaults mirror `AttentionTuning.default` (kept for call-site clarity / tests).
+    static var attentionQueryChunkThreshold: Int { AttentionTuning.current.queryChunkThreshold }
+    static var attentionQueryChunkSize: Int { AttentionTuning.current.queryChunkSize }
 
     static func computeAttention(
         query: MLXArray,
@@ -49,7 +50,9 @@ enum AttentionUtils {
         let scale = 1.0 / Foundation.sqrt(Float(query.dim(-1)))
         // query/key/value: [B, H, S, D]
         let seq = query.dim(2)
-        if seq <= attentionQueryChunkThreshold {
+        let thr = AttentionTuning.current.queryChunkThreshold
+        let chunkSize = max(1, AttentionTuning.current.queryChunkSize)
+        if seq <= thr {
             var hidden = MLXFast.scaledDotProductAttention(
                 queries: query,
                 keys: key,
@@ -63,10 +66,10 @@ enum AttentionUtils {
 
         // Query-chunked SDPA: lower peak for 1024² (joint L≈4608).
         var chunks: [MLXArray] = []
-        chunks.reserveCapacity((seq + attentionQueryChunkSize - 1) / attentionQueryChunkSize)
+        chunks.reserveCapacity((seq + chunkSize - 1) / chunkSize)
         var start = 0
         while start < seq {
-            let end = min(start + attentionQueryChunkSize, seq)
+            let end = min(start + chunkSize, seq)
             let qChunk = query[0..., 0..., start ..< end, 0...]
             var out = MLXFast.scaledDotProductAttention(
                 queries: qChunk,
@@ -91,19 +94,21 @@ enum AttentionUtils {
     static func linearChunkedSequence(
         _ linear: Linear,
         _ x: MLXArray,
-        chunkSize: Int = 512,
-        threshold: Int = 1536
+        chunkSize: Int? = nil,
+        threshold: Int? = nil
     ) -> MLXArray {
         // x: [B, S, C]
         let seq = x.dim(1)
-        if seq <= threshold {
+        let thr = threshold ?? AttentionTuning.current.linearChunkThreshold
+        let cs = max(1, chunkSize ?? AttentionTuning.current.linearChunkSize)
+        if seq <= thr {
             return linear(x)
         }
         var parts: [MLXArray] = []
-        parts.reserveCapacity((seq + chunkSize - 1) / chunkSize)
+        parts.reserveCapacity((seq + cs - 1) / cs)
         var start = 0
         while start < seq {
-            let end = min(start + chunkSize, seq)
+            let end = min(start + cs, seq)
             let chunk = x[0..., start ..< end, 0...]
             let y = linear(chunk)
             eval(y)
@@ -139,7 +144,8 @@ enum AttentionUtils {
         }
 
         // Keep rope output in the compact attention dtype when possible.
-        let store = outDtype == .float32 && query.dim(2) > 2048 ? DType.float16 : outDtype
+        let f16Thr = AttentionTuning.current.f16SeqThreshold
+        let store = outDtype == .float32 && query.dim(2) > f16Thr ? DType.float16 : outDtype
         return (mix(query).asType(store), mix(key).asType(store))
     }
 }

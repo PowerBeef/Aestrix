@@ -16,19 +16,21 @@ prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► u
 | **Model** | FLUX.2-klein-4B only (Apache-2.0) — not 9B / Dev |
 | **Text-to-image** | Distilled defaults: **1024²**, 4 steps, guidance 1.0 |
 | **Image-to-image** | Strength-based edits (encode → re-noise → denoise) |
-| **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; long-seq chunked attention; **tiled VAE** for large canvases |
+| **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; long-seq chunked attention; **tiled VAE** (overlap + cosine blend) for large canvases |
 | **Weights** | Hub 4-bit packs only — no bf16 product path |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
 | **Bench** | Multi-trial timings, MLX/RSS memory, **pressure-map** block probes |
 
-### Measured (release, 4-bit, Apple M2 8 GB)
+### Measured (release, 4-bit, Apple M2 8 GB — fair A/B)
 
-| Canvas | Time to image | Peak MLX watermark | Peak RSS |
-|--------|--------------:|-------------------:|---------:|
-| **512²** | ~27–32 s | ~4.3 GB | ~2.1 GB |
-| **1024²** | ~**97 s** | ~**3.3 GB** | ~**1.8 GB** |
+Same binary, warmup 1 + 3 trials, seed 42, `probe-density=stages`:
 
-Numbers vary by thermal state and OS load. See [Docs/PERF.md](Docs/PERF.md).
+| Canvas | Time to image | Peak MLX active | Peak MLX watermark | Peak RSS |
+|--------|--------------:|----------------:|-------------------:|---------:|
+| **512²** | **~31 s** | **2.04 GiB** | **2.99 GiB** | **1.73 GiB** |
+| **1024²** | **~96 s** (~3.1×) | **2.04 GiB** | **3.29 GiB** (~1.1×) | **1.77 GiB** |
+
+Live peak is dominated by DiT weights at both sizes; 1024 is slower, not dramatically hungrier on peak RSS/active. Full table: [Docs/PERF.md](Docs/PERF.md).
 
 ## Requirements
 

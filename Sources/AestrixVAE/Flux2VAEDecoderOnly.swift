@@ -38,7 +38,10 @@ public final class Flux2VAEDecoderOnly: Module {
     }
 
     /// Decode packed DiT latents `[B, C*4, H, W]` using BN denorm + unpatchify.
-    public func decodePackedLatents(_ packed: MLXArray) -> MLXArray {
+    public func decodePackedLatents(
+        _ packed: MLXArray,
+        tileConfig: VAETileConfig = .default
+    ) -> MLXArray {
         var p = packed
         if p.ndim == 5 {
             p = p[0..., 0..., 0, 0..., 0...]
@@ -50,9 +53,9 @@ public final class Flux2VAEDecoderOnly: Module {
         eval(latents)
         Memory.clearCache()
         // 1024² → unpatchified 128×128×32; full UNet decode peaks hard on 8 GB.
-        // Tile when spatial ≥ 96 (covers 768² packed 48→96 and 1024² 64→128).
-        if latents.dim(2) >= 96 || latents.dim(3) >= 96 {
-            return Flux2VAE.decodeLatentsTiled(latents, decode: decode)
+        // Default: overlapping cosine-blended tiles (see `VAETileConfig`).
+        if tileConfig.shouldTile(height: latents.dim(2), width: latents.dim(3)) {
+            return Flux2VAE.decodeLatentsTiled(latents, decode: decode, config: tileConfig)
         }
         return decode(latents)
     }

@@ -43,6 +43,12 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var failSoft: Bool
     /// For res-ladder: sides to try (square). Default 512…1024.
     public var ladderSides: [Int]
+    /// Optional DiT attention tuning overrides (nil = product default).
+    public var attentionQueryChunkSize: Int?
+    public var attentionQueryChunkThreshold: Int?
+    public var attentionF16SeqThreshold: Int?
+    public var attentionLinearChunkSize: Int?
+    public var attentionLinearChunkThreshold: Int?
 
     public init(
         mode: BenchMode = .t2i,
@@ -61,7 +67,12 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         probeDensity: ProbeDensity = .denoise,
         resetPeakEachPhase: Bool = false,
         failSoft: Bool = false,
-        ladderSides: [Int] = [512, 640, 768, 896, 1024]
+        ladderSides: [Int] = [512, 640, 768, 896, 1024],
+        attentionQueryChunkSize: Int? = nil,
+        attentionQueryChunkThreshold: Int? = nil,
+        attentionF16SeqThreshold: Int? = nil,
+        attentionLinearChunkSize: Int? = nil,
+        attentionLinearChunkThreshold: Int? = nil
     ) {
         self.mode = mode
         self.label = label
@@ -80,6 +91,11 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.resetPeakEachPhase = resetPeakEachPhase
         self.failSoft = failSoft
         self.ladderSides = ladderSides
+        self.attentionQueryChunkSize = attentionQueryChunkSize
+        self.attentionQueryChunkThreshold = attentionQueryChunkThreshold
+        self.attentionF16SeqThreshold = attentionF16SeqThreshold
+        self.attentionLinearChunkSize = attentionLinearChunkSize
+        self.attentionLinearChunkThreshold = attentionLinearChunkThreshold
     }
 
     /// Config tuned for pressure-map diagnosis.

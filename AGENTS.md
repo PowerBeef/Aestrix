@@ -47,7 +47,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **chunked SDPA/Linears**, **f16 Q/K/V** when seq > 2048.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
 5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: use release build + full metallib; measured ~**97 s** e2e / peak MLX watermark ~**3.3 GB** on M2 after low-RAM path.
-6. **VAE**: T2I / final I2I decode use **decode-only** weights (~97 MB). Large canvases use **tiled 2×2 latent decode**.
+6. **VAE**: T2I / final I2I decode use **decode-only** weights (~97 MB). Large canvases use **tiled decode** (`VAETileConfig`: default overlap + cosine blend).
 7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` (module-split TE/DiT/VAE). See `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
