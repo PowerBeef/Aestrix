@@ -10,7 +10,7 @@ Aestrix is a **from-scratch** native **Swift + MLX** runtime for **Black Forest 
 | Weights | **Pre-quantized only** (default **4-bit**). **No user-facing bf16** download or quantize-from-bf16 at runtime |
 | Memory | **Staged pipeline is the default**: never co-reside text encoder + DiT + VAE |
 | Platforms | macOS library + CLI first; iOS 26 uses the same staged core |
-| v1 features | Text-to-image + single-image I2I (strength-based first) |
+| v1 features | Text-to-image + single-image I2I (strength + optional **identity** stack) |
 | Guidance | Distilled defaults: **4 steps**, **guidance = 1.0**, **no negative prompts**, no prompt-upsampling by default |
 | Default canvas | **1024²** (4-bit staged). Lower sizes via `--width` / `--height`. |
 
@@ -52,6 +52,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
 10. **I2I strength**: full N-step strength schedule + mid-range curve; color edits often need **≥ 0.8**.
+11. **I2I identity (Tier B)**: `--identity` enables reference latents (`t=10`), Vision face mask (regional σ + clean-pull), and milder `identity` schedule. Prefer **strength ≥ 0.85** for big edits. Default I2I remains strength-only.
 
 ## Phase status
 
@@ -60,10 +61,11 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | Phase | Status | Notes |
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
+| **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `aestrix i2i --identity` |
 | **P9 Performance harness** | **Done** | `AestrixBench`, pressure probes; Steel FA + tiled VAE; 512/1024 fair A/B in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Parked** | Regression suite, release pins |
-| Out of v1 | Tracked only | Multi-ref, CFG, LoRA, bf16 — see roadmap |
+| Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
 ## Process rule (blocking)
 
@@ -95,9 +97,13 @@ swift build -c release && ./Scripts/ensure-metallib.sh
 .build/release/aestrix t2i "$PROMPT" --width 1024 --height 1024 --steps 4 --seed 42 \
   --output /tmp/out.png --analyze --vision-brief
 
-# I2I
+# I2I (strength-only color/style)
 .build/release/aestrix i2i "$PROMPT" --image "$REF" --strength 0.8 \
   --output /tmp/edit.png --analyze --vision-brief
+
+# I2I identity (people / character consistency — Tier B)
+.build/release/aestrix i2i "$PROMPT" --image "$REF" --strength 0.9 --identity \
+  --output /tmp/edit-id.png --analyze --vision-brief
 ```
 
 ### Performance / pressure (mandatory before “faster / leaner” claims)

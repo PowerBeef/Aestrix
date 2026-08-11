@@ -329,7 +329,10 @@ public actor AestrixPipeline {
         return outURL
     }
 
-    /// Staged strength I2I: VAE encode → unload → TE → unload → DiT (from strength) → unload → VAE decode → PNG.
+    /// Staged I2I: VAE encode → unload → TE → unload → DiT → unload → VAE decode → PNG.
+    ///
+    /// Supports classic **strength** init plus Tier-B identity options on
+    /// ``I2IRequest/identity`` (reference latents, face-regional σ, clean-latent pull).
     ///
     /// Pass `trace` to record stage timings and memory samples (benchmarking); no effect on numerics.
     @discardableResult
@@ -355,6 +358,7 @@ public actor AestrixPipeline {
             throw AestrixError.invalidStrength(request.strength)
         }
 
+        let identity = request.identity
         let canvas = try ImageImport.resolveCanvas(
             imageURL: request.imageURL,
             requestWidth: request.width,
@@ -377,11 +381,40 @@ public actor AestrixPipeline {
         let nSteps = request.steps
 
         // Full N-step schedule from strength noise level → 0 (not a truncated T2I slice).
+        // With reference latents, official FLUX.2 I2I starts near pure noise and lets the
+        // model attend to the clean ref. Bump effective strength slightly so mid values
+        // (e.g. 0.8) still allow wardrobe/scene edits under identity presets.
+        let scheduleStrength: Float = {
+            if identity.useReferenceLatents {
+                return min(1.0, max(request.strength, request.strength * 0.5 + 0.5))
+                // s=0.8 → 0.9; s=0.9 → 0.95; s=1.0 → 1.0
+            }
+            return request.strength
+        }()
         let (sigmas, timesteps, startSigma) = Flux2Scheduler.strengthSchedule(
             numInferenceSteps: request.steps,
-            strength: request.strength,
-            imageSeqLen: imageSeqLen
+            strength: scheduleStrength,
+            imageSeqLen: imageSeqLen,
+            curve: identity.scheduleCurve
         )
+
+        // Optional face mask (CPU/Vision; before Metal-heavy stages).
+        var faceMask: MLXArray?
+        var faceCount = 0
+        if identity.facePreserve || identity.cleanPullAlpha > 0 {
+            let built = try FaceIdentityMask.softPackedMask(
+                imageURL: request.imageURL,
+                width: canvas.width,
+                height: canvas.height
+            )
+            faceMask = built.mask
+            faceCount = built.faceCount
+            eval(built.mask)
+            if faceCount == 0 {
+                // No face → disable regional path (avoid accidental full-canvas lock).
+                faceMask = nil
+            }
+        }
 
         var latents: MLXArray
 
@@ -438,14 +471,45 @@ public actor AestrixPipeline {
             }
 
             let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
-            let imgIds = LatentOps.imageIds(width: canvas.width, height: canvas.height)
+            // Denoise target at t=0; optional reference frame at t=10.
+            let denoiseImgIds = LatentOps.imageIds(
+                width: canvas.width, height: canvas.height, tCoord: 0)
+            let refImgIds: MLXArray? = identity.useReferenceLatents
+                ? LatentOps.referenceImageIds(
+                    width: canvas.width, height: canvas.height, index: 0)
+                : nil
+            let fullImgIds: MLXArray
+            if let refImgIds {
+                fullImgIds = concatenated([denoiseImgIds, refImgIds], axis: 1)
+            } else {
+                fullImgIds = denoiseImgIds
+            }
 
             // Re-noise clean latents to start σ: (1−σ)·x₀ + σ·ε
+            // Optional face region uses lower σ (regional strength).
             let noise = LatentOps.sampleNoiseLike(cleanPacked, seed: request.seed)
-            latents = LatentOps.scaleNoise(clean: cleanPacked, noise: noise, sigma: startSigma)
+            let globalNoisy = LatentOps.scaleNoise(
+                clean: cleanPacked, noise: noise, sigma: startSigma)
+            if identity.facePreserve,
+               let mask = faceMask,
+               identity.faceStrengthScale < 0.999
+            {
+                let faceSigma = startSigma * identity.faceStrengthScale
+                let faceNoisy = LatentOps.scaleNoise(
+                    clean: cleanPacked, noise: noise, sigma: faceSigma)
+                latents = LatentOps.regionalBlend(
+                    global: globalNoisy, local: faceNoisy, mask: mask)
+            } else {
+                latents = globalNoisy
+            }
             eval(latents)
 
+            // Keep a clean copy for reference-latent conditioning and clean-pull.
+            let refClean = cleanPacked
             let guidance: MLXArray? = nil
+            let useRef = identity.useReferenceLatents
+            let pullBase = identity.cleanPullAlpha
+            let pullDecay = identity.cleanPullDecay
 
             // --- Stage 2: DiT denoise (all steps of strength schedule) ---
             trace?.emit(.stageBegin("load_dit"))
@@ -453,15 +517,16 @@ public actor AestrixPipeline {
             trace?.emit(.stageEnd("load_dit"))
             trace?.emit(.memorySample(label: "after_load_dit"))
             do {
-                eval(imgIds, txtIds, promptEmbeds)
+                eval(fullImgIds, txtIds, promptEmbeds, refClean)
                 let rope = try orchestrator.dit.prepareRotaryEmbeddings(
-                    imgIds: imgIds, txtIds: txtIds)
+                    imgIds: fullImgIds, txtIds: txtIds)
                 let stepTimesteps: [MLXArray] = timesteps.map {
                     MLXArray([$0]).asType(.float32)
                 }
                 let stepDts = LatentOps.eulerDts(sigmas: sigmas)
                 eval(stepTimesteps)
-                let largeCanvas = max(canvas.width, canvas.height) >= 768
+                // Ref latents double image seq → treat as large canvas for cache discipline.
+                let largeCanvas = max(canvas.width, canvas.height) >= 768 || useRef
                 if largeCanvas {
                     Memory.cacheLimit = 256 * 1024 * 1024
                     Memory.clearCache()
@@ -475,27 +540,64 @@ public actor AestrixPipeline {
                             totalSteps: nSteps
                         ))
                     trace?.emit(.denoiseStepBegin(index: step, total: nSteps))
-                    let noisePred = try orchestrator.dit.forward(
-                        hiddenStates: latents,
+
+                    let hidden: MLXArray
+                    if useRef {
+                        hidden = LatentOps.concatImageAndReferences(
+                            denoise: latents, references: [refClean])
+                    } else {
+                        hidden = latents
+                    }
+
+                    let noisePredFull = try orchestrator.dit.forward(
+                        hiddenStates: hidden,
                         encoderHiddenStates: promptEmbeds,
                         timestep: stepTimesteps[step],
-                        imgIds: imgIds,
+                        imgIds: fullImgIds,
                         txtIds: txtIds,
                         guidance: guidance,
                         imageRotaryEmb: rope,
                         trace: trace,
                         stepIndex: step
                     )
+                    let noisePred = useRef
+                        ? LatentOps.sliceDenoisePrediction(
+                            noisePredFull, denoiseSeqLen: imageSeqLen)
+                        : noisePredFull
+
                     latents = LatentOps.eulerStep(
                         sample: latents,
                         modelOutput: noisePred,
                         dt: stepDts[step]
                     )
+
+                    // Soft pull toward clean identity on face (after Euler).
+                    if pullBase > 0, let mask = faceMask {
+                        let alpha = LatentOps.cleanPullAlpha(
+                            base: pullBase,
+                            step: step,
+                            totalSteps: nSteps,
+                            decay: pullDecay
+                        )
+                        if alpha > 1e-6 {
+                            latents = LatentOps.cleanPull(
+                                noisy: latents,
+                                clean: refClean,
+                                mask: mask,
+                                alpha: alpha
+                            )
+                        }
+                    }
+
                     eval(latents)
                     if largeCanvas {
                         Memory.clearCache()
                     }
                     trace?.emit(.denoiseStepEnd(index: step, total: nSteps))
+                }
+                // Face count only for diagnostics in traces (no numeric effect).
+                if faceCount > 0 {
+                    trace?.emit(.memorySample(label: "i2i_face_count_\(faceCount)"))
                 }
                 trace?.emit(.stageEnd("denoise"))
                 trace?.emit(.stageBegin("unload_dit"))

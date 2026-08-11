@@ -189,6 +189,39 @@ struct Flux2MathTests {
         #expect(high.startSigma >= startSigma - 1e-5)
     }
 
+    @Test("Identity schedule starts milder than color curve at same strength")
+    func identityVsColorSchedule() {
+        let s: Float = 0.8
+        #expect(StrengthScheduleCurve.colorEdit.startT(strength: s)
+            > StrengthScheduleCurve.identityPreserve.startT(strength: s) + 0.05)
+        #expect(abs(StrengthScheduleCurve.linear.startT(strength: s) - s) < 1e-5)
+
+        let color = Flux2Scheduler.strengthSchedule(
+            numInferenceSteps: 4, strength: s, imageSeqLen: 1024, curve: .colorEdit)
+        let id = Flux2Scheduler.strengthSchedule(
+            numInferenceSteps: 4, strength: s, imageSeqLen: 1024, curve: .identityPreserve)
+        #expect(color.startSigma > id.startSigma + 0.02)
+    }
+
+    @Test("grid ids honor tCoord for reference frames")
+    func gridIDsReferenceT() {
+        let ids = Flux2RoPE.prepareGridIDs(height: 1, width: 2, tCoord: 10)
+        #expect(ids.count == 2)
+        #expect(ids[0] == [10, 0, 0, 0])
+        #expect(ids[1] == [10, 0, 1, 0])
+    }
+
+    @Test("IdentityPreserveConfig preset enables Tier-B stack")
+    func identityPreset() {
+        #expect(!IdentityPreserveConfig.disabled.isActive)
+        let p = IdentityPreserveConfig.identityPreset
+        #expect(p.useReferenceLatents)
+        #expect(p.facePreserve)
+        #expect(p.cleanPullAlpha > 0)
+        #expect(p.scheduleCurve == .identityPreserve)
+        #expect(p.isActive)
+    }
+
     @Test("text ids use T,H,W,L with token on L axis")
     func textIDsLayout() {
         let ids = Flux2RoPE.prepareTextIDs(length: 3)

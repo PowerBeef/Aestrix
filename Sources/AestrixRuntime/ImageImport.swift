@@ -13,16 +13,7 @@ enum ImageImport {
         width: Int,
         height: Int
     ) throws -> MLXArray {
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            throw AestrixError.imageLoadFailed(path: url.path, reason: "file not found")
-        }
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil)
-        else {
-            throw AestrixError.imageLoadFailed(path: url.path, reason: "not a decodable image")
-        }
-
-        let target = try resizeAndCrop(cgImage, width: width, height: height)
+        let target = try loadCGImage(url: url, width: width, height: height)
         let w = target.width
         let h = target.height
         let bytesPerRow = w * 4
@@ -56,6 +47,19 @@ enum ImageImport {
             }
         }
         return MLXArray(floats).reshaped([1, 3, h, w])
+    }
+
+    /// Same canvas geometry as ``loadNCHW`` (cover-scale + center crop), as `CGImage`.
+    static func loadCGImage(url: URL, width: Int, height: Int) throws -> CGImage {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw AestrixError.imageLoadFailed(path: url.path, reason: "file not found")
+        }
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else {
+            throw AestrixError.imageLoadFailed(path: url.path, reason: "not a decodable image")
+        }
+        return try resizeAndCrop(cgImage, width: width, height: height)
     }
 
     /// Snap dimensions down to multiple of 16 (VAE×patch).

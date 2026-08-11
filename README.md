@@ -15,7 +15,7 @@ prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► u
 |--|--|
 | **Model** | FLUX.2-klein-4B only (Apache-2.0) — not 9B / Dev |
 | **Text-to-image** | Distilled defaults: **1024²**, 4 steps, guidance 1.0 |
-| **Image-to-image** | Strength-based edits (encode → re-noise → denoise) |
+| **Image-to-image** | Strength edits + optional **identity** stack (ref latents, face mask, clean-pull) |
 | **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; **MLX Steel fused FA** (simdgroup MMA); **tiled VAE** (overlap + cosine blend) |
 | **Weights** | Hub 4-bit packs only — no bf16 product path |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
@@ -86,6 +86,12 @@ Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co
   "the same scene at blue hour, cooler tones" \
   --image out.png --strength 0.8 --seed 7 --output edit.png
 
+# Identity-preserving edit (Tier B: ref latents + face mask + milder schedule)
+# Prefer strength ≥ 0.85–0.9 for wardrobe/scene changes; say what stays and what changes
+.build/release/aestrix i2i \
+  "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
+  --image portrait.png --strength 0.9 --identity --seed 7 --output edit-id.png
+
 # Generate + quality report + vision checklist
 .build/release/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
   --output out.png --analyze --vision-brief
@@ -119,7 +125,7 @@ swift test
 |---------|-------------|
 | `aestrix info` | Tier, memory policy, snapshot path |
 | `aestrix t2i <prompt>` | Text-to-image (default **1024²**) |
-| `aestrix i2i <prompt> --image PATH` | Strength-based image-to-image |
+| `aestrix i2i <prompt> --image PATH` | Strength I2I; `--identity` for ref latents + face preserve |
 | `aestrix analyze-image PATH` | Pixel quality / accuracy report |
 | `aestrix bench` | Performance + pressure harness |
 | `aestrix bench-compare A B` | Compare two bench JSON reports |
@@ -128,6 +134,7 @@ swift test
 | `aestrix schedule` | Print flow-match sigmas / timesteps |
 
 Useful flags: `--width` `--height` `--steps` `--seed` `--output` `--analyze` `--vision-brief` `--fail-on-pixel-gate`  
+I2I identity: `--identity` `--ref-latents` `--face-preserve` `--face-strength-scale` `--clean-pull` `--schedule color|identity|linear`  
 Bench: `--mode pressure-map|dit-one-step|res-ladder` `--probe-density off|stages|denoise|blocks|max` `--attn-backend mlx|metal-fa|auto`
 
 Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md)
@@ -140,7 +147,7 @@ Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Do
 | `AestrixText` | Qwen3 3-layer-tap encoder + tokenizer |
 | `AestrixDiT` | FLUX.2 MMDiT (checkpointed blocks, **Steel fused FA**, `AttentionTuning`) |
 | `AestrixVAE` | Encode / decode-only load / **tiled cosine-blend** large decode |
-| `AestrixRuntime` | Staged pipeline actor |
+| `AestrixRuntime` | Staged pipeline actor; I2I + identity preserve (Vision face mask) |
 | `AestrixEval` | Image quality harness (no Metal) |
 | `AestrixBench` | Multi-trial metrics, pressure reports |
 | `aestrix` | CLI |
@@ -168,19 +175,20 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 
 | Area | State |
 |------|--------|
-| macOS library + CLI | **Working** (T2I, I2I, eval) |
+| macOS library + CLI | **Working** (T2I, I2I, identity I2I, eval) |
 | 4-bit staged load | **Working** |
 | 1024² on 8 GB class Macs | **Working** (~94 s e2e; Steel FA + tiled VAE) |
+| Identity I2I (Tier B) | **Working** (`--identity`: ref latents + face mask + clean-pull) |
 | Performance harness | **Working** (`bench`, pressure-map, ladder, attn backends) |
 | MLX Steel fused FA | **Working** (product default for D=128) |
 | iOS host | **Parked** — [Docs/ROADMAP.md](Docs/ROADMAP.md) |
-| Multi-reference / CFG / LoRA | Out of v1 (tracked on roadmap) |
+| Multi-reference (>1) / CFG / LoRA | Out of v1 (tracked on roadmap) |
 
 ## Documentation
 
 | Doc | Topic |
 |-----|--------|
-| [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | Product locks & agent conventions |
+| [AGENTS.md](AGENTS.md) | Product locks & agent conventions |
 | [Docs/ROADMAP.md](Docs/ROADMAP.md) | Done vs parked backlog |
 | [Docs/PERF.md](Docs/PERF.md) | Benchmarks, pressure probes, 1024 path |
 | [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |

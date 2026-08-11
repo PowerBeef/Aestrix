@@ -30,6 +30,14 @@ Prompt style: state **what changes** and **what stays**.
 2. Transform to golden hour lighting with warm tones and long shadows, maintaining the exact composition and photorealistic style.  
 3. Convert this photograph to a detailed pencil sketch with careful shading, keeping composition identical.
 
+## I2I identity (Tier B — `--identity`)
+
+Use for people/character consistency. Prefer **strength ≥ 0.85–0.9**. Be explicit about face/pose vs wardrobe/scene.
+
+1. **Recolor only:** Same person, exact face and pose. Keep the exact same silk blouse cut, collar, and draping; change only the fabric color to deep emerald green #0B5F4B. Warm golden-hour window light.  
+2. **Wardrobe + light:** Same woman, identical face shape, eyes, brows, nose, lips, freckles, hairstyle, head angle and camera framing. Outdoor Mediterranean balcony at golden hour, warm side light from the left, deep emerald green silk top. Photoreal portrait, neutral expression.  
+3. **New outfit (explicit):** Same person, exact face and pose. Replace the ivory blouse with a different deep emerald green silk wrap top (new neckline and cut). Golden hour outdoor balcony.
+
 ## Seeds
 
 Use fixed seeds (`42`, `0`, `7`) for regression comparisons across quant tiers.

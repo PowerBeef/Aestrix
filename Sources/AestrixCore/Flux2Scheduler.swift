@@ -122,21 +122,19 @@ public struct Flux2Scheduler: Sendable {
 
     /// Build an I2I Euler schedule that always uses **all** `numInferenceSteps` steps.
     ///
-    /// - Maps strength → starting noise with a mild curve (mid strengths denoise harder;
-    ///   needed for color changes on 4-step distilled Klein).
+    /// - Maps strength → starting noise via ``StrengthScheduleCurve`` (default `.colorEdit`
+    ///   pushes mid-range upward for color edits on 4-step distilled Klein).
     /// - Base times: `linspace(startT, 1/N, N)` then the same exponential μ shift as T2I.
     /// - Returns sigmas with terminal 0, and timesteps = pre-terminal × 1000.
     public static func strengthSchedule(
         numInferenceSteps: Int,
         strength: Float,
         imageSeqLen: Int,
-        numTrainTimesteps: Int = ModelConstants.numTrainTimesteps
+        numTrainTimesteps: Int = ModelConstants.numTrainTimesteps,
+        curve: StrengthScheduleCurve = .colorEdit
     ) -> (sigmas: [Float], timesteps: [Float], startSigma: Float) {
         precondition(numInferenceSteps >= 1)
-        let s = max(0.05, min(1.0, strength))
-        // Curve: push mid-range upward so 0.65 ≈ 0.88 noise, 0.7 ≈ 0.91 (color edits).
-        // f(s) = 1 - (1-s)^1.5  keeps f(1)=1, f(0)=0, concave-down.
-        let startT = 1 - pow(1 - s, 1.5)
+        let startT = curve.startT(strength: strength)
         let endT = 1.0 / Float(numInferenceSteps)
 
         var base: [Float] = []

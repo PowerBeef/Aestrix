@@ -1,6 +1,6 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-11  
+**Last updated:** 2026-08-11 (P6c identity I2I)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.
 
@@ -18,6 +18,7 @@
 | P5 | Staged T2I | `AestrixPipeline.generate`, `aestrix t2i` |
 | P6 | Strength I2I (full N-step strength schedule) | `AestrixPipeline.edit`, `aestrix i2i` |
 | P6b | Pixel + vision eval workflow | `AestrixEval`, `Docs/EVAL_WORKFLOW.md`, `--analyze` |
+| P6c | Tier-B identity I2I | Ref latents (t=10), face mask, clean-pull, schedule curves; `--identity` |
 
 **Resume baseline (macOS):**
 
@@ -139,7 +140,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | Item | Why deferred | Notes if resumed |
 |------|--------------|------------------|
 | Klein 9B / FLUX.2 Dev | Non-Commercial / size | Different product locks |
-| Multi-reference edit | Scope | Diffusers-style token concat; higher peak RAM |
+| Multi-reference edit (>1 image) | Scope | Single-ref latents shipped (P6c); multi-ref still higher peak RAM |
 | CFG / negative prompts | Distilled klein defaults | Not used on 4-step path |
 | LoRA training / load | Scope | Separate product surface |
 | User-facing bf16 | Product lock | Maintainer-only tools only |
@@ -167,4 +168,5 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08 | Klein 4B only (Apache-2.0) |
 | 2026-08 | I2I uses full N-step strength schedule (not truncated T2I slice) |
 | 2026-08 | Gen quality = pixel harness + vision checklist (`EVAL_WORKFLOW.md`) |
+| 2026-08 | Tier-B identity I2I: single-ref latents + face mask + clean-pull + schedule curves |
 | 2026-08 | Park remaining work; macOS CLI is current focus surface |

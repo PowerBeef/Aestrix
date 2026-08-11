@@ -128,16 +128,22 @@ Requires Metal metallib for real load (same as DiT).
 
 Text RoPE ids: `[0,0,0,token_i]` (diffusers `_prepare_text_ids`). Distilled path: **no CFG**, guidance `nil`.
 
-## Phase 6 Strength I2I
+## Phase 6 Strength I2I (+ Tier B identity)
 
 | Type | Role |
 |------|------|
-| `ImageImport` | Disk image → NCHW `[-1,1]`, align to 16, cover-crop |
+| `ImageImport` | Disk image → NCHW `[-1,1]`, align to 16, cover-crop; `loadCGImage` for Vision |
 | `Flux2VAE.encodePackedForDiT` | Encode → patchify → BN normalize (inverse of decodePacked) |
-| `Flux2Scheduler.startStep` | Map strength ∈ (0,1] → schedule index |
+| `Flux2Scheduler.strengthSchedule` | Full N-step schedule; `StrengthScheduleCurve` (color / identity / linear) |
 | `LatentOps.scaleNoise` | `(1−σ)·x₀ + σ·ε` at start sigma |
-| `AestrixPipeline.edit` | VAE encode → TE → DiT (from startStep) → VAE decode |
-| `aestrix i2i` | CLI: `--image`, `--strength`, `--output`, … |
+| `LatentOps` ref helpers | `referenceImageIds` (`t=10…`), concat denoise+refs, slice pred, clean-pull |
+| `FaceIdentityMask` | Vision face rect → soft packed mask for regional σ + pull |
+| `IdentityPreserveConfig` | Tier-B knobs; `.identityPreset` / `.disabled` |
+| `AestrixPipeline.edit` | VAE encode → TE → DiT (strength + optional ref tokens) → VAE decode |
+| `aestrix i2i` | `--image`, `--strength`, `--identity`, `--ref-latents`, `--face-preserve`, … |
+
+**Default path:** strength-only (color curve).  
+**Identity path (`--identity`):** clean reference latents concatenated into DiT (`t=10` RoPE), face-regional start-σ, post-Euler clean-latent pull, milder schedule. Prefer strength **≥ 0.85** for wardrobe/scene changes. Multi-reference (>1 image) remains out of v1.
 
 Memory order: **VAE encode unload → TE unload → DiT unload → VAE decode unload**.
 

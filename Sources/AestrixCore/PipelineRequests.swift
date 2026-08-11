@@ -41,6 +41,8 @@ public struct I2IRequest: Sendable {
     public var guidance: Float
     public var seed: UInt64?
     public var outputURL: URL?
+    /// Tier-B identity stack (reference latents, face mask, schedule curve). Default off.
+    public var identity: IdentityPreserveConfig
 
     public init(
         prompt: String,
@@ -51,7 +53,8 @@ public struct I2IRequest: Sendable {
         steps: Int = 4,
         guidance: Float = 1.0,
         seed: UInt64? = nil,
-        outputURL: URL? = nil
+        outputURL: URL? = nil,
+        identity: IdentityPreserveConfig = .disabled
     ) {
         self.prompt = prompt
         self.imageURL = imageURL
@@ -62,6 +65,7 @@ public struct I2IRequest: Sendable {
         self.guidance = guidance
         self.seed = seed
         self.outputURL = outputURL
+        self.identity = identity
     }
 }
 

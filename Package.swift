@@ -76,6 +76,9 @@ let package = Package(
                 "AestrixDiT",
                 "AestrixVAE",
                 .product(name: "MLX", package: "mlx-swift"),
+            ],
+            linkerSettings: [
+                .linkedFramework("Vision"),
             ]
         ),
         .target(

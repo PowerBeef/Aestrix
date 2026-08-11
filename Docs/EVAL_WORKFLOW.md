@@ -54,7 +54,28 @@ swift build && ./Scripts/ensure-metallib.sh
   --strength 0.8 --steps 4 --seed 7 \
   --output /tmp/aestrix_edit.png \
   --analyze --vision-brief
+
+# People / character consistency (Tier B identity stack)
+.build/debug/aestrix i2i \
+  "Same person, identical face and pose; golden hour outdoor balcony, emerald silk top" \
+  --image /path/to/portrait.png \
+  --strength 0.9 --identity --seed 7 \
+  --output /tmp/aestrix_edit_id.png \
+  --analyze --vision-brief
 ```
+
+**Identity flags** (`aestrix i2i`):
+
+| Flag | Effect |
+|------|--------|
+| `--identity` | Full preset: ref latents + face mask + clean-pull 0.2 + `identity` schedule |
+| `--ref-latents` | DiT attends to clean reference tokens (`t=10` RoPE) |
+| `--face-preserve` | Vision soft face mask for regional σ + pull |
+| `--face-strength-scale F` | Face start-σ = global × F (default 0.5) |
+| `--clean-pull A` | Blend clean latent into face after each step |
+| `--schedule color\|identity\|linear` | Strength → start-noise curve |
+
+Tip: with `--identity`, use **strength ≥ 0.85–0.9** for wardrobe/scene changes; lower strength locks the source too hard. Match canvas to the reference (omit `--width`/`--height` or set native size) so 1024 sources are not downscaled to 512.
 
 ### Sidecar files (next to the PNG)
 

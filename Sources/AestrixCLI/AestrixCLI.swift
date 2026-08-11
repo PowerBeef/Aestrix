@@ -415,7 +415,7 @@ struct T2I: AsyncParsableCommand {
 struct I2I: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "i2i",
-        abstract: "Staged strength I2I: VAE encode → TE → DiT (from strength) → VAE decode → PNG."
+        abstract: "Staged I2I: VAE encode → TE → DiT → VAE decode. Optional Tier-B identity (ref latents, face mask)."
     )
 
     @Argument(help: "Edit prompt (describe the desired change).")
@@ -435,6 +435,24 @@ struct I2I: AsyncParsableCommand {
     var weights: String = "4bit"
     @Option(name: .long, help: "Output PNG path")
     var output: String?
+
+    @Flag(name: .long, help: "Full Tier-B identity preset: ref latents + face preserve + identity schedule + clean pull.")
+    var identity: Bool = false
+
+    @Flag(name: .long, help: "Concatenate clean reference latents into DiT (t=10 RoPE). Implies identity stack piece.")
+    var refLatents: Bool = false
+
+    @Flag(name: .long, help: "Vision face mask for regional strength + clean pull.")
+    var facePreserve: Bool = false
+
+    @Option(name: .long, help: "Face region σ scale vs global start σ (0…1]. Lower = more face lock (default 0.45 with --identity).")
+    var faceStrengthScale: Float?
+
+    @Option(name: .long, help: "Clean-latent pull α on face after each step (0=off; default 0.2 with --identity).")
+    var cleanPull: Float?
+
+    @Option(name: .long, help: "Strength curve: color (default) | identity | linear")
+    var schedule: String?
 
     @Flag(name: .long, help: "After write: run pixel eval + print report (writes sidecar .eval.json).")
     var analyze: Bool = false
@@ -456,6 +474,31 @@ struct I2I: AsyncParsableCommand {
         if strength <= 0 || strength > 1 {
             throw ValidationError("strength must be in (0, 1], got \(strength)")
         }
+
+        var idCfg = identity ? IdentityPreserveConfig.identityPreset : .disabled
+        if refLatents { idCfg.useReferenceLatents = true }
+        if facePreserve { idCfg.facePreserve = true }
+        if let fss = faceStrengthScale {
+            if fss < 0 || fss > 1 {
+                throw ValidationError("face-strength-scale must be in [0, 1], got \(fss)")
+            }
+            idCfg.faceStrengthScale = fss
+            idCfg.facePreserve = true
+        }
+        if let cp = cleanPull {
+            if cp < 0 || cp > 1 {
+                throw ValidationError("clean-pull must be in [0, 1], got \(cp)")
+            }
+            idCfg.cleanPullAlpha = cp
+            if cp > 0 { idCfg.facePreserve = true }
+        }
+        if let sched = schedule {
+            guard let curve = StrengthScheduleCurve(rawValue: sched) else {
+                throw ValidationError("Unknown schedule '\(sched)'; use color|identity|linear")
+            }
+            idCfg.scheduleCurve = curve
+        }
+
         var config = AestrixConfig.autoDetectingTier()
         config.weightPreset = preset
         config.modelID = preset.defaultModelID
@@ -476,10 +519,17 @@ struct I2I: AsyncParsableCommand {
             steps: steps,
             guidance: 1.0,
             seed: seed,
-            outputURL: output.map { URL(fileURLWithPath: $0) }
+            outputURL: output.map { URL(fileURLWithPath: $0) },
+            identity: idCfg
         )
+        let idParts: [String] = [
+            idCfg.useReferenceLatents ? "ref-latents" : nil,
+            idCfg.facePreserve ? "face" : nil,
+            idCfg.cleanPullAlpha > 0 ? String(format: "pull=%.2f", idCfg.cleanPullAlpha) : nil,
+            "sched=\(idCfg.scheduleCurve.rawValue)",
+        ].compactMap { $0 }
         print(
-            "i2i image=\(image) strength=\(strength) steps=\(steps) seed=\(seed.map(String.init) ?? "random")"
+            "i2i image=\(image) strength=\(strength) steps=\(steps) seed=\(seed.map(String.init) ?? "random") identity=[\(idParts.joined(separator: ","))]"
         )
         do {
             let url = try await pipeline.edit(request) { progress in
