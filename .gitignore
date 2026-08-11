@@ -1,0 +1,29 @@
+.DS_Store
+.build/
+.swiftpm/
+# Full MLX Metal library (~130MB). Generate: Scripts/ensure-metallib.sh
+# A tiny stub is committed under Sources/AestrixCLI/Resources/ for SPM package resources.
+Tools/Metal/mlx.metallib
+Tools/Metal/mlx.metallib.stub
+*.xcodeproj
+xcuserdata/
+DerivedData/
+.idea/
+*.pyc
+__pycache__/
+.venv/
+venv/
+# Model weight caches (download separately)
+models/
+*.safetensors
+# Local agent noise
+.claude/settings.local.json
+.claude/
+
+# Generated samples / local artifacts (do not ship)
+outputs/
+*.png
+!Docs/**/*.png
+# Keep metallib build recipe only
+Tools/Metal/*.air
+Tools/Metal/*.metallib

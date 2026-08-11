@@ -1,0 +1,33 @@
+{
+  "mode": "i2i",
+  "image_path": "/tmp/aestrix_edit.png",
+  "reference_path": "/tmp/aestrix_source.png",
+  "prompt": "a solid cobalt blue ceramic mug on a wooden table",
+  "caption": "A cobalt-blue single-handle ceramic mug on a wooden table by a bright window.",
+  "answers": {
+    "subject": "Ceramic mug — matches prompt.",
+    "color": "Subject is clearly blue/cobalt; table is warm wood (not subject color).",
+    "lighting": "Soft window light from behind; coherent.",
+    "artifacts": "None obvious; clean silhouette and glaze.",
+    "composition": "Centered product framing; intentional shallow DOF.",
+    "text": "N/A",
+    "anatomy": "N/A",
+    "photoreal": "Glaze and wood grain look plausible.",
+    "identity": "Same setting as reference; handle count/shape changed with the edit.",
+    "edit_applied": "Yes — source was red dual-handle; result is blue single-handle."
+  },
+  "findings": [
+    {
+      "severity": "info",
+      "code": "vision_color_ok",
+      "message": "Subject glaze is blue despite wood-dominated background."
+    },
+    {
+      "severity": "info",
+      "code": "vision_edit_applied",
+      "message": "Color and form changed relative to reference; not a no-op."
+    }
+  ],
+  "vision_score": 88,
+  "verdict": "pass — blue product edit clear; layout family preserved"
+}
