@@ -110,11 +110,15 @@ swift build && ./Scripts/ensure-metallib.sh
 
 | Code | Meaning | Typical fix |
 |------|---------|-------------|
-| `color_mismatch` | Prompt color not found in hues | Raise I2I `--strength`, clearer color words |
+| `color_mismatch` | Prompt color not found (fail if single color; **warn** if multi-color) | Raise I2I `--strength`, clearer color words; multi-color → vision |
+| `possible_tile_seam` | High midline discontinuity on ≥768 canvas | Inspect flat regions; VAE tile blend |
+| `vae_tile_expected` | Info: large canvas likely tiled decode | Check `tile_seam_score` |
 | `soft_focus` | Very low Laplacian variance | Confirm blur; steps/weights |
 | `highlight_clip` | Blown whites | Softer lighting in prompt |
 | `high_structure_fidelity` | I2I ≈ reference | Strength too low for the edit |
 | `low_structure_fidelity` | Large change vs ref | Expected at high strength |
+
+**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Cosine **tiled VAE** (≥768) is covered by `expects_vae_tiling` + seam metrics (schema **1.2**).
 
 ### Phase B — Vision review (multimodal agent)
 

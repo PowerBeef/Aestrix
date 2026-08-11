@@ -72,7 +72,33 @@ struct ImageAnalyzerTests {
         let report = try ImageAnalyzer.analyze(imageURL: url, options: .init(prompt: "green leaf"))
         let s = try ImageAnalysisReportBuilder.jsonString(report)
         #expect(s.contains("technical_score") || s.contains("technicalScore") || s.contains("overall"))
+        #expect(s.contains("tile_seam") || s.contains("tileSeam") || s.contains("expects_vae"))
         #expect(!s.isEmpty)
+    }
+
+    @Test func largeCanvasExpectsVAETilingAndReportsSeamFields() throws {
+        // 768+ triggers expectsVAETiling (Aestrix auto-tiles decode).
+        let url = try writeSolidPNG(r: 40, g: 80, b: 160, name: "large_blue", side: 800)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let report = try ImageAnalyzer.analyze(imageURL: url, options: .init(prompt: "blue"))
+        #expect(report.technical.expectsVAETiling == true)
+        #expect(report.technical.tileSeamScore >= 0)
+        #expect(report.findings.contains { $0.code == "vae_tile_expected" || $0.code == "possible_tile_seam" })
+    }
+
+    @Test func multiColorPromptMismatchIsWarnNotFail() throws {
+        // Solid red image vs multi-color prompt that does not include red.
+        let url = try writeSolidPNG(r: 200, g: 30, b: 30, name: "multi_red")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let report = try ImageAnalyzer.analyze(
+            imageURL: url,
+            options: .init(prompt: "a blue bowl and a green table with purple flowers")
+        )
+        #expect(report.promptAlignment.colorMatch == false)
+        #expect(report.promptAlignment.requestedColors.count > 1)
+        let mm = report.findings.first { $0.code == "color_mismatch" }
+        #expect(mm != nil)
+        #expect(mm?.severity == .warn)
     }
 
     @Test func mergingVisionRaisesOverallWhenVisionStrong() throws {
@@ -103,8 +129,8 @@ struct ImageAnalyzerTests {
 
     // MARK: - Helpers
 
-    private func writeSolidPNG(r: UInt8, g: UInt8, b: UInt8, name: String) throws -> URL {
-        let w = 64, h = 64
+    private func writeSolidPNG(r: UInt8, g: UInt8, b: UInt8, name: String, side: Int = 64) throws -> URL {
+        let w = side, h = side
         var rgba = [UInt8](repeating: 255, count: w * h * 4)
         for i in 0 ..< (w * h) {
             rgba[i * 4] = r

@@ -7,6 +7,10 @@
 
 **Multimodal agents** should **supplement** pixel metrics: open the PNG, answer the vision checklist, merge into the report.
 
+Schema version: **1.2** (tile-seam + VAE-tiling expectation).
+
+---
+
 ## CLI
 
 ```bash
@@ -31,8 +35,10 @@ Exit codes:
 | Code | Meaning |
 |------|---------|
 | 0 | OK (no `fail` findings) |
-| 2 | Hard failure (e.g. `color_mismatch`) |
+| 2 | Hard failure (e.g. single-color `color_mismatch`) |
 | 1 | Load/analysis error |
+
+---
 
 ## Metrics
 
@@ -46,9 +52,12 @@ Exit codes:
 | `clip_black_fraction` / `clip_white_fraction` | Crushed shadows / blown highlights |
 | `mean_saturation` | HSV saturation average |
 | `dominant_hue` + fraction | Coarse color bucket |
+| `hue_weights` / `top_chromatic_hues` | Center-weighted chromatic mass |
 | `noise_proxy` | High-frequency residual after blur |
 | `luminance_entropy` | Histogram richness |
-| `technical_score` | 0–100 composite |
+| `expects_vae_tiling` | `true` when max(side) ≥ 768 (Aestrix auto-tiles decode) |
+| `tile_seam_score` / `_vertical` / `_horizontal` | Midline discontinuity / mean gradient (clean often &lt;2.5) |
+| `technical_score` | 0–100 composite (includes mild seam penalty when tiling expected) |
 
 ### Reference (I2I / gold)
 
@@ -63,10 +72,78 @@ Exit codes:
 
 ### Prompt alignment (heuristic, not a VLM)
 
-- Extracts **color words** (blue/cobalt/red/…) and compares to dominant hue  
+- Extracts **color words** (blue/cobalt/red/…) and compares to dominant / chromatic hues  
 - Prompt length style vs BFL klein narrative guidance  
 - Flags unverifiable terms (`hands`, `text`, `logo`, …) for human/VLM review  
+- **Single-color miss → `fail`**; **multi-color miss → `warn`** (false positives common)  
 - **Does not** claim full prompt adherence — only cheap signals agents can act on  
+
+### Findings codes (selected)
+
+| Code | Severity | Notes |
+|------|----------|--------|
+| `color_mismatch` | fail or warn | Fail if one color intent; warn if multi-color |
+| `possible_tile_seam` | warn | seam_score &gt; 3 on ≥768 canvas |
+| `vae_tile_expected` | info | ≥768 canvas; report seam_score |
+| `soft_focus` / `highlight_clip` / `low_contrast` | warn | Technical gates |
+| `high_structure_fidelity` / `low_structure_fidelity` | info | I2I SSIM vs reference |
+| `needs_visual_review` | info | Prompt mentions text/hands/… |
+
+---
+
+## Backend alignment (runtime vs eval)
+
+| Runtime (Aestrix generate) | Eval harness impact |
+|----------------------------|---------------------|
+| **1024² default** | `maxAnalysisSide` default **1024** — full-res analysis for default canvas |
+| **Steel fused FA** (DiT) | Does **not** change PNG path; no metric change required |
+| **VAE cosine-tiled decode** (spatial ≥ 96 ≈ **768 px**) | **`expects_vae_tiling` + `tile_seam_*`** detect hard seams |
+| **Decode-only VAE** | N/A to PNG metrics |
+| **f16 QKV long seq** | Quality via vision / technical; no direct metric |
+| Bench `--with-quality` | Still uses `technical_score` + `color_match` only |
+
+Pixel eval is **intentionally independent of MLX** so CI/agents work without weights. It scores **output PNGs**, not intermediate latents.
+
+---
+
+## Research notes: improving the harness (2026-08)
+
+### What industry uses (T2I)
+
+| Family | Examples | Role | Fit for Aestrix |
+|--------|----------|------|-----------------|
+| Distribution | FID, KID, Precision/Recall | Dataset vs real | Needs many gens + ref set; heavy for local CLI |
+| Prompt alignment | **CLIPScore**, BLIP | Image–text cosine | Best automated next step (Core ML / MLX CLIP optional) |
+| Human preference | **ImageReward**, HPSv2/v3, VisionReward, DreamSim | RLHF-style rankers | Strong correlation with humans; Python/weights heavy |
+| Full-ref I2I | **LPIPS**, SSIM, PSNR | Identity / edit | We have SSIM/PSNR; **LPIPS** would beat SSIM for perception |
+| No-ref quality | Aesthetic predictors, BRISQUE-class | Beauty / artifacts | Optional; biases toward “vivid” aesthetics |
+| Composition / identity | DINOv2, IRF | Subject consistency | Edit / multi-ref later |
+
+Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objective-metrics-for-image-generation-assessment), [Awesome Evaluation of Visual Generation](https://github.com/ziqihuangg/Awesome-Evaluation-of-Visual-Generation), ImageReward / HPSv2 literature, SHINE/ComplexCompo (DINOv2 + DreamSim + ImageReward).
+
+### Gaps in current harness
+
+1. **No CLIPScore** — color words only; cannot score “fisherman at helm” vs wrong scene.  
+2. **No LPIPS** — I2I fidelity over-relies on SSIM (identity, not “good edit”).  
+3. **No human-preference model** — `technical_score` ≠ aesthetics or prompt adherence.  
+4. **Vision layer is agent-manual** — not automated; CI stays pixel-only (by design).  
+5. **Color gate false positives** — multi-object multi-color scenes; mitigated (warn) but not solved.  
+6. **No regression gold set** — roadmap: golden metric floors in CI.  
+7. **Tile seams** — now instrumented; was a blind spot after cosine VAE tiles.  
+
+### Recommended roadmap (priority)
+
+| P | Item | Effort | Notes |
+|---|------|--------|--------|
+| P0 | **Tile-seam metric + VAE-tile findings** | Done (1.2) | Aligns with tiled decode |
+| P1 | **CLIPScore optional** (Core ML / MLX CLIP) | Medium | Gate only when model present; keep no-dep default |
+| P1 | **Golden PNG floors** in CI | Low | Fixed seeds from `Docs/eval-prompts.md` |
+| P2 | **LPIPS** for I2I (or AlexNet features) | Medium | Better than SSIM for “perceptual same” |
+| P2 | **Strength-aware I2I gates** | Low | Expect SSIM↓ when strength ≥ 0.75 and color edit |
+| P3 | ImageReward / HPS offline batch | High | Python sidecar, not in-process |
+| P3 | Automated VLM (Foundation Models) | High | On-device caption / checklist |
+
+---
 
 ## Agent workflow
 
@@ -74,6 +151,7 @@ Exit codes:
 2. Analyze: `aestrix analyze-image … --json /tmp/report.json`  
 3. Read findings: severity `fail` / `warn` / `info` + `code`  
 4. Act: e.g. `color_mismatch` → increase I2I `--strength`, clarify color in prompt, re-run  
+5. Vision: open PNG with checklist from `VisionReview`  
 
 Example gate:
 
@@ -100,18 +178,7 @@ let json = try ImageAnalysisReportBuilder.jsonString(report)
 ```swift
 let pixel = try ImageAnalyzer.analyze(imageURL: out, options: .init(prompt: p, referenceURL: ref))
 print(VisionReview.agentBrief(report: pixel, mode: .i2i))
-// Agent: read_file(out) + read_file(ref) with vision, fill Assessment
-let assessment = VisionReview.Assessment(
-    mode: .i2i,
-    imagePath: out.path,
-    referencePath: ref?.path,
-    prompt: p,
-    caption: "…",
-    answers: ["subject": "yes", "color": "blue mug", "edit_applied": "yes", …],
-    findings: [.init(severity: .info, code: "vision_ok", message: "…")],
-    visionScore: 88,
-    verdict: "pass — blue glaze edit clear, layout preserved"
-)
+// Agent: open images with vision, fill Assessment, merge
 let combined = ImageAnalysisReportBuilder.mergingVision(pixel, assessment)
 // combined.overallScore blends 45% pixel + 55% vision
 ```
@@ -122,5 +189,6 @@ Checklist IDs: `subject`, `color`, `lighting`, `artifacts`, `composition`, `text
 
 - Pixel layer is not a substitute for vision on text/hands/aesthetics  
 - SSIM/fidelity measure **identity**, not “good edit” — high strength I2I can correctly lower SSIM  
-- Color heuristics use chromatic + center weighting; still verify with vision  
-- Always open the image when claiming generation quality 
+- Color heuristics use chromatic + center weighting; multi-color prompts demoted to warn  
+- Tile-seam score is a **heuristic** (midline jumps); confirm with vision on flat regions  
+- Always open the image when claiming generation quality  

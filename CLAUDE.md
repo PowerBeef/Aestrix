@@ -50,7 +50,9 @@ Full tables and opt history: `Docs/PERF.md`.
 ## Agent workflow
 
 - Product/prompting → skill `flux-best-practices` (project `.grok/skills/`)  
-- After generation quality claims → `Docs/EVAL_WORKFLOW.md` + vision  
+- After generation quality claims → `Docs/EVAL_WORKFLOW.md` + vision + `Docs/IMAGE_ANALYSIS.md`  
+  - Pixel: sharpness, clip, hue, **tile seams** (≥768), SSIM (I2I)  
+  - Vision checklist still required for subject/text/hands  
 - After perf claims → `bench` / `bench-compare` + update `Docs/PERF.md`  
 - Process: fix broken foundation before stacking the next phase  
 

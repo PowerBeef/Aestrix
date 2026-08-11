@@ -32,7 +32,8 @@ public struct ImageAnalysisReport: Sendable, Codable, Equatable {
 }
 
 public enum ImageAnalysisReportBuilder {
-    public static let schemaVersion = "1.1"
+    /// Schema 1.2: tile-seam metrics + VAE-tiling expectation (backend-aligned).
+    public static let schemaVersion = "1.2"
 
     public static func build(
         imagePath: String,
@@ -52,6 +53,24 @@ public enum ImageAnalysisReportBuilder {
                 message: String(
                     format: "Low sharpness (laplacian var=%.1f). Image may be blurry or over-smoothed.",
                     technical.sharpnessLaplacianVar
+                )
+            ))
+        }
+        // Aestrix VAE auto-tiles when unpatchified spatial ≥ 96 (~768 px). Flag hard seams.
+        if technical.expectsVAETiling, technical.tileSeamScore > 3.0 {
+            findings.append(.init(
+                severity: .warn, code: "possible_tile_seam",
+                message: String(
+                    format: "Elevated tile-seam score=%.2f (V=%.2f H=%.2f) on ≥768 canvas — check cosine VAE blend / hard 2×2 seams.",
+                    technical.tileSeamScore, technical.tileSeamVertical, technical.tileSeamHorizontal
+                )
+            ))
+        } else if technical.expectsVAETiling {
+            findings.append(.init(
+                severity: .info, code: "vae_tile_expected",
+                message: String(
+                    format: "Canvas %dx%d likely used tiled VAE decode; seam_score=%.2f (clean typically <2.5).",
+                    technical.width, technical.height, technical.tileSeamScore
                 )
             ))
         }
@@ -92,11 +111,13 @@ public enum ImageAnalysisReportBuilder {
             ))
         }
 
-        // Prompt color
+        // Prompt color — hard fail only for single-color intent (multi-color scenes often false-positive).
         if let match = promptAlignment.colorMatch, match == false {
+            let multi = promptAlignment.requestedColors.filter { $0 != "hex" && $0 != "neutral" }.count > 1
             findings.append(.init(
-                severity: .fail, code: "color_mismatch",
-                message: "Prompt colors \(promptAlignment.requestedColors) but dominant hue is '\(promptAlignment.imageDominantHue)'."
+                severity: multi ? .warn : .fail,
+                code: "color_mismatch",
+                message: "Prompt colors \(promptAlignment.requestedColors) not found (dominant='\(promptAlignment.imageDominantHue)'\(multi ? "; multi-color intent — verify with vision" : ""))."
             ))
         }
         if promptAlignment.colorMatch == true {
@@ -256,6 +277,12 @@ public enum ImageAnalysisReportBuilder {
             t.width, t.height, t.sharpnessLaplacianVar, t.stdLuminance, t.meanSaturation,
             t.luminanceEntropy, t.technicalScore
         ))
+        if t.expectsVAETiling {
+            lines.append(String(
+                format: "vae_tile: expected=yes  seam_score=%.2f  V=%.2f  H=%.2f",
+                t.tileSeamScore, t.tileSeamVertical, t.tileSeamHorizontal
+            ))
+        }
         lines.append(String(
             format: "mean_rgb=[%.3f, %.3f, %.3f]  hue=%@ (%.0f%%)  chromatic=%@  clip_black=%.2f%%  clip_white=%.2f%%",
             t.meanRGB[0], t.meanRGB[1], t.meanRGB[2],

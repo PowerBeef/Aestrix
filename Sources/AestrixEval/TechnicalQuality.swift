@@ -36,6 +36,15 @@ public enum TechnicalQuality {
         /// Shannon entropy of 64-bin luminance histogram (0–6-ish).
         public var luminanceEntropy: Float
 
+        /// True when max(side) ≥ 768 — Aestrix VAE tiles unpatchified latents at spatial ≥ 96 (~768 px).
+        public var expectsVAETiling: Bool
+        /// Peak midline discontinuity / global gradient (higher ⇒ more tile-seam-like). Typical clean <1.5.
+        public var tileSeamScore: Float
+        /// Strongest vertical seam (column discontinuity).
+        public var tileSeamVertical: Float
+        /// Strongest horizontal seam (row discontinuity).
+        public var tileSeamHorizontal: Float
+
         /// Composite 0…100 (heuristic).
         public var technicalScore: Float
     }
@@ -52,6 +61,8 @@ public enum TechnicalQuality {
         let hueStats = hueStatistics(pixels)
         let noise = noiseProxy(lum, width: pixels.width, height: pixels.height)
         let entropy = luminanceEntropy(lum)
+        let seams = tileSeamDiscontinuities(lum, width: pixels.width, height: pixels.height, meanGradient: grad)
+        let expectsTile = max(pixels.width, pixels.height) >= 768
 
         let score = compositeScore(
             sharp: sharp,
@@ -59,7 +70,8 @@ public enum TechnicalQuality {
             clipB: clipB,
             clipW: clipW,
             noise: noise,
-            entropy: entropy
+            entropy: entropy,
+            tileSeam: expectsTile ? seams.score : 0
         )
 
         return Metrics(
@@ -81,6 +93,10 @@ public enum TechnicalQuality {
             topChromaticHues: hueStats.topChromatic,
             noiseProxy: noise,
             luminanceEntropy: entropy,
+            expectsVAETiling: expectsTile,
+            tileSeamScore: seams.score,
+            tileSeamVertical: seams.vertical,
+            tileSeamHorizontal: seams.horizontal,
             technicalScore: score
         )
     }
@@ -272,13 +288,53 @@ public enum TechnicalQuality {
         return h
     }
 
+    /// Midline / third-line luminance jumps vs global gradient — catches hard VAE tile seams.
+    /// Score ≈ max(line discontinuity) / meanGradient (unitless). Clean images usually < 1.5–2.
+    private static func tileSeamDiscontinuities(
+        _ lum: [Float], width: Int, height: Int, meanGradient: Float
+    ) -> (vertical: Float, horizontal: Float, score: Float) {
+        guard width >= 32, height >= 32 else {
+            return (0, 0, 0)
+        }
+        let norm = max(meanGradient, 1e-4)
+        // Candidate vertical seams (columns): halves and thirds — matches 2×2 / multi-tile layouts.
+        let vCols = [width / 3, width / 2, (2 * width) / 3]
+        var bestV: Float = 0
+        for xc in vCols {
+            guard xc > 0, xc < width - 1 else { continue }
+            var acc: Float = 0
+            var c: Float = 0
+            for y in 0 ..< height {
+                let i = y * width + xc
+                acc += abs(lum[i] - lum[i - 1]) * 255
+                c += 1
+            }
+            if c > 0 { bestV = max(bestV, (acc / c) / norm) }
+        }
+        let hRows = [height / 3, height / 2, (2 * height) / 3]
+        var bestH: Float = 0
+        for yr in hRows {
+            guard yr > 0, yr < height - 1 else { continue }
+            var acc: Float = 0
+            var c: Float = 0
+            for x in 0 ..< width {
+                let i = yr * width + x
+                acc += abs(lum[i] - lum[i - width]) * 255
+                c += 1
+            }
+            if c > 0 { bestH = max(bestH, (acc / c) / norm) }
+        }
+        return (bestV, bestH, max(bestV, bestH))
+    }
+
     private static func compositeScore(
         sharp: Float,
         contrast: Float,
         clipB: Float,
         clipW: Float,
         noise: Float,
-        entropy: Float
+        entropy: Float,
+        tileSeam: Float
     ) -> Float {
         // Map features into 0…1 then weight.
         // Sharpness on 0–255 Laplacian variance scale (soft bokeh products often ~50–200).
@@ -287,13 +343,16 @@ public enum TechnicalQuality {
         let clipPenalty = min(1, (clipB + clipW) * 8)
         let noiseS = 1 - smoothstep(0.01, 0.06, noise) // lower residual better for photoreal
         let entropyS = smoothstep(3.5, 5.5, entropy)
+        // Mild penalty when midlines look like tile boundaries (cosine blend should keep this low).
+        let seamPenalty = smoothstep(2.0, 4.5, tileSeam)
 
         var s = 100 * (
-            0.30 * sharpS
-                + 0.20 * contrastS
-                + 0.15 * noiseS
-                + 0.15 * entropyS
-                + 0.20 * (1 - clipPenalty)
+            0.28 * sharpS
+                + 0.18 * contrastS
+                + 0.14 * noiseS
+                + 0.14 * entropyS
+                + 0.18 * (1 - clipPenalty)
+                + 0.08 * (1 - seamPenalty)
         )
         s = max(0, min(100, s))
         return s
