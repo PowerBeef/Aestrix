@@ -10,6 +10,10 @@ public struct ImageAnalysisReport: Sendable, Codable, Equatable {
     public var technical: TechnicalQuality.Metrics
     public var reference: ReferenceCompare.Metrics?
     public var promptAlignment: PromptAlignment.Metrics
+    /// CLIP / Vision semantic prompt–image score (P1).
+    public var semantic: SemanticAlignment.Metrics?
+    /// I2I strength used when generating (P2 strength-aware gates).
+    public var i2iStrength: Float?
     /// Filled after multimodal vision review (optional).
     public var vision: VisionReview.Assessment?
 
@@ -32,8 +36,8 @@ public struct ImageAnalysisReport: Sendable, Codable, Equatable {
 }
 
 public enum ImageAnalysisReportBuilder {
-    /// Schema 1.2: tile-seam metrics + VAE-tiling expectation (backend-aligned).
-    public static let schemaVersion = "1.2"
+    /// Schema 1.3: semantic/CLIP + LPIPS-lite + strength-aware I2I gates.
+    public static let schemaVersion = "1.3"
 
     public static func build(
         imagePath: String,
@@ -41,7 +45,9 @@ public enum ImageAnalysisReportBuilder {
         prompt: String?,
         technical: TechnicalQuality.Metrics,
         reference: ReferenceCompare.Metrics?,
-        promptAlignment: PromptAlignment.Metrics
+        promptAlignment: PromptAlignment.Metrics,
+        semantic: SemanticAlignment.Metrics? = nil,
+        i2iStrength: Float? = nil
     ) -> ImageAnalysisReport {
         var findings: [ImageAnalysisReport.Finding] = []
 
@@ -136,22 +142,79 @@ public enum ImageAnalysisReportBuilder {
             ))
         }
 
-        // Reference
+        // Reference + strength-aware I2I gates (P2)
+        let strength = i2iStrength
+        let colorEdit = promptAlignment.colorMatch != nil
+            || !(promptAlignment.requestedColors.filter { $0 != "hex" && $0 != "neutral" }.isEmpty)
         if let ref = reference {
+            findings.append(.init(
+                severity: .info, code: "perceptual_distance",
+                message: String(
+                    format: "LPIPS-lite distance=%.3f (score=%.0f, msSSIM=%.3f).",
+                    ref.perceptualDistance, ref.perceptualScore, ref.msSSIM
+                )
+            ))
+
+            let highStrength = (strength ?? 0) >= 0.75
+            let lowStrength = (strength ?? 1) < 0.4 && strength != nil
+
             if ref.ssim < 0.35 {
+                if highStrength {
+                    findings.append(.init(
+                        severity: .info, code: "expected_structure_change",
+                        message: String(
+                            format: "SSIM=%.3f with strength≥0.75 — large change expected for strong I2I edit.",
+                            ref.ssim
+                        )
+                    ))
+                } else {
+                    findings.append(.init(
+                        severity: .info, code: "low_structure_fidelity",
+                        message: String(
+                            format: "SSIM=%.3f vs reference — large structural change%@.",
+                            ref.ssim,
+                            strength.map { String(format: " (strength=%.2f)", $0) } ?? ""
+                        )
+                    ))
+                }
+            } else if ref.ssim > 0.85 {
+                if highStrength && colorEdit {
+                    findings.append(.init(
+                        severity: .warn, code: "strength_too_low_for_edit",
+                        message: String(
+                            format: "SSIM=%.3f still very high with strength≥0.75 and color intent — edit may not have applied; raise strength or strengthen prompt.",
+                            ref.ssim
+                        )
+                    ))
+                } else {
+                    findings.append(.init(
+                        severity: .info, code: "high_structure_fidelity",
+                        message: String(format: "SSIM=%.3f — composition closely matches reference.", ref.ssim)
+                    ))
+                }
+            }
+
+            if lowStrength && ref.ssim < 0.5 {
                 findings.append(.init(
-                    severity: .info, code: "low_structure_fidelity",
+                    severity: .warn, code: "unexpected_identity_drift",
                     message: String(
-                        format: "SSIM=%.3f vs reference — large structural change (expected at high I2I strength).",
-                        ref.ssim
+                        format: "SSIM=%.3f with low strength (%.2f) — more drift than expected; check seed/pipeline.",
+                        ref.ssim, strength ?? 0
                     )
                 ))
-            } else if ref.ssim > 0.85 {
+            }
+
+            // Perceptual distance gate (LPIPS-lite)
+            if highStrength && colorEdit && ref.perceptualDistance < 0.08 {
                 findings.append(.init(
-                    severity: .info, code: "high_structure_fidelity",
-                    message: String(format: "SSIM=%.3f — composition closely matches reference.", ref.ssim)
+                    severity: .warn, code: "low_perceptual_change",
+                    message: String(
+                        format: "LPIPS-lite distance=%.3f very small despite strength≥0.75 + color edit.",
+                        ref.perceptualDistance
+                    )
                 ))
             }
+
             if ref.meanDeltaE > 25 {
                 findings.append(.init(
                     severity: .info, code: "global_recolor",
@@ -160,14 +223,53 @@ public enum ImageAnalysisReportBuilder {
             }
         }
 
+        // Semantic / CLIP (P1)
+        if let sem = semantic {
+            if sem.available {
+                findings.append(.init(
+                    severity: .info, code: "semantic_score",
+                    message: String(
+                        format: "Semantic alignment %.0f/100 via %@%@",
+                        sem.score, sem.backend,
+                        sem.topLabels.isEmpty ? "" : " labels=[\(sem.topLabels.prefix(4).joined(separator: ","))]"
+                    )
+                ))
+                if sem.score < 30 && sem.backend != "unavailable" {
+                    findings.append(.init(
+                        severity: .warn, code: "low_semantic_alignment",
+                        message: String(
+                            format: "Low prompt–image semantic score %.0f (%@). Verify subject with vision.",
+                            sem.score, sem.backend
+                        )
+                    ))
+                }
+            } else {
+                findings.append(.init(
+                    severity: .info, code: "semantic_unavailable",
+                    message: sem.notes.first ?? "Semantic alignment unavailable."
+                ))
+            }
+        }
+
         // Overall score
         var overall: Float
+        let semPart = semantic?.available == true ? semantic!.score : nil
         if let ref = reference, promptAlignment.colorMatch != nil {
-            // I2I with color intent: blend fidelity + color alignment + technical
             let colorPart = promptAlignment.alignmentScore
-            overall = 0.35 * technical.technicalScore + 0.30 * ref.fidelityScore + 0.35 * colorPart
+            if let s = semPart {
+                overall = 0.25 * technical.technicalScore + 0.25 * ref.fidelityScore
+                    + 0.25 * colorPart + 0.25 * s
+            } else {
+                overall = 0.35 * technical.technicalScore + 0.30 * ref.fidelityScore + 0.35 * colorPart
+            }
         } else if let ref = reference {
-            overall = 0.45 * technical.technicalScore + 0.55 * ref.fidelityScore
+            if let s = semPart {
+                overall = 0.35 * technical.technicalScore + 0.40 * ref.fidelityScore + 0.25 * s
+            } else {
+                overall = 0.45 * technical.technicalScore + 0.55 * ref.fidelityScore
+            }
+        } else if let s = semPart {
+            overall = 0.40 * technical.technicalScore + 0.30 * promptAlignment.alignmentScore + 0.30 * s
         } else {
             overall = 0.55 * technical.technicalScore + 0.45 * promptAlignment.alignmentScore
         }
@@ -183,18 +285,20 @@ public enum ImageAnalysisReportBuilder {
             )
         } else if warns > 0 {
             summary = String(
-                format: "Score %.0f/100 with %d warning(s). Technical %.0f, prompt-align %.0f%@.",
+                format: "Score %.0f/100 with %d warning(s). Technical %.0f, prompt-align %.0f%@%@.",
                 overall, warns, technical.technicalScore, promptAlignment.alignmentScore,
-                reference.map { String(format: ", fidelity %.0f", $0.fidelityScore) } ?? ""
+                reference.map { String(format: ", fidelity %.0f", $0.fidelityScore) } ?? "",
+                semPart.map { String(format: ", semantic %.0f", $0) } ?? ""
             )
         } else {
             summary = String(
-                format: "Score %.0f/100 — no hard failures. Sharpness=%.0f, hue=%@, tech=%.0f%@.",
+                format: "Score %.0f/100 — no hard failures. Sharpness=%.0f, hue=%@, tech=%.0f%@%@.",
                 overall,
                 technical.sharpnessLaplacianVar,
                 technical.dominantHue,
                 technical.technicalScore,
-                reference.map { String(format: ", SSIM=%.3f", $0.ssim) } ?? ""
+                reference.map { String(format: ", SSIM=%.3f perc=%.0f", $0.ssim, $0.perceptualScore) } ?? "",
+                semPart.map { String(format: ", semantic %.0f", $0) } ?? ""
             )
         }
 
@@ -206,6 +310,8 @@ public enum ImageAnalysisReportBuilder {
             technical: technical,
             reference: reference,
             promptAlignment: promptAlignment,
+            semantic: semantic,
+            i2iStrength: i2iStrength,
             vision: nil,
             findings: findings,
             overallScore: overall,
@@ -298,6 +404,13 @@ public enum ImageAnalysisReportBuilder {
                 ref.ssim, ref.psnr, ref.meanAbsError, ref.histogramCorrelation,
                 ref.meanDeltaE, ref.fidelityScore
             ))
+            lines.append(String(
+                format: "lpips_lite: distance=%.3f  score=%.1f  ms_ssim=%.3f",
+                ref.perceptualDistance, ref.perceptualScore, ref.msSSIM
+            ))
+        }
+        if let s = report.i2iStrength {
+            lines.append(String(format: "i2i_strength: %.2f", s))
         }
         lines.append("")
         lines.append("--- prompt alignment ---")
@@ -308,6 +421,18 @@ public enum ImageAnalysisReportBuilder {
             pa.colorMatch.map { $0 ? "yes" : "no" } ?? "n/a",
             pa.alignmentScore
         ))
+        if let sem = report.semantic {
+            lines.append("")
+            lines.append("--- semantic (CLIP / proxy) ---")
+            lines.append(String(
+                format: "backend=%@  score=%.1f  available=%@%@",
+                sem.backend, sem.score, sem.available ? "yes" : "no",
+                sem.cosine.map { String(format: "  cosine=%.4f", $0) } ?? ""
+            ))
+            if !sem.topLabels.isEmpty {
+                lines.append("labels: \(sem.topLabels.prefix(6).joined(separator: ", "))")
+            }
+        }
         if let v = report.vision {
             lines.append("")
             lines.append("--- vision ---")

@@ -51,7 +51,9 @@ Full tables and opt history: `Docs/PERF.md`.
 
 - Product/prompting → skill `flux-best-practices` (project `.grok/skills/`)  
 - After generation quality claims → `Docs/EVAL_WORKFLOW.md` + vision + `Docs/IMAGE_ANALYSIS.md`  
-  - Pixel: sharpness, clip, hue, **tile seams** (≥768), SSIM (I2I)  
+  - Pixel: sharpness, clip, hue, **tile seams**, **LPIPS-lite**, SSIM  
+  - Semantic: CLIP (optional Core ML) or Vision classify proxy  
+  - I2I: pass strength for strength-aware gates; CI floors via `./Scripts/ci-eval-floors.sh`  
   - Vision checklist still required for subject/text/hands  
 - After perf claims → `bench` / `bench-compare` + update `Docs/PERF.md`  
 - Process: fix broken foundation before stacking the next phase  

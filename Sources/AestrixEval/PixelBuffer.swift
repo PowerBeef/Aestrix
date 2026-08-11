@@ -20,6 +20,13 @@ public struct PixelBuffer: Sendable {
     }
 
     public static func load(url: URL, maxSide: Int? = 1024) throws -> PixelBuffer {
+        try loadWithCGImage(url: url, maxSide: maxSide).0
+    }
+
+    /// Load pixels and retain a CGImage for Vision / Core ML paths.
+    public static func loadWithCGImage(
+        url: URL, maxSide: Int? = 1024
+    ) throws -> (PixelBuffer, CGImage) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw AestrixError.imageLoadFailed(path: url.path, reason: "file not found")
         }
@@ -28,7 +35,39 @@ public struct PixelBuffer: Sendable {
         else {
             throw AestrixError.imageLoadFailed(path: url.path, reason: "not a decodable image")
         }
-        return try from(cgImage: cg, maxSide: maxSide)
+        let buf = try from(cgImage: cg, maxSide: maxSide)
+        // Re-render scaled CGImage when downscaled for Vision/CLIP.
+        if let maxSide, max(cg.width, cg.height) > maxSide {
+            let scaled = try cgImageScaled(cg, maxSide: maxSide)
+            return (buf, scaled)
+        }
+        return (buf, cg)
+    }
+
+    private static func cgImageScaled(_ cg: CGImage, maxSide: Int) throws -> CGImage {
+        var w = cg.width
+        var h = cg.height
+        let scale = Float(maxSide) / Float(max(w, h))
+        w = max(1, Int(Float(w) * scale))
+        h = max(1, Int(Float(h) * scale))
+        let bytesPerRow = w * 4
+        var rgba = [UInt8](repeating: 0, count: h * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        )
+        guard let ctx = CGContext(
+            data: &rgba, width: w, height: h, bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            throw AestrixError.imageLoadFailed(path: "", reason: "CGImage scale context failed")
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let out = ctx.makeImage() else {
+            throw AestrixError.imageLoadFailed(path: "", reason: "CGImage scale failed")
+        }
+        return out
     }
 
     public static func from(cgImage: CGImage, maxSide: Int? = 1024) throws -> PixelBuffer {

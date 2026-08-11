@@ -13,7 +13,13 @@ public enum ReferenceCompare {
         public var histogramCorrelation: Float
         /// Approximate ΔE on mean colors (LAB-ish).
         public var meanDeltaE: Float
-        /// 0…100 composite fidelity (higher = more like reference).
+        /// LPIPS-lite perceptual distance (lower = more similar).
+        public var perceptualDistance: Float
+        /// 0…100 from LPIPS-lite (higher = more similar).
+        public var perceptualScore: Float
+        /// Multi-scale SSIM component of LPIPS-lite.
+        public var msSSIM: Float
+        /// 0…100 composite fidelity (higher = more like reference). Blends SSIM + perceptual + color.
         public var fidelityScore: Float
     }
 
@@ -30,12 +36,14 @@ public enum ReferenceCompare {
         )
         let hist = histogramCorrelation(g, r)
         let de = deltaEApprox(mg, mr)
+        let perc = PerceptualDistance.compare(generated: g, reference: r)
 
-        // Fidelity: SSIM dominant; color distance penalizes global recolor (desired for identity, not for color edits).
-        let ssimS = max(0, min(1, (ssim + 1) / 2)) // map theoretically [-1,1] → [0,1]; SSIM usually [0,1]
+        // Fidelity: SSIM + LPIPS-lite + color (identity-oriented; color edits lower this intentionally).
+        let ssimS = max(0, min(1, (ssim + 1) / 2))
         let colorS = 1 - min(1, mcd / 0.6)
         let histS = max(0, min(1, (hist + 1) / 2))
-        let score = 100 * (0.55 * ssimS + 0.25 * colorS + 0.20 * histS)
+        let percS = perc.score / 100
+        let score = 100 * (0.35 * ssimS + 0.30 * percS + 0.20 * colorS + 0.15 * histS)
 
         return Metrics(
             ssim: ssim,
@@ -45,6 +53,9 @@ public enum ReferenceCompare {
             meanColorDistance: mcd,
             histogramCorrelation: hist,
             meanDeltaE: de,
+            perceptualDistance: perc.distance,
+            perceptualScore: perc.score,
+            msSSIM: perc.msSSIM,
             fidelityScore: score
         )
     }

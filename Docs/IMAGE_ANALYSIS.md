@@ -7,7 +7,7 @@
 
 **Multimodal agents** should **supplement** pixel metrics: open the PNG, answer the vision checklist, merge into the report.
 
-Schema version: **1.2** (tile-seam + VAE-tiling expectation).
+Schema version: **1.3** (semantic/CLIP + LPIPS-lite + strength-aware I2I).
 
 ---
 
@@ -78,6 +78,46 @@ Exit codes:
 - **Single-color miss → `fail`**; **multi-color miss → `warn`** (false positives common)  
 - **Does not** claim full prompt adherence — only cheap signals agents can act on  
 
+### Semantic alignment (P1 — CLIP / Vision proxy)
+
+| Field | Meaning |
+|-------|---------|
+| `semantic.score` | 0…100 prompt–image agreement |
+| `semantic.backend` | `coreml_clip` \| `vision_proxy` \| `unavailable` |
+| `semantic.cosine` | CLIP cosine when Core ML models present |
+| `semantic.top_labels` | Vision classify labels (proxy backend) |
+
+**Core ML CLIP (optional):** place compiled models at  
+`~/Library/Caches/Aestrix/models/clip-coreml/image_encoder.mlmodelc` and `text_encoder.mlmodelc`  
+(string text input + embedding multiarray output). See `Scripts/fetch-clip-coreml.sh`.
+
+**Default without models:** `VNClassifyImageRequest` label–token overlap (`vision_proxy`). Always available; weaker than real CLIP.
+
+CLI: `--skip-semantic` for pure pixel path.
+
+### Perceptual distance (P2 — LPIPS-lite)
+
+Always on for `--reference` compares (no neural weights):
+
+| Field | Meaning |
+|-------|---------|
+| `perceptual_distance` | Lower = more similar (~0 identical) |
+| `perceptual_score` | 0…100 (higher = more similar) |
+| `ms_ssim` | Multi-scale SSIM component |
+
+Fidelity score blends SSIM + LPIPS-lite + color + histogram.
+
+### Strength-aware I2I gates (P2)
+
+Pass `--strength` to `analyze-image` (or automatic after `i2i --analyze`):
+
+| Condition | Finding |
+|-----------|---------|
+| strength ≥ 0.75, color edit, SSIM > 0.85 | `strength_too_low_for_edit` (warn) |
+| strength ≥ 0.75, SSIM < 0.35 | `expected_structure_change` (info) |
+| strength < 0.4, SSIM < 0.5 | `unexpected_identity_drift` (warn) |
+| strength ≥ 0.75, color edit, LPIPS-lite ≪ 0.08 | `low_perceptual_change` (warn) |
+
 ### Findings codes (selected)
 
 | Code | Severity | Notes |
@@ -133,15 +173,20 @@ Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objecti
 
 ### Recommended roadmap (priority)
 
-| P | Item | Effort | Notes |
-|---|------|--------|--------|
-| P0 | **Tile-seam metric + VAE-tile findings** | Done (1.2) | Aligns with tiled decode |
-| P1 | **CLIPScore optional** (Core ML / MLX CLIP) | Medium | Gate only when model present; keep no-dep default |
-| P1 | **Golden PNG floors** in CI | Low | Fixed seeds from `Docs/eval-prompts.md` |
-| P2 | **LPIPS** for I2I (or AlexNet features) | Medium | Better than SSIM for “perceptual same” |
-| P2 | **Strength-aware I2I gates** | Low | Expect SSIM↓ when strength ≥ 0.75 and color edit |
-| P3 | ImageReward / HPS offline batch | High | Python sidecar, not in-process |
-| P3 | Automated VLM (Foundation Models) | High | On-device caption / checklist |
+| P | Item | Status |
+|---|------|--------|
+| P0 | Tile-seam metric + VAE-tile findings | **Done** (1.2) |
+| P1 | CLIPScore optional + Vision proxy | **Done** (1.3) |
+| P1 | Golden metric floors in CI | **Done** (`GoldenMetricFloorsTests`, `Scripts/ci-eval-floors.sh`) |
+| P2 | LPIPS-lite for I2I | **Done** (MS-SSIM multi-scale) |
+| P2 | Strength-aware I2I gates | **Done** |
+| P3 | ImageReward / HPS offline batch | Parked |
+| P3 | Automated VLM / true AlexNet LPIPS weights | Parked |
+
+```bash
+./Scripts/ci-eval-floors.sh
+./Scripts/fetch-clip-coreml.sh   # optional real CLIP Core ML
+```
 
 ---
 

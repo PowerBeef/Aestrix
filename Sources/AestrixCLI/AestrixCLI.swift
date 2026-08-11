@@ -32,6 +32,8 @@ struct GenerationEvalOptions: Sendable {
     var analyzeJSON: String?
     var visionBrief: Bool
     var failOnPixelGate: Bool
+    /// I2I strength for strength-aware SSIM / LPIPS-lite gates.
+    var i2iStrength: Float?
 
     /// True if any eval artifact was requested.
     var isEnabled: Bool { analyze || analyzeJSON != nil || visionBrief }
@@ -57,7 +59,8 @@ func runPostGenerationEval(
         options: .init(
             prompt: prompt,
             referenceURL: referenceURL,
-            maxAnalysisSide: 1024
+            maxAnalysisSide: 1024,
+            i2iStrength: options.i2iStrength
         )
     )
 
@@ -505,7 +508,8 @@ struct I2I: AsyncParsableCommand {
                     analyze: analyze || analyzeJson != nil || visionBrief,
                     analyzeJSON: analyzeJson,
                     visionBrief: visionBrief || analyze,
-                    failOnPixelGate: failOnPixelGate
+                    failOnPixelGate: failOnPixelGate,
+                    i2iStrength: strength
                 )
             )
         } catch let code as ExitCode {
@@ -550,12 +554,20 @@ struct AnalyzeImage: AsyncParsableCommand {
     @Option(name: .long, help: "Max analysis long-side (default 1024).")
     var maxSide: Int = 1024
 
+    @Option(name: .long, help: "I2I strength used when generating (enables strength-aware SSIM/LPIPS gates).")
+    var strength: Float?
+
+    @Flag(name: .long, help: "Skip CLIP / Vision semantic alignment (pixel-only).")
+    var skipSemantic: Bool = false
+
     func run() async throws {
         let imageURL = URL(fileURLWithPath: image)
         let options = ImageAnalyzer.Options(
             prompt: prompt,
             referenceURL: reference.map { URL(fileURLWithPath: $0) },
-            maxAnalysisSide: maxSide
+            maxAnalysisSide: maxSide,
+            i2iStrength: strength,
+            skipSemantic: skipSemantic
         )
         do {
             let report = try ImageAnalyzer.analyze(imageURL: imageURL, options: options)

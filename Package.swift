@@ -82,6 +82,10 @@ let package = Package(
             name: "AestrixEval",
             dependencies: [
                 "AestrixCore",
+            ],
+            linkerSettings: [
+                .linkedFramework("Vision"),
+                .linkedFramework("CoreML"),
             ]
         ),
         .target(

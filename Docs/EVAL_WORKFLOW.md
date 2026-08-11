@@ -117,8 +117,20 @@ swift build && ./Scripts/ensure-metallib.sh
 | `highlight_clip` | Blown whites | Softer lighting in prompt |
 | `high_structure_fidelity` | I2I ≈ reference | Strength too low for the edit |
 | `low_structure_fidelity` | Large change vs ref | Expected at high strength |
+| `strength_too_low_for_edit` | strength≥0.75 + color edit but SSIM still high | Raise strength / stronger prompt |
+| `expected_structure_change` | strength≥0.75 + low SSIM | OK for strong edits |
+| `low_semantic_alignment` | CLIP/proxy score low | Vision review subject |
+| `semantic_score` | Info: CLIP or Vision proxy score | Prefer Core ML CLIP when installed |
 
-**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Cosine **tiled VAE** (≥768) is covered by `expects_vae_tiling` + seam metrics (schema **1.2**).
+**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Cosine **tiled VAE** (≥768) is covered by seam metrics. Schema **1.3**: semantic (CLIP/proxy) + LPIPS-lite + strength-aware I2I.
+
+```bash
+# Strength-aware I2I eval (also automatic after i2i --analyze)
+aestrix analyze-image edit.png --reference src.png --prompt "make it blue" --strength 0.85
+
+# CI golden floors (no weights)
+./Scripts/ci-eval-floors.sh
+```
 
 ### Phase B — Vision review (multimodal agent)
 

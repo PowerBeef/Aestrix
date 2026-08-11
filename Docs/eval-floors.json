@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "description": "CI golden metric floors for AestrixEval synthetic fixtures (no model weights). Catch catastrophic regressions only.",
+  "machine_independent": true,
+  "floors": {
+    "solid_blue_color_match": {
+      "prompt": "a cobalt blue ceramic mug",
+      "min_technical_score": 40,
+      "require_color_match": true,
+      "min_overall": 45,
+      "max_fail_findings": 0
+    },
+    "identical_images": {
+      "min_ssim": 0.99,
+      "max_perceptual_distance": 0.05,
+      "min_perceptual_score": 90,
+      "min_fidelity_score": 90
+    },
+    "opposite_colors": {
+      "max_fidelity_score": 75,
+      "min_perceptual_distance": 0.15
+    },
+    "strength_aware_identical_color_edit": {
+      "i2i_strength": 0.85,
+      "prompt_color_edit": true,
+      "expect_finding_code": "strength_too_low_for_edit"
+    }
+  },
+  "optional_generation_floors": {
+    "note": "Only when local 4-bit snapshot + metallib available; not required for swift test",
+    "t2i_seed42_fox_512": {
+      "prompt_id": "eval-prompts.md T2I #5",
+      "min_technical_score": 50,
+      "seed": 42,
+      "width": 512,
+      "height": 512
+    }
+  }
+}
