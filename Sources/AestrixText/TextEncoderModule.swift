@@ -62,7 +62,8 @@ public final class TextEncoderModule: LoadableModule, @unchecked Sendable {
     /// Encode a prompt to Klein DiT text embeddings `[1, 512, 7680]`.
     public func encode(
         _ prompt: String,
-        maxLength: Int = ModelConstants.maxSequenceLength
+        maxLength: Int = ModelConstants.maxSequenceLength,
+        trace: PipelineTrace? = nil
     ) throws -> (embeds: MLXArray, realTokens: Int) {
         guard let model, let tokenizer, isLoaded else {
             throw AestrixError.moduleNotLoaded(moduleName)
@@ -71,20 +72,24 @@ public final class TextEncoderModule: LoadableModule, @unchecked Sendable {
         let realTokens = mask.reduce(0, +)
         let inputIds = MLXArray(ids.map { Int32($0) }).reshaped([1, ids.count])
         let attentionMask = MLXArray(mask.map { Int32($0) }).reshaped([1, mask.count])
-        let embeds = model.encode(inputIds: inputIds, attentionMask: attentionMask)
+        let embeds = model.encode(
+            inputIds: inputIds, attentionMask: attentionMask, trace: trace)
         eval(embeds)
+        trace?.probe("te.after_eval", phase: "te", minDensity: .blocks)
         return (embeds, realTokens)
     }
 
     /// Encode pre-tokenized ids (for tests / cross-checks).
     public func encode(
         inputIds: MLXArray,
-        attentionMask: MLXArray? = nil
+        attentionMask: MLXArray? = nil,
+        trace: PipelineTrace? = nil
     ) throws -> MLXArray {
         guard let model, isLoaded else {
             throw AestrixError.moduleNotLoaded(moduleName)
         }
-        let embeds = model.encode(inputIds: inputIds, attentionMask: attentionMask)
+        let embeds = model.encode(
+            inputIds: inputIds, attentionMask: attentionMask, trace: trace)
         eval(embeds)
         return embeds
     }

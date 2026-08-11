@@ -80,25 +80,67 @@ public final class Flux2Transformer: Module {
         super.init()
     }
 
+    /// Build concatenated (txt∥img) RoPE once per canvas; reuse across denoise steps.
+    public func prepareRotaryEmbeddings(
+        imgIds: MLXArray,
+        txtIds: MLXArray
+    ) -> (MLXArray, MLXArray) {
+        var iIds = imgIds
+        var tIds = txtIds
+        if iIds.ndim == 3 { iIds = iIds[0] }
+        if tIds.ndim == 3 { tIds = tIds[0] }
+        let imgRope = posEmbed(iIds)
+        let txtRope = posEmbed(tIds)
+        return (
+            concatenated([txtRope.0, imgRope.0], axis: 0),
+            concatenated([txtRope.1, imgRope.1], axis: 0)
+        )
+    }
+
     /// Forward pass (fp32 activations recommended for stability).
+    ///
+    /// - Parameters:
+    ///   - timestep: Training-scale timesteps in **[0, 1000]** (host-side). Avoids GPU→CPU
+    ///     `item()` syncs that were used when accepting either [0,1] or [0,1000].
+    ///   - guidance: Optional guidance in **[0, 1000]** when used (klein distilled: nil).
+    ///   - imageRotaryEmb: Optional precomputed (cos, sin) from `prepareRotaryEmbeddings`.
+    ///   - trace / stepIndex / probeDensity: optional pressure probes (no numerics change when off).
     public func callAsFunction(
         hiddenStates: MLXArray,
         encoderHiddenStates: MLXArray,
         timestep: MLXArray,
         imgIds: MLXArray,
         txtIds: MLXArray,
-        guidance: MLXArray? = nil
+        guidance: MLXArray? = nil,
+        imageRotaryEmb: (MLXArray, MLXArray)? = nil,
+        trace: PipelineTrace? = nil,
+        stepIndex: Int? = nil
     ) -> MLXArray {
+        let density = trace?.density ?? .off
+        let step = stepIndex
+        let prefix = step.map { "dit.step\($0)" } ?? "dit"
+
+        func sample(_ suffix: String, block: Int? = nil, forceEval: Bool = false) {
+            guard let trace, density.instrumentsDiTBlocks else { return }
+            if forceEval {
+                // Materialize live graph so activeMemory reflects this region (dense diagnosis only).
+                eval(hiddenStates)
+            }
+            trace.probe(
+                "\(prefix).\(suffix)",
+                phase: "dit",
+                step: step,
+                block: block,
+                sampleMemory: true,
+                minDensity: .blocks
+            )
+        }
+
         var ts = timestep
         if ts.ndim == 0 {
             ts = MLXArray.full([hiddenStates.dim(0)], values: ts)
         }
         ts = ts.asType(hiddenStates.dtype)
-        // Scale to [0,1000] if needed
-        let tMax = ts.max().item(Float.self)
-        if tMax <= 1.0 {
-            ts = ts * 1000.0
-        }
 
         var g = guidance
         if var gv = g {
@@ -106,34 +148,26 @@ public final class Flux2Transformer: Module {
                 gv = MLXArray.full([hiddenStates.dim(0)], values: gv)
             }
             gv = gv.asType(hiddenStates.dtype)
-            let gMax = gv.max().item(Float.self)
-            if gMax <= 1.0 {
-                gv = gv * 1000.0
-            }
             g = gv
         }
 
-        var temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
+        let temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
 
         var h = xEmbedder(hiddenStates)
         var e = contextEmbedder(encoderHiddenStates)
 
-        var iIds = imgIds
-        var tIds = txtIds
-        if iIds.ndim == 3 { iIds = iIds[0] }
-        if tIds.ndim == 3 { tIds = tIds[0] }
-
-        let imgRope = posEmbed(iIds)
-        let txtRope = posEmbed(tIds)
-        let concatRope: (MLXArray, MLXArray) = (
-            concatenated([txtRope.0, imgRope.0], axis: 0),
-            concatenated([txtRope.1, imgRope.1], axis: 0)
-        )
+        let concatRope = imageRotaryEmb ?? prepareRotaryEmbeddings(imgIds: imgIds, txtIds: txtIds)
 
         let tembImg = doubleStreamModulationImg(temb)
         let tembTxt = doubleStreamModulationTxt(temb)
 
-        for block in transformerBlocks {
+        // Checkpoint after each major stage: MLX lazy graphs otherwise hold *all* block
+        // intermediates until the outer eval — that inflated peak watermark (~8 GB at 768²
+        // vs ~2 GB live active) and OOMs 1024² on 8 GB unified memory.
+        eval(h, e, temb)
+        sample("after_embed")
+
+        for (bi, block) in transformerBlocks.enumerated() {
             let out = block(
                 hiddenStates: h,
                 encoderHiddenStates: e,
@@ -143,19 +177,36 @@ public final class Flux2Transformer: Module {
             )
             e = out.encoder
             h = out.hidden
+            eval(h, e)
+            Memory.clearCache()
+            sample("after_double_\(bi)", block: bi)
         }
 
         let txtLen = e.dim(1)
         h = concatenated([e, h], axis: 1)
+        eval(h)
+        Memory.clearCache()
+        sample("after_concat")
 
         let tembSingle = singleStreamModulation(temb)[0]
-        for block in singleTransformerBlocks {
+        let singleSample: Set<Int> = density == .max
+            ? Set(0 ..< singleTransformerBlocks.count)
+            : Set(ProbeDensity.defaultSingleBlockSampleIndices)
+        for (bi, block) in singleTransformerBlocks.enumerated() {
             h = block(h, tembModParams: tembSingle, imageRotaryEmb: concatRope)
+            // Always checkpoint single-stream (L is largest after concat).
+            eval(h)
+            Memory.clearCache()
+            if density.instrumentsDiTBlocks, singleSample.contains(bi) {
+                sample("after_single_\(bi)", block: bi)
+            }
         }
 
         h = h[0..., txtLen..., 0...]
         h = normOut(h, textEmbeddings: temb)
         h = projOut(h)
+        eval(h)
+        sample("after_proj")
         return h
     }
 }

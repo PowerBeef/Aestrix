@@ -62,13 +62,29 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
         return model.parameters().flattened().count
     }
 
+    /// Precompute RoPE for fixed img/txt ids (one denoise session).
+    public func prepareRotaryEmbeddings(
+        imgIds: MLXArray,
+        txtIds: MLXArray
+    ) throws -> (MLXArray, MLXArray) {
+        guard let model, isLoaded else {
+            throw AestrixError.moduleNotLoaded(moduleName)
+        }
+        let rope = model.prepareRotaryEmbeddings(imgIds: imgIds, txtIds: txtIds)
+        eval(rope.0, rope.1)
+        return rope
+    }
+
     public func forward(
         hiddenStates: MLXArray,
         encoderHiddenStates: MLXArray,
         timestep: MLXArray,
         imgIds: MLXArray,
         txtIds: MLXArray,
-        guidance: MLXArray? = nil
+        guidance: MLXArray? = nil,
+        imageRotaryEmb: (MLXArray, MLXArray)? = nil,
+        trace: PipelineTrace? = nil,
+        stepIndex: Int? = nil
     ) throws -> MLXArray {
         guard let model, isLoaded else {
             throw AestrixError.moduleNotLoaded(moduleName)
@@ -79,7 +95,10 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
             timestep: timestep,
             imgIds: imgIds,
             txtIds: txtIds,
-            guidance: guidance
+            guidance: guidance,
+            imageRotaryEmb: imageRotaryEmb,
+            trace: trace,
+            stepIndex: stepIndex
         )
     }
 }

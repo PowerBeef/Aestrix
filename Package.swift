@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "AestrixVAE", targets: ["AestrixVAE"]),
         .library(name: "AestrixRuntime", targets: ["AestrixRuntime"]),
         .library(name: "AestrixEval", targets: ["AestrixEval"]),
+        .library(name: "AestrixBench", targets: ["AestrixBench"]),
         .executable(name: "aestrix", targets: ["AestrixCLI"]),
     ],
     dependencies: [
@@ -83,12 +84,22 @@ let package = Package(
                 "AestrixCore",
             ]
         ),
+        .target(
+            name: "AestrixBench",
+            dependencies: [
+                "AestrixCore",
+                "AestrixRuntime",
+                "AestrixEval",
+                .product(name: "MLX", package: "mlx-swift"),
+            ]
+        ),
         .executableTarget(
             name: "AestrixCLI",
             dependencies: [
                 "AestrixCore",
                 "AestrixRuntime",
                 "AestrixEval",
+                "AestrixBench",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             // Placeholder default Metal library for MLX when using `swift build`
@@ -121,6 +132,13 @@ let package = Package(
             name: "AestrixEvalTests",
             dependencies: [
                 "AestrixEval",
+                "AestrixCore",
+            ]
+        ),
+        .testTarget(
+            name: "AestrixBenchTests",
+            dependencies: [
+                "AestrixBench",
                 "AestrixCore",
             ]
         ),

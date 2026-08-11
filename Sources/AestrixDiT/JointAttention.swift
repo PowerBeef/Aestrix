@@ -68,15 +68,17 @@ public final class Flux2Attention: Module {
             (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
         }
 
-        var joint = AttentionUtils.computeAttention(
+        eval(query, key, value)
+
+        let joint = AttentionUtils.computeAttention(
             query: query, key: key, value: value,
             batchSize: hiddenStates.dim(0),
             numHeads: heads, headDim: dimHead
         )
         var encOut = joint[0..., ..<txtLen, 0...]
         var imgOut = joint[0..., txtLen..., 0...]
-        encOut = toAddOut(encOut)
-        imgOut = toOut(imgOut)
+        encOut = AttentionUtils.linearChunkedSequence(toAddOut, encOut, threshold: 1024)
+        imgOut = AttentionUtils.linearChunkedSequence(toOut, imgOut, threshold: 1024)
         return (imgOut, encOut)
     }
 }

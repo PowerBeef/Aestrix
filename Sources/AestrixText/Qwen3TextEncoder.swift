@@ -41,7 +41,8 @@ public final class Qwen3TextEncoder: Module {
     ///     are blocked in attention while still producing a full-length sequence for DiT.
     public func encode(
         inputIds: MLXArray,
-        attentionMask: MLXArray? = nil
+        attentionMask: MLXArray? = nil,
+        trace: PipelineTrace? = nil
     ) -> MLXArray {
         var h = embedTokens(inputIds)
         let maskMode = Self.makeMaskMode(
@@ -49,15 +50,30 @@ public final class Qwen3TextEncoder: Module {
             seqLen: h.dim(1),
             dtype: h.dtype
         )
+        let dens = trace?.density ?? .off
+        // Checkpoint TE layers so 27-layer graph does not peak-accumulate.
+        eval(h)
+        trace?.probe("te.after_embed", phase: "te", minDensity: .blocks)
 
         var taps: [Int: MLXArray] = [:]
         let needed = Set(config.tapHiddenStateIndices)
+        let sampleLayers: Set<Int> = dens == .max
+            ? Set(0 ..< layers.count)
+            : [0, 8, 17, layers.count - 1]
+        // Eval every N layers to free intermediate graphs (N=1 is safest for RAM).
+        let checkpointEvery = 1
 
         for (i, layer) in layers.enumerated() {
             h = layer(h, mask: maskMode)
             let hfIndex = i + 1 // HF: after layer i
             if needed.contains(hfIndex) {
                 taps[hfIndex] = h
+            }
+            if (i + 1) % checkpointEvery == 0 {
+                eval(h)
+            }
+            if dens.instrumentsDiTBlocks || dens == .max, sampleLayers.contains(i) {
+                trace?.probe("te.after_layer_\(i)", phase: "te", block: i, minDensity: .blocks)
             }
         }
 
@@ -70,7 +86,10 @@ public final class Qwen3TextEncoder: Module {
             pieces.append(t)
         }
         // Concat along feature dim → [B, L, 3*hidden]
-        return concatenated(pieces, axis: -1)
+        let out = concatenated(pieces, axis: -1)
+        eval(out)
+        trace?.probe("te.after_concat_taps", phase: "te", minDensity: .blocks)
+        return out
     }
 
     public func callAsFunction(
@@ -95,20 +114,38 @@ public final class Qwen3TextEncoder: Module {
         let b = attentionMask.dim(0)
         let l = attentionMask.dim(1)
 
-        // Causal bool [L, L]
-        let rows = MLXArray(0 ..< l).reshaped([l, 1])
-        let cols = MLXArray(0 ..< l).reshaped([1, l])
-        var causal = rows .>= cols // [L, L] bool
+        // Causal [1,1,L,L] bool — cached for common Klein pad length 512.
+        let causal = causalBoolMask(length: l)
 
         // Pad: key allowed where mask == 1
         let keyOK = attentionMask.reshaped([b, 1, 1, l]) .> MLXArray(0) // [B,1,1,L]
-        causal = causal.reshaped([1, 1, l, l])
         let allowed = causal .&& keyOK
 
         // Additive mask: 0 where allowed, large negative where blocked (cast to activation dtype).
-        let neg = MLXArray(-1e4 as Float)
-        let zero = MLXArray(0 as Float)
-        let additive = MLX.where(allowed, zero, neg).asType(dtype)
+        let additive = MLX.where(allowed, Self.maskZero, Self.maskNeg).asType(dtype)
         return .array(additive)
+    }
+
+    // MLXArray is not Sendable; caches are read-only after init and only used on the TE encode path.
+    nonisolated(unsafe) private static let maskZero = MLXArray(0 as Float)
+    nonisolated(unsafe) private static let maskNeg = MLXArray(-1e4 as Float)
+
+    /// Causal bool mask shaped `[1, 1, L, L]` (rows >= cols). Cached for L=512.
+    nonisolated(unsafe) private static let causal512: MLXArray = {
+        let l = ModelConstants.maxSequenceLength
+        let rows = MLXArray(0 ..< l).reshaped([l, 1])
+        let cols = MLXArray(0 ..< l).reshaped([1, l])
+        let causal = (rows .>= cols).reshaped([1, 1, l, l])
+        eval(causal)
+        return causal
+    }()
+
+    private static func causalBoolMask(length: Int) -> MLXArray {
+        if length == ModelConstants.maxSequenceLength {
+            return causal512
+        }
+        let rows = MLXArray(0 ..< length).reshaped([length, 1])
+        let cols = MLXArray(0 ..< length).reshaped([1, length])
+        return (rows .>= cols).reshaped([1, 1, length, length])
     }
 }

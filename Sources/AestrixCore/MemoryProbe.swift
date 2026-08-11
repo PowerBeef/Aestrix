@@ -62,7 +62,8 @@ public final class MemoryProbe: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Best-effort cache clear; DiT module also calls MLX.Memory when linked.
+    /// Best-effort cache clear without linking MLX (scaffold).
+    /// Runtime modules call `MLX.Memory.clearCache()` after unload; orchestrator purge does the same.
     public static func clearMLXCache() {}
 
     public static func processResidentBytes() -> UInt64 {

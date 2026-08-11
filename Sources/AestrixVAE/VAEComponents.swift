@@ -218,8 +218,15 @@ final class Flux2UpDecoderBlock2D: Module {
 
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
         var h = hiddenStates
-        for r in resnets { h = r(h) }
-        for u in upsamplers { h = u(h) }
+        for r in resnets {
+            h = r(h)
+            eval(h)
+        }
+        for u in upsamplers {
+            h = u(h)
+            eval(h)
+        }
+        Memory.clearCache()
         return h
     }
 }
@@ -329,15 +336,25 @@ final class Flux2Decoder: Module {
         var h = hiddenStates.transposed(0, 2, 3, 1)
         h = convIn(h)
         h = h.transposed(0, 3, 1, 2)
+        eval(h)
+        Memory.clearCache()
         h = midBlock(h)
+        eval(h)
+        Memory.clearCache()
+        // Upsample stages grow to full RGB resolution — checkpoint each block so
+        // 1024² decode does not hold the entire UNet graph (was the OOM after DiT).
         for block in upBlocks {
             h = block(h)
+            eval(h)
+            Memory.clearCache()
         }
         h = h.transposed(0, 2, 3, 1)
         h = convNormOut(h.asType(.float32)).asType(.float32)
         h = silu(h)
         h = convOut(h)
-        return h.transposed(0, 3, 1, 2)
+        let out = h.transposed(0, 3, 1, 2)
+        eval(out)
+        return out
     }
 }
 

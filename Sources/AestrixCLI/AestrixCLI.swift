@@ -3,6 +3,7 @@ import Foundation
 import AestrixCore
 import AestrixRuntime
 import AestrixEval
+import AestrixBench
 
 @main
 struct AestrixCLI: AsyncParsableCommand {
@@ -13,7 +14,7 @@ struct AestrixCLI: AsyncParsableCommand {
             MemSelfTest.self, Info.self, Schedule.self,
             LoadDiT.self, LoadVAE.self, LoadTE.self,
             EncodePrompt.self, T2I.self, I2I.self,
-            AnalyzeImage.self,
+            AnalyzeImage.self, Bench.self, BenchCompare.self,
         ]
     )
 }
@@ -276,8 +277,8 @@ struct Schedule: AsyncParsableCommand {
         abstract: "Print FLUX.2 flow-match Euler sigmas/timesteps for a canvas size."
     )
 
-    @Option var width: Int = 512
-    @Option var height: Int = 512
+    @Option var width: Int = 1024
+    @Option var height: Int = 1024
     @Option var steps: Int = 4
 
     func run() async throws {
@@ -311,11 +312,11 @@ struct T2I: AsyncParsableCommand {
     @Argument(help: "Prompt (BFL klein style: narrative, lighting, subject first).")
     var prompt: String
 
-    @Option var width: Int = 512
-    @Option var height: Int = 512
+    @Option var width: Int = 1024
+    @Option var height: Int = 1024
     @Option var steps: Int = 4
     @Option var seed: UInt64?
-    @Option(name: .long, help: "3bit|4bit|6bit|8bit")
+    @Option(name: .long, help: "3bit|4bit|6bit|8bit (default 4bit — product lock)")
     var weights: String = "4bit"
     @Option(name: .long, help: "Output PNG path (default: ~/Library/Caches/Aestrix/outputs/…)")
     var output: String?
@@ -359,8 +360,15 @@ struct T2I: AsyncParsableCommand {
             outputURL: outURL
         )
         print(
-            "t2i width=\(width) height=\(height) steps=\(steps) seed=\(seed.map(String.init) ?? "random") snapshot=\(await pipeline.snapshotPath ?? "?")"
+            "t2i width=\(width) height=\(height) steps=\(steps) weights=\(preset.rawValue) seed=\(seed.map(String.init) ?? "random") snapshot=\(await pipeline.snapshotPath ?? "?")"
         )
+        let physGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
+        if max(width, height) >= 1024, physGB < 10 {
+            fputs(
+                "note: 1024² on ~\(String(format: "%.0f", physGB)) GB uses checkpointed DiT + tiled VAE (slower than 512²; peak ~3–4 GB MLX).\n",
+                stderr
+            )
+        }
         do {
             let url = try await pipeline.generate(request) { progress in
                 switch progress.phase {
@@ -588,6 +596,287 @@ struct AnalyzeImage: AsyncParsableCommand {
         } catch let error as AestrixError {
             print("error: \(error.localizedDescription)")
             throw ExitCode.failure
+        } catch {
+            print("error: \(error)")
+            throw ExitCode.failure
+        }
+    }
+}
+
+// MARK: - Performance bench
+
+struct Bench: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bench",
+        abstract: "Performance + pressure harness (timings, MLX memory, DiT block probes). See Docs/PERF.md."
+    )
+
+    @Option(name: .long, help: "Mode: t2i | pressure-map | dit-one-step | res-ladder | mem-stages | te-only | dit-steps | vae-decode | load-only")
+    var mode: String = "t2i"
+
+    @Option(name: .long, help: "Label stored in the report (e.g. baseline, cache-limit-2g).")
+    var label: String = "baseline"
+
+    @Option(name: .long, help: "Prompt for T2I / TE modes.")
+    var prompt: String = "A red fox in a snowy forest at sunrise, photorealistic."
+
+    @Option(name: .long, help: "Width (multiple of 16). Default 1024.")
+    var width: Int = 1024
+
+    @Option(name: .long, help: "Height (multiple of 16). Default 1024.")
+    var height: Int = 1024
+
+    @Option(name: .long, help: "Denoise steps.")
+    var steps: Int = 4
+
+    @Option(name: .long, help: "Seed.")
+    var seed: UInt64 = 42
+
+    @Option(name: .long, help: "Measured trials after warmup.")
+    var trials: Int = 3
+
+    @Option(name: .long, help: "Warmup runs (not included in aggregate).")
+    var warmup: Int = 1
+
+    @Option(name: .long, help: "Seconds between trials (thermal cooldown).")
+    var cooldown: Double = 0
+
+    @Option(name: .long, help: "Write JSON report to this path.")
+    var json: String?
+
+    @Option(name: .long, help: "Directory for trial PNGs (t2i mode).")
+    var outputDir: String?
+
+    @Option(name: .long, help: "Optional MLX cacheLimit in bytes (e.g. 2147483648).")
+    var cacheLimit: UInt64?
+
+    @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
+    var probeDensity: String = "denoise"
+
+    @Flag(name: .long, help: "Reset MLX peak between TE / DiT / VAE phases.")
+    var resetPeakEachPhase: Bool = false
+
+    @Flag(name: .long, help: "Keep writing report when a trial errors (partial timeline).")
+    var failSoft: Bool = false
+
+    @Option(name: .long, help: "res-ladder sides as comma list (default 512,640,768,896,1024).")
+    var ladder: String = "512,640,768,896,1024"
+
+    @Flag(name: .long, help: "Run pixel quality metrics on each trial PNG.")
+    var withQuality: Bool = false
+
+    func run() async throws {
+        ensureMLXReady()
+
+        guard let benchMode = BenchMode(rawValue: mode) else {
+            print("error: unknown mode '\(mode)'. Use: \(BenchMode.allCases.map(\.rawValue).joined(separator: ", "))")
+            throw ExitCode.failure
+        }
+        guard let density = ProbeDensity(rawValue: probeDensity) else {
+            print("error: unknown probe-density '\(probeDensity)'")
+            throw ExitCode.failure
+        }
+
+        if benchMode == .resLadder {
+            try await runResLadder(density: density)
+            return
+        }
+
+        var effectiveDensity = density
+        var effectiveTrials = trials
+        var effectiveWarmup = warmup
+        var effectiveFailSoft = failSoft
+        var effectiveReset = resetPeakEachPhase
+        if benchMode == .pressureMap {
+            effectiveDensity = density == .off ? .blocks : density
+            effectiveTrials = 1
+            effectiveWarmup = 0
+            effectiveFailSoft = true
+            effectiveReset = true
+        }
+        if benchMode == .ditOneStep {
+            effectiveDensity = density == .off ? .blocks : density
+            effectiveTrials = 1
+            effectiveWarmup = 0
+            effectiveFailSoft = true
+        }
+
+        let config = BenchConfig(
+            mode: benchMode,
+            label: label,
+            prompt: prompt,
+            width: width,
+            height: height,
+            steps: benchMode == .ditOneStep ? 1 : steps,
+            seed: seed,
+            trials: effectiveTrials,
+            warmup: effectiveWarmup,
+            cooldownSeconds: cooldown,
+            withQuality: withQuality,
+            outputDirectory: outputDir,
+            cacheLimitBytes: cacheLimit,
+            probeDensity: effectiveDensity,
+            resetPeakEachPhase: effectiveReset,
+            failSoft: effectiveFailSoft
+        )
+
+        let aestrixConfig = AestrixConfig.autoDetectingTier()
+        let pipeline = AestrixPipeline(config: aestrixConfig)
+        guard await pipeline.hasLocalSnapshot else {
+            print("error: no local snapshot for \(aestrixConfig.modelID)")
+            print("  expected under ~/Library/Caches/Aestrix/models/")
+            throw ExitCode.failure
+        }
+
+        let analytic = PressureAnalytics.canvasStats(width: width, height: height)
+        print(
+            "bench start label=\(label) mode=\(benchMode.rawValue) \(width)x\(height) steps=\(config.steps) density=\(effectiveDensity.rawValue) joint_seq=\(analytic.jointSeqLen)"
+        )
+        print("  snapshot: \(await pipeline.snapshotPath ?? "?")")
+        print("  \(analytic.note)")
+
+        do {
+            let runner = BenchRunner(pipeline: pipeline, config: config)
+            let report = try await runner.run()
+            print(BenchReportWriter.textSummary(report))
+
+            let jsonPath = resolveJSONPath()
+            try BenchReportWriter.write(report, to: jsonPath)
+            print("json: \(jsonPath.path)")
+
+            if report.trials.contains(where: { $0.error != nil }), !effectiveFailSoft {
+                throw ExitCode.failure
+            }
+        } catch let code as ExitCode {
+            throw code
+        } catch {
+            print("error: \(error)")
+            throw ExitCode.failure
+        }
+    }
+
+    private func resolveJSONPath() -> URL {
+        if let json {
+            return URL(fileURLWithPath: json)
+        }
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        return caches
+            .appendingPathComponent("Aestrix/bench", isDirectory: true)
+            .appendingPathComponent("\(label)_\(stamp).json")
+    }
+
+    /// Spawn one child process per resolution so Metal OOM does not kill the parent.
+    private func runResLadder(density: ProbeDensity) async throws {
+        let sides = ladder.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        guard !sides.isEmpty else {
+            print("error: empty --ladder")
+            throw ExitCode.failure
+        }
+        let exe = CommandLine.arguments[0]
+        var childJSONs: [URL] = []
+        print("res-ladder sides=\(sides) density=\(density.rawValue) (subprocess per rung)")
+
+        for side in sides {
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("aestrix-ladder-\(side)-\(UUID().uuidString).json")
+            var args = [
+                "bench",
+                "--mode", "pressure-map",
+                "--label", "\(label)-\(side)",
+                "--width", "\(side)",
+                "--height", "\(side)",
+                "--steps", "\(steps)",
+                "--seed", "\(seed)",
+                "--probe-density", density == .off ? "blocks" : density.rawValue,
+                "--fail-soft",
+                "--json", out.path,
+            ]
+            if let cacheLimit {
+                args += ["--cache-limit", "\(cacheLimit)"]
+            }
+            print("  rung \(side)² …")
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: exe)
+            proc.arguments = args
+            proc.standardOutput = FileHandle.standardOutput
+            proc.standardError = FileHandle.standardError
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+            } catch {
+                print("  rung \(side) spawn error: \(error)")
+                break
+            }
+            let status = proc.terminationStatus
+            if FileManager.default.fileExists(atPath: out.path) {
+                childJSONs.append(out)
+                print("  rung \(side) exit=\(status) json=\(out.path)")
+            } else {
+                print("  rung \(side) exit=\(status) (no json — likely Metal abort)")
+            }
+            // Stop ladder after hard crash without report, or after first error with oom
+            if status != 0 {
+                if let last = childJSONs.last,
+                   let rep = try? BenchReportWriter.loadReport(from: last),
+                   rep.trials.contains(where: { $0.error != nil })
+                {
+                    break
+                }
+                if status != 0 && !FileManager.default.fileExists(atPath: out.path) {
+                    break
+                }
+            }
+        }
+
+        // Merge summary
+        var lines = ["aestrix res-ladder summary"]
+        for url in childJSONs {
+            if let r = try? BenchReportWriter.loadReport(from: url) {
+                let peak = r.aggregate.peakMlxPeakBytes.map { MemoryProbe.formatBytes(UInt64($0.max)) } ?? "?"
+                let e2e = r.aggregate.e2eMs.map { String(format: "%.0fms", $0.mean) } ?? "fail"
+                let err = r.trials.first?.error
+                let last = r.pressure?.lastProbeBeforeFailure ?? r.trials.first?.lastProbeId ?? "-"
+                let joint = r.pressure?.analytic.jointSeqLen ?? 0
+                if let err {
+                    lines.append(
+                        "  \(r.config.width)² joint=\(joint) ERROR last_probe=\(last) — \(err.prefix(80))"
+                    )
+                } else {
+                    lines.append(
+                        "  \(r.config.width)² joint=\(joint) e2e=\(e2e) peak_mlx=\(peak) last=\(last)"
+                    )
+                }
+            }
+        }
+        print(lines.joined(separator: "\n"))
+        if let json {
+            let summary = lines.joined(separator: "\n")
+            try summary.write(to: URL(fileURLWithPath: json), atomically: true, encoding: .utf8)
+            print("ladder_summary: \(json)")
+        }
+    }
+}
+
+struct BenchCompare: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bench-compare",
+        abstract: "Compare two bench JSON reports (percent deltas)."
+    )
+
+    @Argument(help: "Baseline report JSON path.")
+    var baseline: String
+
+    @Argument(help: "Candidate report JSON path.")
+    var candidate: String
+
+    func run() async throws {
+        do {
+            let a = try BenchReportWriter.loadReport(from: URL(fileURLWithPath: baseline))
+            let b = try BenchReportWriter.loadReport(from: URL(fileURLWithPath: candidate))
+            print(BenchReportWriter.compareText(baseline: a, candidate: b))
         } catch {
             print("error: \(error)")
             throw ExitCode.failure

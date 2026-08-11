@@ -63,6 +63,8 @@ public final class Flux2VAE: Module {
         z = z.transposed(0, 2, 3, 1)
         z = postQuantConv(z)
         z = z.transposed(0, 3, 1, 2)
+        eval(z)
+        Memory.clearCache()
         return decoder(z)
     }
 
@@ -76,7 +78,49 @@ public final class Flux2VAE: Module {
         let bnStd = sqrt(bn.runningVar.reshaped([1, -1, 1, 1]) + bn.eps)
         var latents = p * bnStd + bnMean
         latents = Self.unpatchify(latents)
+        eval(latents)
+        Memory.clearCache()
+        if latents.dim(2) >= 96 || latents.dim(3) >= 96 {
+            return Self.decodeLatentsTiled(latents, decode: decode)
+        }
         return decode(latents)
+    }
+
+    /// Low-RAM decode: split NCHW latents into a 2×2 grid of tiles, decode each, stitch RGB.
+    /// Fully convolutional VAE → seams are mild without feather (good enough for Tier L).
+    public static func decodeLatentsTiled(
+        _ latents: MLXArray,
+        decode: (MLXArray) -> MLXArray,
+        grid: Int = 2
+    ) -> MLXArray {
+        let h = latents.dim(2)
+        let w = latents.dim(3)
+        precondition(h % grid == 0 && w % grid == 0, "latent H/W must divide tile grid")
+        let th = h / grid
+        let tw = w / grid
+        var rows: [MLXArray] = []
+        rows.reserveCapacity(grid)
+        for yi in 0 ..< grid {
+            var cols: [MLXArray] = []
+            cols.reserveCapacity(grid)
+            for xi in 0 ..< grid {
+                let y0 = yi * th
+                let x0 = xi * tw
+                let tile = latents[0..., 0..., y0 ..< (y0 + th), x0 ..< (x0 + tw)]
+                eval(tile)
+                Memory.clearCache()
+                let out = decode(tile)
+                eval(out)
+                Memory.clearCache()
+                cols.append(out)
+            }
+            let row = concatenated(cols, axis: 3)  // stitch width
+            eval(row)
+            rows.append(row)
+        }
+        let rgb = concatenated(rows, axis: 2)  // stitch height
+        eval(rgb)
+        return rgb
     }
 
     public static func unpatchify(_ latents: MLXArray) -> MLXArray {

@@ -1,4 +1,5 @@
 import Foundation
+import MLX
 import AestrixCore
 import AestrixText
 import AestrixDiT
@@ -78,11 +79,11 @@ public final class StageOrchestrator: @unchecked Sendable {
         }
     }
 
-    public func loadVAEExclusive() async throws {
+    public func loadVAEExclusive(mode: VAELoadMode = .full) async throws {
         if memoryPolicy != .resident {
             await unloadOthers(except: vae.moduleName)
         }
-        try await vae.load()
+        try await vae.load(mode: mode)
         try assertStagedInvariant()
     }
 
@@ -119,7 +120,8 @@ public final class StageOrchestrator: @unchecked Sendable {
         await textEncoder.unload()
         await dit.unload()
         await vae.unload()
-        MemoryProbe.clearMLXCache()
+        // Modules clear on unload when they held weights; always clear residual cache too.
+        Memory.clearCache()
         _ = probe.snapshot(label: "purge")
     }
 

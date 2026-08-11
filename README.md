@@ -2,11 +2,11 @@
 
 **Native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) on Apple Silicon.**
 
-Low-RAM-first inference: the text encoder, DiT, and VAE never share memory. Weights stay **pre-quantized** (default 4-bit). macOS library + CLI today; iOS host next.
+Low-RAM-first inference: text encoder, DiT, and VAE never share memory. Weights stay **pre-quantized** (**4-bit** default). **1024²** is the product default canvas. macOS library + CLI today; iOS host next.
 
 ```text
-prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► unload ──► VAE ──► PNG
-              ~2.3 GB                  ~2.2 GB                    ~0.2 GB
+prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► unload ──► VAE decode ──► PNG
+              ~2 GB                  ~2 GB                     decode-only / tiled
 ```
 
 ## Features
@@ -14,18 +14,28 @@ prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► u
 | | |
 |--|--|
 | **Model** | FLUX.2-klein-4B only (Apache-2.0) — not 9B / Dev |
-| **Text-to-image** | Distilled defaults: 4 steps, guidance 1.0 |
+| **Text-to-image** | Distilled defaults: **1024²**, 4 steps, guidance 1.0 |
 | **Image-to-image** | Strength-based edits (encode → re-noise → denoise) |
-| **Memory** | Staged TE → DiT → VAE residency by default |
-| **Weights** | Hub 4-bit packs only — no bf16 download path |
+| **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; long-seq chunked attention; **tiled VAE** for large canvases |
+| **Weights** | Hub 4-bit packs only — no bf16 product path |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
+| **Bench** | Multi-trial timings, MLX/RSS memory, **pressure-map** block probes |
+
+### Measured (release, 4-bit, Apple M2 8 GB)
+
+| Canvas | Time to image | Peak MLX watermark | Peak RSS |
+|--------|--------------:|-------------------:|---------:|
+| **512²** | ~27–32 s | ~4.3 GB | ~2.1 GB |
+| **1024²** | ~**97 s** | ~**3.3 GB** | ~**1.8 GB** |
+
+Numbers vary by thermal state and OS load. See [Docs/PERF.md](Docs/PERF.md).
 
 ## Requirements
 
 - Apple Silicon Mac  
 - macOS 15+  
 - Xcode 16+ / Swift 6  
-- ~5 GB free for the 4-bit snapshot (plus room for activations)
+- ~5 GB free for the 4-bit snapshot; **~8 GB unified** can run 1024² with the low-RAM path (slower than 512²)
 
 ## Quick start
 
@@ -34,13 +44,11 @@ prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► u
 ```bash
 git clone https://github.com/PowerBeef/Aestrix.git
 cd Aestrix
-swift build
-./Scripts/ensure-metallib.sh   # full Metal library for MLX kernels
+swift build -c release
+./Scripts/ensure-metallib.sh   # full Metal library for MLX kernels (~130 MB)
 ```
 
 ### 2. Download weights
-
-Use any Hugging Face client. Target layout:
 
 ```text
 ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit/
@@ -50,43 +58,57 @@ Use any Hugging Face client. Target layout:
   tokenizer/
 ```
 
-Example with `hf`:
-
 ```bash
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --local-dir ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit
 ```
 
-Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-4bit) (~4.6 GB total). Details: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
+Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-4bit). Details: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 
 ### 3. Generate
 
 ```bash
-# Check snapshot
-.build/debug/aestrix info
+.build/release/aestrix info
 
-# Text-to-image
-.build/debug/aestrix t2i \
+# Text-to-image (defaults: 1024×1024, 4 steps, 4-bit)
+.build/release/aestrix t2i \
   "A weathered fisherman at the helm of a wooden boat, golden hour rim light, shallow depth of field." \
-  --width 512 --height 512 --steps 4 --seed 42 \
-  --output out.png
+  --seed 42 --output out.png
+
+# Faster smoke at 512²
+.build/release/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
+  --width 512 --height 512 --seed 42 --output out512.png
 
 # Image-to-image (color / style edits often need strength ≥ 0.8)
-.build/debug/aestrix i2i \
+.build/release/aestrix i2i \
   "the same scene at blue hour, cooler tones" \
-  --image out.png --strength 0.8 --seed 7 \
-  --output edit.png
+  --image out.png --strength 0.8 --seed 7 --output edit.png
 
 # Generate + quality report + vision checklist
-.build/debug/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
+.build/release/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
   --output out.png --analyze --vision-brief
 ```
 
-### 4. Tests (no model required)
+### 4. Benchmark & pressure map
+
+```bash
+# Timings + memory peaks
+.build/release/aestrix bench --width 512 --height 512 --warmup 1 --trials 3 \
+  --json /tmp/bench-512.json
+
+# DiT block-level memory probes (find OOM / peak sites)
+.build/release/aestrix bench --mode pressure-map --width 768 --height 768 \
+  --probe-density blocks --json /tmp/pressure.json
+
+# Compare two runs
+.build/release/aestrix bench-compare /tmp/bench-a.json /tmp/bench-b.json
+```
+
+### 5. Tests (no model required)
 
 ```bash
 swift test
-.build/debug/aestrix mem-selftest   # staged residency smoke
+.build/release/aestrix mem-selftest
 ```
 
 ## CLI
@@ -94,30 +116,34 @@ swift test
 | Command | Description |
 |---------|-------------|
 | `aestrix info` | Tier, memory policy, snapshot path |
-| `aestrix t2i <prompt>` | Text-to-image |
+| `aestrix t2i <prompt>` | Text-to-image (default **1024²**) |
 | `aestrix i2i <prompt> --image PATH` | Strength-based image-to-image |
 | `aestrix analyze-image PATH` | Pixel quality / accuracy report |
+| `aestrix bench` | Performance + pressure harness |
+| `aestrix bench-compare A B` | Compare two bench JSON reports |
 | `aestrix load-te` / `load-dit` / `load-vae` | Module load smoke tests |
 | `aestrix mem-selftest` | Dry staged load/unload |
 | `aestrix schedule` | Print flow-match sigmas / timesteps |
 
-Useful flags: `--width` `--height` `--steps` `--seed` `--output` `--analyze` `--vision-brief` `--fail-on-pixel-gate`.
+Useful flags: `--width` `--height` `--steps` `--seed` `--output` `--analyze` `--vision-brief` `--fail-on-pixel-gate`  
+Bench: `--mode pressure-map|dit-one-step|res-ladder` `--probe-density off|stages|denoise|blocks|max`  
+
+Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md)
 
 ## Architecture
 
-Swift packages (SwiftPM):
-
 | Module | Role |
 |--------|------|
-| `AestrixCore` | Config, scheduler, RoPE math, memory probe |
+| `AestrixCore` | Config, scheduler, RoPE math, `PipelineTrace` / probe density |
 | `AestrixText` | Qwen3 3-layer-tap encoder + tokenizer |
-| `AestrixDiT` | FLUX.2 MMDiT (5 double + 20 single blocks) |
-| `AestrixVAE` | Encode / decode / packed latents |
+| `AestrixDiT` | FLUX.2 MMDiT (checkpointed blocks, long-seq attention path) |
+| `AestrixVAE` | Encode / decode-only load / **tiled** large decode |
 | `AestrixRuntime` | Staged pipeline actor |
 | `AestrixEval` | Image quality harness (no Metal) |
+| `AestrixBench` | Multi-trial metrics, pressure reports |
 | `aestrix` | CLI |
 
-Design notes: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md)
+Design notes: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md) · [Docs/PERF.md](Docs/PERF.md)
 
 ## Prompting
 
@@ -128,10 +154,8 @@ Eval prompts: [Docs/eval-prompts.md](Docs/eval-prompts.md)
 
 ## Quality workflow
 
-After generations you care about, run the pixel + vision eval procedure:
-
 ```bash
-.build/debug/aestrix t2i "…" --output out.png --analyze --vision-brief
+.build/release/aestrix t2i "…" --output out.png --analyze --vision-brief
 # or
 ./Scripts/eval-generation.sh out.png --prompt "…" --mode t2i
 ```
@@ -144,17 +168,18 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 |------|--------|
 | macOS library + CLI | **Working** (T2I, I2I, eval) |
 | 4-bit staged load | **Working** |
-| iOS host | **Parked** — see [Docs/ROADMAP.md](Docs/ROADMAP.md) |
+| 1024² on 8 GB class Macs | **Working** (checkpointed DiT + tiled VAE; slower than 512²) |
+| Performance harness | **Working** (`bench`, pressure-map, ladder) |
+| iOS host | **Parked** — [Docs/ROADMAP.md](Docs/ROADMAP.md) |
 | Multi-reference / CFG / LoRA | Out of v1 (tracked on roadmap) |
-
-Remaining work is intentionally deferred and tracked in **[Docs/ROADMAP.md](Docs/ROADMAP.md)** so it can be resumed without losing context.
 
 ## Documentation
 
 | Doc | Topic |
 |-----|--------|
 | [AGENTS.md](AGENTS.md) | Product locks & agent conventions |
-| [Docs/ROADMAP.md](Docs/ROADMAP.md) | **Done vs parked backlog** |
+| [Docs/ROADMAP.md](Docs/ROADMAP.md) | Done vs parked backlog |
+| [Docs/PERF.md](Docs/PERF.md) | Benchmarks, pressure probes, 1024 path |
 | [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |
 | [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs & cache layout |
 | [Docs/MEMORY.md](Docs/MEMORY.md) | Staged residency & tiers |

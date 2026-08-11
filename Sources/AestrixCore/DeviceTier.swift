@@ -16,9 +16,9 @@ public enum DeviceTier: String, Sendable, Codable, CaseIterable {
     }
 
     public var defaultMaxSide: Int {
+        // Product default canvas is 1024² (4-bit staged). Tier still gates peak budgets.
         switch self {
-        case .low: return 512
-        case .mid, .high: return 1024
+        case .low, .mid, .high: return 1024
         }
     }
 

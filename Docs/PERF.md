@@ -1,0 +1,603 @@
+# Aestrix performance harness & optimization map
+
+**Measurement first.** Ship and trust the bench harness before large optimizations. Every speed/RAM change must show deltas via `aestrix bench` + `aestrix bench-compare`.
+
+Related: `Docs/MEMORY.md` (staged policy), `Docs/ARCHITECTURE.md`, `Docs/EVAL_WORKFLOW.md` (quality, not speed).
+
+---
+
+## Quick start
+
+```bash
+swift build && ./Scripts/ensure-metallib.sh
+
+# Full staged T2I (default canvas 1024² — may OOM on 8 GB)
+.build/release/aestrix bench --label baseline --width 512 --height 512 --json /tmp/aestrix-baseline.json
+
+# Pressure map: DiT block-level MLX active samples (use for 1024 diagnosis)
+.build/release/aestrix bench --mode pressure-map --width 512 --height 512 \
+  --probe-density blocks --json /tmp/p512.json
+
+# One denoise step only (first-step peak)
+.build/release/aestrix bench --mode dit-one-step --width 768 --height 768 \
+  --probe-density blocks --json /tmp/p768-step0.json
+
+# Resolution ladder (subprocess per side; survives Metal abort)
+.build/release/aestrix bench --mode res-ladder --ladder 512,640,768,896,1024 \
+  --probe-density blocks
+
+# Compare two reports
+.build/release/aestrix bench-compare /tmp/aestrix-baseline.json /tmp/aestrix-candidate.json
+```
+
+Snapshot path (default):
+
+`~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit`
+
+---
+
+## CLI reference
+
+### `aestrix bench`
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--mode` | `t2i` | `t2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `mem-stages` \| `te-only` \| `dit-steps` \| `vae-decode` \| `load-only` |
+| `--probe-density` | `denoise` | `off` \| `stages` \| `denoise` \| `blocks` \| `max` |
+| `--fail-soft` | off | Keep JSON when a trial errors |
+| `--reset-peak-each-phase` | off | Reset MLX peak between TE/DiT/VAE |
+| `--ladder` | 512…1024 | Sides for `res-ladder` |
+| `--label` | `baseline` | Stored in report for compare |
+| `--prompt` | fox sample | T2I / TE prompt |
+| `--width` / `--height` | `512` | Canvas (multiples of 16) |
+| `--steps` | `4` | Distilled default |
+| `--seed` | `42` | Reproducible noise |
+| `--trials` | `3` | Counted runs |
+| `--warmup` | `1` | Discarded runs (Metal compile / cache) |
+| `--cooldown` | `0` | Seconds between trials |
+| `--json` | auto under Caches | Report path |
+| `--output-dir` | Caches/Aestrix/bench | Trial PNGs (`t2i`) |
+| `--cache-limit` | MLX default | Optional `Memory.cacheLimit` bytes |
+| `--with-quality` | off | Pixel technical score + color match per PNG |
+
+### `aestrix bench-compare BASE CANDIDATE`
+
+Prints % deltas for e2e, denoise/step, encode, decode, peak RSS, peak MLX active. Lower is better.
+
+---
+
+## Metrics collected
+
+### Timings (ms)
+
+| Key | Source |
+|-----|--------|
+| `e2e` | Wall clock for the mode |
+| `load_te` / `encode_te` / `unload_te` | PipelineTrace stages |
+| `load_dit` / `denoise` / `unload_dit` | DiT residency |
+| `denoise_steps[]` | Per Euler step (forward + eval + euler) |
+| `load_vae` / `decode_vae` / `unload_vae` | VAE residency |
+| `export_png` | ImageExport |
+
+Aggregate: mean, stdev, min, max, p50, p95 across successful trials.
+
+### Memory
+
+At each `memorySample` label and at peaks:
+
+| Field | API |
+|-------|-----|
+| `rss_bytes` | `task_info` resident size |
+| `mlx_active_bytes` | `MLX.Memory.activeMemory` |
+| `mlx_cache_bytes` | `MLX.Memory.cacheMemory` |
+| `mlx_peak_bytes` | `MLX.Memory.peakMemory` (reset each trial) |
+
+### System snapshot
+
+Hostname, OS, physical RAM, processor count, Metal `recommendedMaxWorkingSetSize`, thermal state, MLX cache/memory limits, optional git SHA.
+
+### Optional quality (not a speed metric)
+
+With `--with-quality`: `technical_score`, `color_match` from `AestrixEval` so you can refuse “faster but broken” regressions.
+
+---
+
+## Report schema
+
+JSON schema version: **`1.0`** (`BenchReport.schemaVersion`).
+
+Snake_case keys. Load with `BenchReportWriter.loadReport`. Fields: `label`, `created_at`, `system`, `config`, `trials[]`, `aggregate`.
+
+---
+
+## Instrumentation
+
+`PipelineTrace` is optional on `AestrixPipeline.generate` / `edit`:
+
+- `stageBegin` / `stageEnd` for load/encode/denoise/decode/export  
+- `denoiseStepBegin` / `denoiseStepEnd` per step  
+- `memorySample(label:)` at residency boundaries  
+
+Must **not** change numerics. BenchRunner builds `StageTimingsMs` from the trace + wall clock.
+
+---
+
+## Optimization backlog (data-driven)
+
+Prioritize only after a **baseline** report exists on the target machine. IDs map to research notes.
+
+### Memory (M)
+
+| ID | Opportunity | How to measure |
+|----|-------------|----------------|
+| M1 | Staged policy already default — verify no dual residency | `mem-stages` peak RSS per module |
+| M2 | `Memory.clearCache()` after each unload | delta peak_mlx_cache, peak_rss |
+| M3 | Tune `Memory.cacheLimit` | `--cache-limit` sweeps |
+| M4 | TE layer prune already (27 layers) — avoid full Qwen depth | te-only encode time/RAM |
+| M5 | VAE decode-only path for pure T2I (skip encode weights if split) | vae-decode + peak during decode |
+| M6 | Avoid retaining prompt embeds longer than needed | samples after_unload_te vs denoise |
+| M7 | 3-bit preset trade quality vs RAM | `--with-quality` + peak_rss |
+| M8 | Lower resolution for interactive preview | 256/384 vs 512 e2e |
+| M9 | I2I: free image NCHW after encode | I2I trace samples (future mode) |
+| M10 | Peak during first DiT step (activation) | denoise_step_0 memory sample |
+| M11 | Process RSS vs MLX active gap (Metal heap) | both series in report |
+| M12 | Resident policy only on high tiers | side-by-side staged vs resident |
+| M13 | Snapshot mmap / avoid extra copies on load | load_* timings + peak during load |
+| M14 | iOS: wired memory / jetsam budget | device benches (P7) |
+
+### Speed (S)
+
+| ID | Opportunity | How to measure |
+|----|-------------|----------------|
+| S1 | `MLX.compile` DiT step graph | denoise/step cold vs warm |
+| S2 | Fuse eval boundaries (fewer `eval` syncs) | denoise/step |
+| S3 | Ensure full metallib (no JIT thrash) | first trial cold vs second |
+| S4 | SDPA / MLXFast already preferred | denoise/step vs baseline |
+| S5 | RoPE precompute / cache | denoise/step |
+| S6 | Parallel metadata load (not weights) | load_* only |
+| S7 | Tokenize off Metal path | encode_te |
+| S8 | Export PNG off critical path / lower bit depth preview | export_png |
+| S9 | Avoid `item()` / host sync in hot path | denoise/step |
+| S10 | Fewer steps (2–3) quality trade | e2e + `--with-quality` |
+| S11 | Guidance path dead code removed | denoise/step |
+| S12 | Batch = 1 fixed; no multi-image v1 | n/a |
+
+### Process rules
+
+1. One variable at a time (cache limit **or** compile **or** eval policy).  
+2. Same machine, similar thermal (`system.thermal_state`).  
+3. Report `label` must describe the change.  
+4. Do not claim Tier L/M readiness without measured peak RSS.
+
+---
+
+## Measured results (keep updating)
+
+**Machine:** Mac mini, 8 GB unified, thermal nominal  
+**Protocol:** `swift build -c release`, `ensure-metallib`, 512² × 4 steps, seed 42, warmup 1, trials 3  
+
+| Label | e2e mean | denoise/step | peak RSS | peak MLX active | peak MLX watermark | Notes |
+|-------|----------|--------------|----------|-----------------|--------------------|-------|
+| `baseline-rel` | 28.80 s | 5.54 s | 2.13 GB | 2.04 GB | 4.30 GB | Pre-opt release |
+| `opt-v3-scope` | 27.39 s (−4.9%) | 5.24 s (−5.4%) | 2.14 GB | 2.09 GB | 4.31 GB | S2/S5/S9 + scope |
+| `m2-opt` / `working-512-4bit` | **27.45 s** | **5.25 s** | 2.14 GB | 2.11 GB | **4.25 GB** | Default path on 8 GB M2 (4-bit) |
+| `probe-768-4bit` | **49.6 s** (1 cold) | **10.3 s** | 2.14 GB | 2.13 GB | **8.27 GB** | Near memory ceiling |
+| `success-1024-4bit` | **96.5 s** | **21.1 s** | **1.80 GB** | **2.05 GB** | **3.29 GB** | Checkpoint DiT + f16 long-seq attn + tiled VAE (4-bit) |
+
+**Shipped optimizations (cumulative in tree):**
+
+| ID | Change | Effect |
+|----|--------|--------|
+| S9 | Remove DiT `item()` host sync; pass training-scale timesteps `[0,1000]` | Fewer GPU→CPU barriers per step |
+| S2 | One `eval(latents)` per denoise step (not pred + latents) | Less sync / graph thrash |
+| S5 | Precompute RoPE once per denoise session | Avoid 4-axis rope rebuild every step |
+| S1 partial | `compile` Euler residual add | Small fused kernel |
+| M2 | `Memory.clearCache()` after stage scopes + purge | Drop embeds/rope before VAE |
+| S8 | Accelerate vDSP path for PNG float→u8 | Export ~50 ms warm (was slow mainly on cold debug) |
+| TE | Drop redundant post-encode `eval` | Minor encode win |
+| M2 | Cache RoPE ω, temb freqs, TE causal-512 mask | Less host/graph churn each step/encode |
+| M2 | Precompute Euler `dt` arrays once per schedule | No per-step scalar `MLXArray` alloc |
+| M5→M2 | **VAE decode-only load for T2I/I2I decode** | ~67 MB fewer weights; **load_vae ~115→69 ms**; peak watermark slightly lower |
+| Harness | Report `gpu=Apple M2 metal=Metal 4 neuralAccel=no` | Avoid confusing M5-only Metal 4 claims |
+
+**Still dominant (~76% of e2e):** DiT denoise compute itself. M2 has Metal 4 **API** but **no Neural Accelerators** — further large speedups need silicon (M5) or algorithm (res/bits/steps), not custom MTL4 kernels.
+
+**Quality gate (seed 42 fox prompt after opt-v3):** pixel overall ~95, color_match yes — no hard fails.
+
+---
+
+## Research deep-dive (2026-08-11)
+
+Investigation of the three highest-effort candidates after the ~5% denoise pass. Sources: mlx-swift 0.31.6 docs (`Memory`, `compile`, `QuantizedLinear`), hub pack layout, Aestrix pipeline, and **measured** `cacheLimit` sweeps on an 8 GB Mac mini.
+
+### Weight budget (4-bit hub pack on disk)
+
+| Module | Disk | Notes |
+|--------|------|--------|
+| Text encoder | ~2.1 GB | Dominates TE stage |
+| DiT transformer | ~2.18 GB | `single_transformer_blocks` ~1.38 GB, `transformer_blocks` ~0.69 GB |
+| VAE total | ~165 MB | Encoder **~67 MB**, decoder **~97 MB**, BN/post_quant negligible |
+
+T2I **process peak** is still DiT weights + activations (~4.3 GB MLX watermark, ~2.1 GB RSS on this machine), not VAE.
+
+---
+
+### 1. Full DiT-step `MLX.compile` (S1)
+
+#### What compile actually needs
+
+From mlx-swift compilation docs:
+
+- Compiles a **pure** graph of `MLXArray` ops; first call is slow (trace + fuse + Metal codegen), later calls reuse a cache keyed by shapes/dtypes.
+- Mutable / captured state must go through `inputs:` / `outputs:` as `Updatable` (`Module` qualifies).
+- Pattern for models:
+
+```swift
+let step = compile(inputs: [model]) { (latents: MLXArray, embeds: MLXArray, t: MLXArray, cos: MLXArray, sin: MLXArray) in
+    model(hiddenStates: latents, encoderHiddenStates: embeds, timestep: t,
+          imgIds: /* unused if rope passed */, txtIds: /* … */,
+          guidance: nil, imageRotaryEmb: (cos, sin))
+}
+```
+
+- **Shapeless** compile avoids recompile on shape change but not all graphs support it; resolution change (512→1024) otherwise forces recompile.
+- Host ops inside the function (`item()`, Swift branches on array values, printing) **break** tracing. We already removed timestep `item()` syncs — a prerequisite for compile.
+
+#### Affine quant is *not* the hard blocker
+
+`QuantizedLinear.callAsFunction` is ordinary MLX ops:
+
+```text
+quantizedMM(x, weight, scales, biases, …) [+ bias]
+```
+
+Those are first-class graph nodes (same as training examples that compile modules with parameters). Affine mode is the default quant format; it is not a separate “non-compilable” IR. So “tricky with Affine quant” is **overstated** if it means “quant forbids compile.”
+
+#### What *is* hard for a full Klein step
+
+| Risk | Why it matters |
+|------|----------------|
+| **Graph size** | 5 double + 20 single blocks × (QKV, RoPE mix, SDPA, FFN, AdaLN) → very large compile graph |
+| **First-call cost / RAM** | Compile can spike temporary memory; on **8 GB Tier L** this may jetsam or thrash before any steady-state win |
+| **SDPA already fused** | `MLXFast.scaledDotProductAttention` is a single kernel; compile’s biggest wins are elementwise fusion (gelu-class). Attention-bound steps see smaller relative gains |
+| **asType / reshape churn** | Many bf16↔fp32 casts and reshapes in attention/RoPE; compile may fuse some, not all Metal boundary costs |
+| **API surface** | Optional `guidance`, optional rope, batch-1 only — keep signature fixed or recompile |
+| **Module lifetime** | Compiled closure must outlive denoise loop; rebuild when DiT reloads after staged unload (every generation in staged mode → **recompile every T2I** unless we keep a resident compiled DiT) |
+
+**Staged policy conflict:** default is load DiT → denoise 4 steps → unload. A compiled function is tied to a `Module` identity / parameter buffers. After unload, the next generate reloads new arrays → **new compile**. Amortization only works for:
+
+- `MemoryPolicy.resident` (Tier H), or  
+- “warm DiT” session mode (hold DiT across multiple prompts).
+
+With **4 steps**, even a 20% step speedup saves ~4 s/gen, but a multi-second (or multi-minute) recompile each load can erase the win for single-shot CLI use.
+
+#### Recommended experiment plan (do not ship until measured)
+
+1. **Micro-compile** (safe): already have compiled Euler; optionally compile RoPE mix / AdaLN chunks.  
+2. **Single-block compile**: wrap one `Flux2TransformerBlock` forward with `compile(inputs: [block])` and compare step time × 25.  
+3. **Full forward compile** only if (2) shows ≥10% and peak RAM during compile is acceptable:  
+   - Flag: `--compile-dit` on bench  
+   - Warmup ≥1, trials ≥3, **resident DiT** for fair multi-step amortization  
+   - Record first-call vs steady-state denoise/step  
+4. **Abort criteria**: compile OOM, first-call > 2× one uncompiled generation, or quality drift (pixel gate).
+
+#### Verdict (S1)
+
+| Priority | Decision |
+|----------|----------|
+| Full DiT-step compile | **Parked for staged CLI** — reload kills amortization; graph risk on 8 GB |
+| Partial / block compile | **Worth a spike** behind a flag if we add resident-DiT bench mode |
+| Quant concern | **Not a fundamental ban** — use `inputs: [model]`; avoid host sync |
+
+---
+
+### 2. `Memory.cacheLimit` sweeps (M3)
+
+#### API facts (mlx-swift `Memory`)
+
+| Knob | Meaning |
+|------|---------|
+| `activeMemory` | Bytes in live `MLXArray`s |
+| `cacheMemory` | Recyclable buffer pool (not returned to OS yet) |
+| `peakMemory` | High-water of active (resettable) |
+| `cacheLimit` | Cap on cache pool; excess freed on **next allocation** (not immediately) |
+| `clearCache()` | Immediate pool drop |
+| `memoryLimit` | Soft cap; malloc waits on tasks if exceeded (default ~1.5× Metal recommended working set) |
+
+Docs note: unconstrained cache can grow large; many apps do fine with **small** limits (even ~2 MB class for other workloads). Limit applies on the **next** alloc unless you `clearCache()`.
+
+#### Defaults on this 8 GB Mac mini (measured)
+
+| Field | Value |
+|-------|------:|
+| Physical RAM | 8.00 GB |
+| Metal recommended working set | ~5.33 GB |
+| Default `cacheLimit` | **~7.60 GB** (≈ memory limit) |
+| Default `memoryLimit` | **~7.60 GB** |
+
+So “default” is already “cache may grow up to nearly all unified memory.”
+
+#### Empirical sweep (release T2I 512² × 4, seed 42, W1/T1)
+
+| `--cache-limit` | e2e ms | denoise/step ms | peak RSS | peak MLX active | peak MLX watermark |
+|-----------------|-------:|----------------:|---------:|----------------:|-------------------:|
+| 0 | 27638 | 5295 | 2.18 GB | 2.16 GB | 4.31 GB |
+| 256 MiB | 27629 | 5304 | 2.18 GB | 2.16 GB | 4.31 GB |
+| 1 GiB | 27434 | 5248 | 2.14 GB | 2.16 GB | 4.31 GB |
+| 2 GiB | 27473 | 5256 | 2.14 GB | 2.09 GB | 4.31 GB |
+| default (~8 GiB) | 27574 | 5268 | 2.13 GB | 2.09 GB | 4.31 GB |
+
+Noise band for single-trial is ~1–2%. Differences are **within noise**.
+
+#### Interpretation
+
+1. **Peak watermark is active DiT + activations**, not the free-buffer pool. Capping cache cannot shrink weight tensors.  
+2. Pipeline already **`clearCache()`** on module unload and after TE/DiT scopes — pool never accumulates across stages the way a long LLM session would.  
+3. Per-step `eval(latents)` releases intermediate graphs; cache pressure during denoise is modest vs weights.  
+4. `cacheLimit = 0` did **not** reduce `peak_mlx_peak` and was slightly slower (more alloc churn).
+
+#### When cacheLimit *would* matter
+
+- Multi-image **batch** or leaving modules **resident** without clear  
+- Long-lived app process generating dozens of images without purge  
+- iOS jetsam: lower cache reduces *idle* footprint after a run (pair with `clearCache` on background)
+
+#### Verdict (M3)
+
+| Priority | Decision |
+|----------|----------|
+| Aggressive cacheLimit for T2I speed | **No meaningful win** on current staged path |
+| Default product setting | Leave MLX default **or** set ~1–2 GiB on iOS after gen + `clearCache` for jetsam hygiene |
+| Harness | Keep `--cache-limit` for future resident/multi-gen scenarios |
+
+---
+
+### 3. VAE decode-only weight split for T2I (M5)
+
+#### Structure today
+
+`Flux2VAE` is one `Module`:
+
+| Submodule | Role | ~Bytes (fp/conv pack) |
+|-----------|------|------------------------:|
+| `encoder` + `quant_conv` | I2I encode path | **~67 MB** |
+| `decoder` + `post_quant_conv` | T2I/I2I decode | **~97 MB** |
+| `bn` running stats | pack/unpack normalize | ~1 KB |
+
+T2I only needs: **BN stats + post_quant_conv + decoder**.  
+I2I needs full encode + decode (two VAE residencies already sequential).
+
+#### What decode-only would save
+
+| Scenario | Savings | Peak impact |
+|----------|---------|-------------|
+| T2I VAE stage | ~67 MB weights not loaded | Stage peak ↓ ~67 MB |
+| T2I e2e peak | DiT still ~4.3 GB watermark | **≈ no change** to generation peak |
+| I2I | Still load full VAE for encode; optional decode-only second load | Encode peak same; decode peak slightly lower |
+| iOS jetsam after T2I | Slightly lower VAE resident set | Small but real |
+
+Hub pack is a **single** `vae/0.safetensors`. Implementation options:
+
+1. **Filter keys at load** (`decoder.*`, `post_quant_conv.*`, `bn.*`) into a `Flux2VAEDecoder` module — no new hub files.  
+2. **Split shards offline** (maintainer tool) — faster mmap, clearer packaging.  
+3. **Lazy submodules** — build full graph but only `update` decode keys (still allocates empty encoder params unless structure is split).
+
+Option 1/3 requires a **decode-only Module structure** so encoder parameters are never allocated (filtered `update` alone still constructs empty encoder if `Flux2VAE()` builds both).
+
+#### Implementation sketch
+
+```text
+Flux2VAEDecoder  // decoder + post_quant_conv + bn
+Flux2VAEEncoder  // encoder + quant_conv (+ bn if encode path needs same stats)
+VAEModule.load(mode: .decodeOnly | .encodeOnly | .full)
+```
+
+T2I: `load(.decodeOnly)` → `decodePacked`.  
+I2I: encode with `.encodeOnly` or `.full`, unload, later `.decodeOnly` or `.full`.
+
+Most of VAE wall time is **conv compute**, not the extra 67 MB load (~load_vae is already ~115 ms). Decode-only mainly helps **memory**, not speed.
+
+#### Verdict (M5)
+
+| Priority | Decision |
+|----------|----------|
+| T2I peak (macOS 8 GB) | **Low ROI** — DiT dominates |
+| iOS / aggressive staging | **Medium ROI** — ~67 MB cleaner; implement when packaging iOS (P7) |
+| Speed | **Negligible** vs denoise |
+| Complexity | Medium (dual module + load filters + tests) |
+
+Ship when: iOS host work starts, **or** measured VAE-stage RSS is a jetsam offender.
+
+---
+
+### Cross-cutting recommendation
+
+| Bet | Expected e2e win | Expected peak win | Effort | Next action |
+|-----|------------------|-------------------|--------|-------------|
+| Full DiT `compile` (staged) | Uncertain; may lose on recompile | Neutral / worse at compile | High | Spike block-level compile + resident mode only |
+| `cacheLimit` sweep | ~0% (measured) | ~0% peak (measured) | Low | **Done** — no product change |
+| VAE decode-only | ~0% e2e | **Shipped for T2I/I2I decode** — load_vae −40%, ~67 MB | Done | Full VAE still for I2I encode |
+| **Better next speed bets on M2** | | | | Lower preview res; 3-bit DiT; profile SDPA vs FFN; keep metallib full |
+
+**Denoise remains the only large absolute time pool (~21 s).** Further speed work should either reduce DiT math (resolution/steps/bits) or successfully amortize a **resident** compiled forward—not chase VAE/cache micro-wins on staged T2I.
+
+---
+
+## Pressure probes (finding the 1024 cliff)
+
+Report schema **1.1** includes a `pressure` object:
+
+- `analytic` — `image_seq_len`, `joint_seq_len` (text 512 + packed H·W)
+- `timeline` — every memory sample with Δactive vs previous
+- `ranked_by_active` / `ranked_by_delta` — top pressure labels
+- `phase_peaks` — max active in te / dit / vae
+- `last_probe_before_failure` — last successful probe id if a trial errors
+
+### Probe density
+
+| Density | What is sampled |
+|---------|-----------------|
+| `off` | Nothing (product path) |
+| `stages` | Load/unload/encode/export |
+| `denoise` | + every denoise step begin/euler |
+| `blocks` | + all 5 double blocks, singles 0/5/10/15/19, TE layer samples, embed/concat/proj |
+| `max` | + every single block + every TE layer (slow) |
+
+Block probes call `eval` so `Memory.activeMemory` reflects that region (**diagnosis only** — do not compare absolute step times to `density=off`).
+
+### Example (512² pressure-map on 8 GB M2)
+
+| Finding | Implication |
+|---------|-------------|
+| Largest **Δ** = `after_load_dit` (~+2.0 GB) | Weight residency fixed cost |
+| Peak **active** during forward ≈ 2.08 GB (ws ~39%) | Live activations + weights co-resident |
+| Peak **watermark** ≈ 4.25 GB | Temps + cache beyond live active |
+| `phase_peaks`: te≈1.7 GB, dit≈2.1 GB, vae≈97 MB | Staged policy working; DiT is generation peak |
+| joint_seq 512→1024: 1536 → **4608** (3×) | Expect superlinear attn temps → OOM on 8 GB |
+
+Recipe: run `pressure-map` at 512 and 768, then `dit-one-step` / `res-ladder` toward 1024; use `last_probe` + `top_delta` to pick activation vs weight tactics.
+
+### 1024² on 8 GB M2 — resolved (4-bit)
+
+Probes showed **DiT completed** (progress `denoising step=4/4`) and OOM was in **VAE decode**. Fixes shipped:
+
+1. **DiT activation checkpointing** — `eval` after each double/single block (stops full-graph peak ~8 GB watermark).  
+2. **Chunked long-seq attention** — query-chunked SDPA + chunked Linear for fused QKV/MLP when L>1536.  
+3. **f16 Q/K/V** when seq > 2048.  
+4. **Tiled VAE decode** — 2×2 latent tiles for unpatchified spatial ≥96 (1024² and large 768²).
+
+**Measured (release, seed 42, 2 trials, 8 GB M2):** e2e **~96.5 s**, denoise/step **~21 s**, decode **~6.8 s**, peak RSS **~1.8 GB**, peak MLX active **~2.05 GB**, peak watermark **~3.3 GB**.
+
+---
+
+## Metal 4 (and what Aestrix should / should not do)
+
+Metal 4 (macOS 26 / iOS 26 era) adds first-class **ML tensors**, **quantized tensor formats + scales**, **Metal Performance Primitives (MPP) / TensorOps**, tighter ML↔graphics encoding, and (on **M5** and successors) **GPU Neural Accelerators** for high-throughput matmul. This host already reports **Metal Support: Metal 4** (e.g. M2 on macOS 26); that is **API generation**, not “has Neural Accelerators.”
+
+### How Aestrix touches Metal today
+
+| Layer | Role |
+|-------|------|
+| **Aestrix** | Swift graph: TE / DiT / VAE, staged residency, no hand-written MTLCommandBuffers |
+| **mlx-swift (pinned)** | Array runtime, `QuantizedLinear` / `quantizedMM`, `MLXFast.scaledDotProductAttention`, `compile` |
+| **Cmlx / metallib** | Prebuilt Metal kernels (`Scripts/ensure-metallib.sh` → ~130 MB full lib, not the 3 KB stub) |
+| **GPU** | Executes fused matmul / SDPA / conv; unified memory |
+
+There is **no separate “Metal 3 code path” in Aestrix** to port. Optimization for Metal 4 is almost entirely **“ride a Metal‑4-aware MLX on a capable OS/GPU”**, not rewrite the DiT in raw `MTL4*` APIs.
+
+### What Metal 4 could mean for FLUX.2-klein (in principle)
+
+| Feature | Relevance to Aestrix | Who owns it |
+|---------|----------------------|-------------|
+| Quantized tensor formats + scales | Matches Affine 4-bit DiT/TE packs; better native quant kernels | **MLX** backend |
+| MPP / TensorOps | Faster matmul / fused ML ops under the hood | **MLX** |
+| GPU Neural Accelerators (M5+) | Large win on **compute-bound** phases (DiT step ≈ huge GEMMs); Apple published **>3.8×** FLUX-dev-4bit 1024² M5 vs M4 with MLX | **Hardware + MLX** (macOS **≥ 26.2** for M5 accel) |
+| Inline ML in shaders / graphics ML encoder | Neural rendering / games — **not** our staged diffusion CLI | Out of scope |
+| MetalFX neural upscale | Could upscale 512→display cheaply as **UX** later; not a DiT replacement | Optional product later |
+| Faster shader compile / encoding | Helps cold start if MLX JIT uses new pipelines | **MLX** + full metallib |
+
+Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives for Neural Accelerators; on M5, **TTFT-style compute** benefits most; bandwidth-bound work scales closer to memory BW (~+20–30% M5 vs M4 in their LLM decode numbers). A DiT denoise step is **much closer to compute-bound matmul** than to autoregressive decode—so M5-class silicon is the hardware bet for “Metal 4 era” speed, not hand-tuned Aestrix shaders.
+
+### What we should *not* do
+
+1. **Rewrite DiT/VAE as custom Metal 4 kernels in-repo** — duplicates MLX, breaks quant parity, huge maintenance, fights staged `actor` design.  
+2. **Assume Metal 4 on the OS == free 2× on M2** — API support ≠ Neural Accelerators.  
+3. **Bypass MLX for MPSGraph/Core ML “because Metal 4”** — different weight format, loses community 4-bit packs and Swift porting path.  
+4. **Treat MetalFX as generation quality** — upscalers don’t replace 4-step distilled denoise math.
+
+### What we *should* do (actionable)
+
+| Action | Why | Effort |
+|--------|-----|--------|
+| **Keep full metallib** (`ensure-metallib.sh`) | Avoids JIT thrash / stub kernels; cold vs warm already a measured issue | Ongoing |
+| **Prefer `MLXFast` / fused ops** (already SDPA) | Uses best available Metal kernels MLX ships | Already |
+| **Stay on a deliberate mlx-swift pin; re-validate newer releases** | Metal 4 / M5 TensorOps land in **MLX**, not Aestrix | Medium (when Apple bumps Cmlx) |
+| **Record GPU chip + OS in bench `SystemSnapshot`** | Separate “M2 Metal 4 API” vs “M5 Neural Accel” baselines | Small harness tweak |
+| **Optional: lower-res generate + MetalFX/display upscale** | Latency UX on Tier L; not a substitute for DiT opts | Product later |
+| **Profile with Metal capture** (`MTL_CAPTURE_ENABLED`, MLX metal debugger) | See if denoise is ALU-bound vs bandwidth on this GPU | Occasional |
+
+### Expected outcomes by hardware class
+
+| Hardware | Metal 4 API | Neural Accelerators | Realistic Aestrix lever |
+|----------|:-----------:|:-------------------:|-------------------------|
+| M1–M4 (this Mini: **M2**) | Yes (on macOS 26) | No | Software: eval/RoPE/stage opts (done); MLX upgrades; res/bits |
+| **M5 / M5 Pro / Max** | Yes | Yes | **Same Aestrix binary**, newer MLX + OS → large DiT speedup without Aestrix Metal rewrites |
+| iOS 26 + A19-class | Yes | Per SoC | Same staged core; metallib packaging (P7) |
+
+### Verdict
+
+**Optimizing “for Metal 4” in Aestrix ≠ writing Metal 4 code.** It means:
+
+1. Stay on the **MLX Metal backend** that adopts MPP / quant tensors / Neural Accelerators.  
+2. Keep graphs **compile- and quant-friendly** (no host `item()` in hot paths — already fixed).  
+3. Treat **M5+** as the big free win for denoise when available; on **M2**, Metal 4 is already the runtime—further gains are algorithmic / residency / model size, not a new Metal dialect.
+
+Do **not** start a parallel custom-Metal DiT. Do **track mlx-swift upgrades** and add GPU model to bench labels when comparing machines.
+
+---
+
+## Recommended baseline protocol
+
+```bash
+# Cool machine, AC power, close other GPU apps
+swift build -c release && ./Scripts/ensure-metallib.sh
+
+.build/release/aestrix bench \
+  --label "baseline-release-512-s4" \
+  --mode t2i --width 512 --height 512 --steps 4 \
+  --warmup 1 --trials 5 --seed 42 \
+  --json ~/Desktop/aestrix-baseline.json
+
+# Optional quality-coupled run
+.build/release/aestrix bench \
+  --label "baseline-quality" \
+  --trials 2 --with-quality \
+  --json ~/Desktop/aestrix-baseline-quality.json
+```
+
+After an optimization:
+
+```bash
+.build/release/aestrix bench --label "opt-cache-2g" --cache-limit 2147483648 \
+  --json ~/Desktop/aestrix-opt.json
+.build/release/aestrix bench-compare ~/Desktop/aestrix-baseline.json ~/Desktop/aestrix-opt.json
+```
+
+---
+
+## Modes detail
+
+| Mode | What runs | Primary metrics |
+|------|-----------|-----------------|
+| `t2i` | Full staged generate + PNG | e2e, all stages, denoise/step, peaks |
+| `dit-steps` | Same as t2i (focus report on denoise) | denoise/step |
+| `te-only` | load TE + encodePrompt | load_te, encode_te, RSS |
+| `vae-decode` | load/unload VAE | load_vae |
+| `load-only` | sequential TE, DiT, VAE load counts | load_* |
+| `mem-stages` | orchestrator memory self-test | RSS samples per stage |
+
+---
+
+## Library API
+
+```swift
+import AestrixBench
+import AestrixRuntime
+
+let pipeline = AestrixPipeline()
+let config = BenchConfig(mode: .t2i, label: "api", trials: 3, warmup: 1)
+let report = try await BenchRunner(pipeline: pipeline, config: config).run()
+print(BenchReportWriter.textSummary(report))
+try BenchReportWriter.write(report, to: url)
+```
+
+---
+
+## Out of scope for this harness
+
+- Instruments GPU counters (use Instruments / `xcprof` separately)  
+- Multi-host CI leaderboards  
+- Automatic opt application  
+- Quality gates that block CI without snapshots (optional later)
+
+See **ROADMAP P9** for tracking.

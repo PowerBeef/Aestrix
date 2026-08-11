@@ -77,10 +77,56 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 **Backlog**
 
 - [ ] Scripted regression from `Docs/eval-prompts.md` with fixed seeds (42, 0, 7)  
-- [ ] `aestrix bench-mem` — measured RSS around TE / DiT / VAE stages  
+- [x] Performance harness (`aestrix bench` / `bench-compare`) — see **P9** / `Docs/PERF.md`  
 - [ ] Pin Hub `revision` SHA in config / docs when shipping a release  
 - [ ] Golden image or metric floors in CI (pixel-only; vision stays agent/human)  
 - [ ] Document known I2I strength curves for color vs structure edits  
+
+---
+
+### P9 — Performance: measure then optimize
+
+| Field | Detail |
+|-------|--------|
+| **Status** | `partial` — harness shipped; optimizations data-gated |
+| **Goal** | Push generation speed and lower peak RAM without breaking quality or product locks |
+| **Docs** | `Docs/PERF.md` |
+| **Code** | `AestrixBench`, `PipelineTrace`, `aestrix bench`, `aestrix bench-compare` |
+
+**Harness (done)**
+
+- [x] Stage timings (TE / DiT / VAE load, encode, denoise steps, decode, export)  
+- [x] RSS + MLX active / cache / peak samples  
+- [x] Multi-trial aggregate (mean, stdev, p50, p95)  
+- [x] JSON report + compare  
+- [x] Modes: t2i, load-only, mem-stages, te-only, dit-steps, vae-decode  
+- [x] Optional `--with-quality` pixel coupling  
+- [x] Unit tests for aggregator / JSON  
+
+**Optimization backlog (do not land without bench deltas)**
+
+- [x] Baseline release report on primary Mac (`baseline-rel`, 512² s4, W1 T3)  
+- [x] Reduce host sync / `eval` in denoise (S2, S9) — **~5% denoise/step**  
+- [x] RoPE precompute across steps (S5)  
+- [x] `clearCache` + stage scoping before VAE (M2)  
+- [x] Compiled Euler residual (S1 partial)  
+- [x] Faster PNG export path (S8)  
+- [x] `Memory.cacheLimit` sweep (M3) — **no meaningful e2e/peak win** on staged T2I (see PERF research)  
+- [x] Research full DiT-step `MLX.compile` (S1) — **Affine quant not the blocker**; staged unload prevents amortization; park full compile  
+- [x] Research VAE decode-only — **shipped for T2I/I2I decode** (`VAELoadMode.decodeOnly`, ~67 MB less, load_vae ~−40%)  
+- [x] M2-supported software opts: RoPE ω / temb freqs / TE causal cache, Euler `dt` precompute, GPU label in bench  
+- [ ] Optional: block-level compile spike under **resident DiT** bench mode (still not amortized on staged M2)  
+
+- [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
+- [ ] Document accepted quality trade for 2–3 steps if used (S10)  
+
+**Latest measured (8 GB Mac mini, release):** e2e **28.8 s → 27.4 s (−4.9%)**, denoise/step **5.54 s → 5.24 s (−5.4%)**, peak RSS ≈ flat (~2.14 GB). Research write-up: `Docs/PERF.md` § Research deep-dive.
+
+**Acceptance for any “faster / leaner” claim**
+
+1. `bench-compare` shows improvement on e2e and/or peak_rss  
+2. denoise/step not regressed beyond noise without explanation  
+3. Optional: `--with-quality` no hard pixel fails on fixed seed  
 
 ---
 

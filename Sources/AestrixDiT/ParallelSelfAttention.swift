@@ -31,9 +31,11 @@ public final class Flux2ParallelSelfAttention: Module {
         _ hiddenStates: MLXArray,
         imageRotaryEmb: (MLXArray, MLXArray)?
     ) -> MLXArray {
-        let proj = toQkvMlpProj(hiddenStates)
+        // Chunk long sequences (1024² single-stream L≈4608) so fused QKV+MLP proj
+        // never materializes a full [B, L, ~27k] temp in one shot.
+        let proj = AttentionUtils.linearChunkedSequence(toQkvMlpProj, hiddenStates)
         let splitQkv = split(proj, indices: [innerDim * 3], axis: -1)
-        var qkv = splitQkv[0]
+        let qkv = splitQkv[0]
         let mlpHidden = splitQkv[1]
         let qkvParts = split(qkv, parts: 3, axis: -1)
         var query = qkvParts[0]
@@ -46,19 +48,27 @@ public final class Flux2ParallelSelfAttention: Module {
         key = key.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
         value = value.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
 
-        query = normQ(query.asType(.float32)).asType(.float32)
-        key = normK(key.asType(.float32)).asType(.float32)
+        // Norm in f32 for stability, then store Q/K/V in f16 for long sequences
+        // (L≈4608 @ 1024²: f32 QKV alone ≈1.7 GB).
+        let attnDType: DType = seq > 2048 ? .float16 : .float32
+        query = normQ(query.asType(.float32)).asType(attnDType)
+        key = normK(key.asType(.float32)).asType(attnDType)
+        value = value.asType(attnDType)
 
         if let (cos, sin) = imageRotaryEmb {
             (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
         }
 
+        // Free proj graph before attention.
+        eval(query, key, value, mlpHidden)
+        Memory.clearCache()
+
         var attnOut = AttentionUtils.computeAttention(
             query: query, key: key, value: value,
             batchSize: batch, numHeads: heads, headDim: dimHead
         )
-        let mlpOut = mlpAct(mlpHidden)
-        attnOut = concatenated([attnOut, mlpOut], axis: -1)
-        return toOut(attnOut)
+        let mlpOut = mlpAct(mlpHidden.asType(.float32)).asType(mlpHidden.dtype)
+        attnOut = concatenated([attnOut.asType(mlpOut.dtype), mlpOut], axis: -1)
+        return AttentionUtils.linearChunkedSequence(toOut, attnOut)
     }
 }

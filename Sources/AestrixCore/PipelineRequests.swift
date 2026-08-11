@@ -12,8 +12,8 @@ public struct T2IRequest: Sendable {
 
     public init(
         prompt: String,
-        width: Int = 512,
-        height: Int = 512,
+        width: Int = 1024,
+        height: Int = 1024,
         steps: Int = 4,
         guidance: Float = 1.0,
         seed: UInt64? = nil,

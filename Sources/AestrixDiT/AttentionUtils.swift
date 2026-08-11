@@ -17,20 +17,26 @@ enum AttentionUtils {
         let batch = hiddenStates.dim(0)
         let seq = hiddenStates.dim(1)
 
-        var query = toQ(hiddenStates)
-        var key = toK(hiddenStates)
-        var value = toV(hiddenStates)
+        var query = linearChunkedSequence(toQ, hiddenStates)
+        var key = linearChunkedSequence(toK, hiddenStates)
+        var value = linearChunkedSequence(toV, hiddenStates)
+        eval(query, key, value)
 
         query = query.reshaped([batch, seq, numHeads, headDim]).transposed(0, 2, 1, 3)
         key = key.reshaped([batch, seq, numHeads, headDim]).transposed(0, 2, 1, 3)
         value = value.reshaped([batch, seq, numHeads, headDim]).transposed(0, 2, 1, 3)
 
-        let qDtype = query.dtype
-        let kDtype = key.dtype
-        query = normQ(query.asType(.float32)).asType(qDtype)
-        key = normK(key.asType(.float32)).asType(kDtype)
+        // Prefer f16 for long sequences after f32 RMSNorm (memory).
+        let attnDType: DType = seq > 2048 ? .float16 : query.dtype
+        query = normQ(query.asType(.float32)).asType(attnDType)
+        key = normK(key.asType(.float32)).asType(attnDType)
+        value = value.asType(attnDType)
         return (query, key, value)
     }
+
+    /// 1024² single-stream L≈4608: always chunk above this seq length.
+    static let attentionQueryChunkThreshold = 1536
+    static let attentionQueryChunkSize = 256
 
     static func computeAttention(
         query: MLXArray,
@@ -41,15 +47,72 @@ enum AttentionUtils {
         headDim: Int
     ) -> MLXArray {
         let scale = 1.0 / Foundation.sqrt(Float(query.dim(-1)))
-        var hidden = MLXFast.scaledDotProductAttention(
-            queries: query,
-            keys: key,
-            values: value,
-            scale: scale,
-            mask: nil
-        )
-        hidden = hidden.transposed(0, 2, 1, 3)
-        return hidden.reshaped([batchSize, -1, numHeads * headDim])
+        // query/key/value: [B, H, S, D]
+        let seq = query.dim(2)
+        if seq <= attentionQueryChunkThreshold {
+            var hidden = MLXFast.scaledDotProductAttention(
+                queries: query,
+                keys: key,
+                values: value,
+                scale: scale,
+                mask: nil
+            )
+            hidden = hidden.transposed(0, 2, 1, 3)
+            return hidden.reshaped([batchSize, -1, numHeads * headDim])
+        }
+
+        // Query-chunked SDPA: lower peak for 1024² (joint L≈4608).
+        var chunks: [MLXArray] = []
+        chunks.reserveCapacity((seq + attentionQueryChunkSize - 1) / attentionQueryChunkSize)
+        var start = 0
+        while start < seq {
+            let end = min(start + attentionQueryChunkSize, seq)
+            let qChunk = query[0..., 0..., start ..< end, 0...]
+            var out = MLXFast.scaledDotProductAttention(
+                queries: qChunk,
+                keys: key,
+                values: value,
+                scale: scale,
+                mask: nil
+            )
+            // [B, H, chunk, D] → [B, chunk, H*D]
+            out = out.transposed(0, 2, 1, 3).reshaped([batchSize, end - start, numHeads * headDim])
+            eval(out)
+            Memory.clearCache()
+            chunks.append(out)
+            start = end
+        }
+        let cat = concatenated(chunks, axis: 1)
+        eval(cat)
+        return cat
+    }
+
+    /// Apply a sequence Linear in chunks to avoid huge [B, L, out] intermediates (e.g. fused QKV+MLP).
+    static func linearChunkedSequence(
+        _ linear: Linear,
+        _ x: MLXArray,
+        chunkSize: Int = 512,
+        threshold: Int = 1536
+    ) -> MLXArray {
+        // x: [B, S, C]
+        let seq = x.dim(1)
+        if seq <= threshold {
+            return linear(x)
+        }
+        var parts: [MLXArray] = []
+        parts.reserveCapacity((seq + chunkSize - 1) / chunkSize)
+        var start = 0
+        while start < seq {
+            let end = min(start + chunkSize, seq)
+            let chunk = x[0..., start ..< end, 0...]
+            let y = linear(chunk)
+            eval(y)
+            parts.append(y)
+            start = end
+        }
+        let cat = concatenated(parts, axis: 1)
+        eval(cat)
+        return cat
     }
 
     /// Apply RoPE with cos/sin of shape [S, D/2] to Q/K of shape [B, H, S, D] (interleaved pairs).
@@ -75,6 +138,8 @@ enum AttentionUtils {
             return stacked.reshaped(shape)
         }
 
-        return (mix(query).asType(outDtype), mix(key).asType(outDtype))
+        // Keep rope output in the compact attention dtype when possible.
+        let store = outDtype == .float32 && query.dim(2) > 2048 ? DType.float16 : outDtype
+        return (mix(query).asType(store), mix(key).asType(store))
     }
 }

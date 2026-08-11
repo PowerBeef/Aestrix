@@ -10,8 +10,8 @@ Peak ≈ `max(TE, DiT+acts, VAE)` + context + latents + OS slack.
 
 | Tier | Hardware | Peak budget (ballpark) | Default side | Weights |
 |------|----------|------------------------|--------------|---------|
-| L | ~8 GB unified | ≤ ~5.5–6.5 GB process | 512 | 3-bit or 4-bit + staged |
-| M | ~16 GB | ≤ ~10–12 GB | 768–1024 | 4-bit + staged |
+| L | ~8 GB unified | ≤ ~5.5–6.5 GB process | **1024** default (tight; measure with `bench`) | 4-bit + staged |
+| M | ~16 GB | ≤ ~10–12 GB | 1024 | 4-bit + staged |
 | H | 24 GB+ | optional resident | 1024 | 4/8-bit; resident opt-in |
 
 ## Stages (T2I)

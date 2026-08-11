@@ -81,11 +81,56 @@ public actor AestrixPipeline {
         try await orchestrator.runMemorySelfTest()
     }
 
+    /// Load TE, invoke `body` while loaded, then unload under staged policy. For benchmarks.
+    public func withTextEncoderLoaded(
+        _ body: @Sendable () async throws -> Void
+    ) async throws {
+        try await orchestrator.loadTextEncoderExclusive()
+        do {
+            try await body()
+            try await orchestrator.unloadTextEncoderIfStaged()
+        } catch {
+            try? await orchestrator.unloadTextEncoderIfStaged()
+            throw error
+        }
+    }
+
+    /// Load DiT, invoke `body` while loaded, then unload under staged policy. For benchmarks.
+    public func withDiTLoaded(
+        _ body: @Sendable () async throws -> Void
+    ) async throws {
+        try await orchestrator.loadDiTExclusive()
+        do {
+            try await body()
+            try await orchestrator.unloadDiTIfStaged()
+        } catch {
+            try? await orchestrator.unloadDiTIfStaged()
+            throw error
+        }
+    }
+
+    /// Load VAE, invoke `body` while loaded, then unload under staged policy. For benchmarks.
+    public func withVAELoaded(
+        _ body: @Sendable () async throws -> Void
+    ) async throws {
+        try await orchestrator.loadVAEExclusive()
+        do {
+            try await body()
+            try await orchestrator.unloadVAEIfStaged()
+        } catch {
+            try? await orchestrator.unloadVAEIfStaged()
+            throw error
+        }
+    }
+
     /// Staged T2I: TE encode → unload → DiT Euler denoise → unload → VAE decode → PNG.
+    ///
+    /// Pass `trace` to record stage timings and memory samples (benchmarking); no effect on numerics.
     @discardableResult
     public func generate(
         _ request: T2IRequest,
-        onProgress: (@Sendable (PipelineProgress) -> Void)? = nil
+        onProgress: (@Sendable (PipelineProgress) -> Void)? = nil,
+        trace: PipelineTrace? = nil
     ) async throws -> URL {
         try beginGeneration()
         defer { generationInFlight = false }
@@ -108,23 +153,8 @@ public actor AestrixPipeline {
         )
 
         onProgress?(PipelineProgress(phase: .preparing))
+        trace?.emit(.memorySample(label: "prepare"))
 
-        // --- Stage 1: text encoder ---
-        onProgress?(PipelineProgress(phase: .encodingText))
-        try await orchestrator.loadTextEncoderExclusive()
-        let promptEmbeds: MLXArray
-        do {
-            let (embeds, _) = try orchestrator.textEncoder.encode(request.prompt)
-            eval(embeds)
-            promptEmbeds = embeds
-            try await orchestrator.unloadTextEncoderIfStaged()
-        } catch {
-            try? await orchestrator.unloadTextEncoderIfStaged()
-            throw error
-        }
-
-        let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
-        let imgIds = LatentOps.imageIds(width: request.width, height: request.height)
         let (packedH, packedW) = LatentOps.packedSpatial(
             width: request.width, height: request.height)
         let imageSeqLen = packedH * packedW
@@ -141,60 +171,158 @@ public actor AestrixPipeline {
             imageSeqLen: imageSeqLen
         )
 
-        // Distilled klein: no CFG; DiT built without guidance embeds.
-        let guidance: MLXArray? = nil
-
-        // --- Stage 2: DiT denoise ---
-        try await orchestrator.loadDiTExclusive()
+        // Stages 1–2 nested so prompt embeds + RoPE drop before VAE (lower peak RAM).
         do {
-            for step in 0 ..< scheduler.numInferenceSteps {
-                onProgress?(
-                    PipelineProgress(
-                        phase: .denoising, step: step, totalSteps: request.steps))
-                // Model expects σ-scale in [0,1] or [0,1000]; pass /1000 like diffusers.
-                let t = scheduler.timesteps[step] / Float(ModelConstants.numTrainTimesteps)
-                let timestep = MLXArray([t]).asType(.float32)
-                let noisePred = try orchestrator.dit.forward(
-                    hiddenStates: latents,
-                    encoderHiddenStates: promptEmbeds,
-                    timestep: timestep,
-                    imgIds: imgIds,
-                    txtIds: txtIds,
-                    guidance: guidance
-                )
-                eval(noisePred)
-                latents = LatentOps.eulerStep(
-                    sample: latents,
-                    modelOutput: noisePred,
-                    sigma: scheduler.sigmas[step],
-                    sigmaNext: scheduler.sigmas[step + 1]
-                )
-                eval(latents)
+            // --- Stage 1: text encoder ---
+            onProgress?(PipelineProgress(phase: .encodingText))
+            trace?.emit(.stageBegin("load_te"))
+            try await orchestrator.loadTextEncoderExclusive()
+            trace?.emit(.stageEnd("load_te"))
+            trace?.emit(.memorySample(label: "after_load_te"))
+            let promptEmbeds: MLXArray
+            do {
+                trace?.emit(.stageBegin("encode_te"))
+                // TextEncoderModule.encode already evals embeds.
+                let (embeds, _) = try orchestrator.textEncoder.encode(
+                    request.prompt, trace: trace)
+                promptEmbeds = embeds
+                trace?.emit(.stageEnd("encode_te"))
+                trace?.emit(.memorySample(label: "after_encode_te"))
+                if let trace, trace.density != .off {
+                    trace.emit(.peakReset(label: "after_te"))
+                }
+                trace?.emit(.stageBegin("unload_te"))
+                try await orchestrator.unloadTextEncoderIfStaged()
+                trace?.emit(.stageEnd("unload_te"))
+                trace?.emit(.memorySample(label: "after_unload_te"))
+            } catch {
+                try? await orchestrator.unloadTextEncoderIfStaged()
+                throw error
             }
-            try await orchestrator.unloadDiTIfStaged()
-        } catch {
-            try? await orchestrator.unloadDiTIfStaged()
-            throw error
-        }
 
-        // --- Stage 3: VAE decode ---
+            let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
+            let imgIds = LatentOps.imageIds(width: request.width, height: request.height)
+            let imgSeq = packedH * packedW
+            let joint = promptEmbeds.dim(1) + imgSeq
+            trace?.note(
+                "canvas=\(request.width)x\(request.height) image_seq=\(imgSeq) joint_seq=\(joint)",
+                minDensity: .stages)
+
+            // Distilled klein: no CFG; DiT built without guidance embeds.
+            let guidance: MLXArray? = nil
+
+            // --- Stage 2: DiT denoise ---
+            trace?.emit(.stageBegin("load_dit"))
+            try await orchestrator.loadDiTExclusive()
+            trace?.emit(.stageEnd("load_dit"))
+            trace?.emit(.memorySample(label: "after_load_dit"))
+            do {
+                // RoPE + ids are constant across steps for fixed canvas + text length.
+                eval(imgIds, txtIds, promptEmbeds)
+                let rope = try orchestrator.dit.prepareRotaryEmbeddings(
+                    imgIds: imgIds, txtIds: txtIds)
+                trace?.emit(.memorySample(label: "after_rope"))
+                // Host-built training-scale timesteps + Euler dts (eval once before loop).
+                let stepTimesteps: [MLXArray] = scheduler.timesteps.map {
+                    MLXArray([$0]).asType(.float32)
+                }
+                let stepDts = LatentOps.eulerDts(sigmas: scheduler.sigmas)
+                eval(stepTimesteps)
+                // High-res (768²+) on unified memory: drop Metal buffer pool after every
+                // step so activation temporaries don't accumulate (8 GB M2 OOMs at 1024²).
+                let largeCanvas = max(request.width, request.height) >= 768
+                if largeCanvas {
+                    Memory.cacheLimit = 256 * 1024 * 1024  // 256 MiB
+                    Memory.clearCache()
+                    trace?.emit(.memorySample(label: "after_clear_pre_denoise"))
+                }
+                if let trace, trace.density != .off {
+                    trace.emit(.peakReset(label: "before_denoise"))
+                }
+                trace?.emit(.stageBegin("denoise"))
+                for step in 0 ..< scheduler.numInferenceSteps {
+                    onProgress?(
+                        PipelineProgress(
+                            phase: .denoising, step: step, totalSteps: request.steps))
+                    trace?.emit(.denoiseStepBegin(index: step, total: request.steps))
+                    trace?.probe(
+                        "dit.step\(step).begin", phase: "dit", step: step, minDensity: .denoise)
+                    let noisePred = try orchestrator.dit.forward(
+                        hiddenStates: latents,
+                        encoderHiddenStates: promptEmbeds,
+                        timestep: stepTimesteps[step],
+                        imgIds: imgIds,
+                        txtIds: txtIds,
+                        guidance: guidance,
+                        imageRotaryEmb: rope,
+                        trace: trace,
+                        stepIndex: step
+                    )
+                    // Single eval per step: materialize Euler result (pulls noisePred graph).
+                    latents = LatentOps.eulerStep(
+                        sample: latents,
+                        modelOutput: noisePred,
+                        dt: stepDts[step]
+                    )
+                    eval(latents)
+                    trace?.probe(
+                        "dit.step\(step).after_euler", phase: "dit", step: step, minDensity: .denoise)
+                    if largeCanvas {
+                        Memory.clearCache()
+                        trace?.probe(
+                            "dit.step\(step).after_clear", phase: "dit", step: step,
+                            minDensity: .denoise)
+                    }
+                    trace?.emit(.denoiseStepEnd(index: step, total: request.steps))
+                    if step == 0 || step + 1 == scheduler.numInferenceSteps
+                        || (trace?.density.instrumentsEveryDenoiseStep == true)
+                    {
+                        trace?.emit(.memorySample(label: "denoise_step_\(step)"))
+                    }
+                }
+                trace?.emit(.stageEnd("denoise"))
+                trace?.emit(.stageBegin("unload_dit"))
+                try await orchestrator.unloadDiTIfStaged()
+                trace?.emit(.stageEnd("unload_dit"))
+                trace?.emit(.memorySample(label: "after_unload_dit"))
+            } catch {
+                try? await orchestrator.unloadDiTIfStaged()
+                throw error
+            }
+        }
+        // Drop TE embeddings / RoPE / ids; keep only latents for VAE.
+        Memory.clearCache()
+
+        // --- Stage 3: VAE decode (decode-only weights — ~67 MB less on M2 / Tier L) ---
         onProgress?(PipelineProgress(phase: .decoding))
-        try await orchestrator.loadVAEExclusive()
+        trace?.emit(.stageBegin("load_vae"))
+        try await orchestrator.loadVAEExclusive(mode: .decodeOnly)
+        trace?.emit(.stageEnd("load_vae"))
+        trace?.emit(.memorySample(label: "after_load_vae"))
         let rgb: MLXArray
         do {
+            trace?.emit(.stageBegin("decode_vae"))
             let spatial = LatentOps.unpackSequence(
                 latents, height: packedH, width: packedW)
             let decoded = try orchestrator.vae.decodePacked(spatial)
             eval(decoded)
             rgb = decoded
+            trace?.emit(.stageEnd("decode_vae"))
+            trace?.emit(.memorySample(label: "after_decode_vae"))
+            trace?.emit(.stageBegin("unload_vae"))
             try await orchestrator.unloadVAEIfStaged()
+            trace?.emit(.stageEnd("unload_vae"))
+            trace?.emit(.memorySample(label: "after_unload_vae"))
         } catch {
             try? await orchestrator.unloadVAEIfStaged()
             throw error
         }
 
         let outURL = request.outputURL ?? Self.defaultOutputURL(seed: request.seed, prefix: "t2i")
+        trace?.emit(.stageBegin("export_png"))
         try ImageExport.writePNG(rgb, to: outURL)
+        trace?.emit(.stageEnd("export_png"))
+        trace?.emit(.memorySample(label: "after_export"))
 
         onProgress?(
             PipelineProgress(phase: .finished, step: request.steps, totalSteps: request.steps))
@@ -202,10 +330,13 @@ public actor AestrixPipeline {
     }
 
     /// Staged strength I2I: VAE encode → unload → TE → unload → DiT (from strength) → unload → VAE decode → PNG.
+    ///
+    /// Pass `trace` to record stage timings and memory samples (benchmarking); no effect on numerics.
     @discardableResult
     public func edit(
         _ request: I2IRequest,
-        onProgress: (@Sendable (PipelineProgress) -> Void)? = nil
+        onProgress: (@Sendable (PipelineProgress) -> Void)? = nil,
+        trace: PipelineTrace? = nil
     ) async throws -> URL {
         try beginGeneration()
         defer { generationInFlight = false }
@@ -238,45 +369,12 @@ public actor AestrixPipeline {
         )
 
         onProgress?(PipelineProgress(phase: .preparing))
-
-        // --- Stage 0: VAE encode reference ---
-        onProgress?(PipelineProgress(phase: .encodingImage))
-        let imageNCHW = try ImageImport.loadNCHW(
-            url: request.imageURL, width: canvas.width, height: canvas.height)
-        eval(imageNCHW)
-
-        try await orchestrator.loadVAEExclusive()
-        let cleanPacked: MLXArray
-        do {
-            let spatial = try orchestrator.vae.encodePackedForDiT(imageNCHW)
-            eval(spatial)
-            cleanPacked = LatentOps.packSpatial(spatial)
-            eval(cleanPacked)
-            try await orchestrator.unloadVAEIfStaged()
-        } catch {
-            try? await orchestrator.unloadVAEIfStaged()
-            throw error
-        }
-
-        // --- Stage 1: text encoder ---
-        onProgress?(PipelineProgress(phase: .encodingText))
-        try await orchestrator.loadTextEncoderExclusive()
-        let promptEmbeds: MLXArray
-        do {
-            let (embeds, _) = try orchestrator.textEncoder.encode(request.prompt)
-            eval(embeds)
-            promptEmbeds = embeds
-            try await orchestrator.unloadTextEncoderIfStaged()
-        } catch {
-            try? await orchestrator.unloadTextEncoderIfStaged()
-            throw error
-        }
+        trace?.emit(.memorySample(label: "prepare"))
 
         let (packedH, packedW) = LatentOps.packedSpatial(
             width: canvas.width, height: canvas.height)
         let imageSeqLen = packedH * packedW
-        let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
-        let imgIds = LatentOps.imageIds(width: canvas.width, height: canvas.height)
+        let nSteps = request.steps
 
         // Full N-step schedule from strength noise level → 0 (not a truncated T2I slice).
         let (sigmas, timesteps, startSigma) = Flux2Scheduler.strengthSchedule(
@@ -285,60 +383,150 @@ public actor AestrixPipeline {
             imageSeqLen: imageSeqLen
         )
 
-        // Re-noise clean latents to start σ: (1−σ)·x₀ + σ·ε
-        let noise = LatentOps.sampleNoiseLike(cleanPacked, seed: request.seed)
-        var latents = LatentOps.scaleNoise(clean: cleanPacked, noise: noise, sigma: startSigma)
-        eval(latents)
+        var latents: MLXArray
 
-        let guidance: MLXArray? = nil
-        let nSteps = request.steps
-
-        // --- Stage 2: DiT denoise (all steps of strength schedule) ---
-        try await orchestrator.loadDiTExclusive()
+        // Stages 0–2 nested so pixels / embeds / RoPE drop before final VAE decode.
         do {
-            for step in 0 ..< nSteps {
-                onProgress?(
-                    PipelineProgress(
-                        phase: .denoising,
-                        step: step,
-                        totalSteps: nSteps
-                    ))
-                let t = timesteps[step] / Float(ModelConstants.numTrainTimesteps)
-                let timestep = MLXArray([t]).asType(.float32)
-                let noisePred = try orchestrator.dit.forward(
-                    hiddenStates: latents,
-                    encoderHiddenStates: promptEmbeds,
-                    timestep: timestep,
-                    imgIds: imgIds,
-                    txtIds: txtIds,
-                    guidance: guidance
-                )
-                eval(noisePred)
-                latents = LatentOps.eulerStep(
-                    sample: latents,
-                    modelOutput: noisePred,
-                    sigma: sigmas[step],
-                    sigmaNext: sigmas[step + 1]
-                )
-                eval(latents)
-            }
-            try await orchestrator.unloadDiTIfStaged()
-        } catch {
-            try? await orchestrator.unloadDiTIfStaged()
-            throw error
-        }
+            // --- Stage 0: VAE encode reference ---
+            onProgress?(PipelineProgress(phase: .encodingImage))
+            let imageNCHW = try ImageImport.loadNCHW(
+                url: request.imageURL, width: canvas.width, height: canvas.height)
+            eval(imageNCHW)
 
-        // --- Stage 3: VAE decode ---
+            trace?.emit(.stageBegin("load_vae"))
+            try await orchestrator.loadVAEExclusive()
+            trace?.emit(.stageEnd("load_vae"))
+            trace?.emit(.memorySample(label: "after_load_vae_enc"))
+            let cleanPacked: MLXArray
+            do {
+                trace?.emit(.stageBegin("encode_vae"))
+                let spatial = try orchestrator.vae.encodePackedForDiT(imageNCHW)
+                eval(spatial)
+                cleanPacked = LatentOps.packSpatial(spatial)
+                eval(cleanPacked)
+                trace?.emit(.stageEnd("encode_vae"))
+                trace?.emit(.stageBegin("unload_vae"))
+                try await orchestrator.unloadVAEIfStaged()
+                trace?.emit(.stageEnd("unload_vae"))
+                trace?.emit(.memorySample(label: "after_unload_vae_enc"))
+            } catch {
+                try? await orchestrator.unloadVAEIfStaged()
+                throw error
+            }
+            // imageNCHW drops at end of this do; free cache before TE.
+            Memory.clearCache()
+
+            // --- Stage 1: text encoder ---
+            onProgress?(PipelineProgress(phase: .encodingText))
+            trace?.emit(.stageBegin("load_te"))
+            try await orchestrator.loadTextEncoderExclusive()
+            trace?.emit(.stageEnd("load_te"))
+            let promptEmbeds: MLXArray
+            do {
+                trace?.emit(.stageBegin("encode_te"))
+                let (embeds, _) = try orchestrator.textEncoder.encode(
+                    request.prompt, trace: trace)
+                promptEmbeds = embeds
+                trace?.emit(.stageEnd("encode_te"))
+                trace?.emit(.stageBegin("unload_te"))
+                try await orchestrator.unloadTextEncoderIfStaged()
+                trace?.emit(.stageEnd("unload_te"))
+                trace?.emit(.memorySample(label: "after_unload_te"))
+            } catch {
+                try? await orchestrator.unloadTextEncoderIfStaged()
+                throw error
+            }
+
+            let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
+            let imgIds = LatentOps.imageIds(width: canvas.width, height: canvas.height)
+
+            // Re-noise clean latents to start σ: (1−σ)·x₀ + σ·ε
+            let noise = LatentOps.sampleNoiseLike(cleanPacked, seed: request.seed)
+            latents = LatentOps.scaleNoise(clean: cleanPacked, noise: noise, sigma: startSigma)
+            eval(latents)
+
+            let guidance: MLXArray? = nil
+
+            // --- Stage 2: DiT denoise (all steps of strength schedule) ---
+            trace?.emit(.stageBegin("load_dit"))
+            try await orchestrator.loadDiTExclusive()
+            trace?.emit(.stageEnd("load_dit"))
+            trace?.emit(.memorySample(label: "after_load_dit"))
+            do {
+                eval(imgIds, txtIds, promptEmbeds)
+                let rope = try orchestrator.dit.prepareRotaryEmbeddings(
+                    imgIds: imgIds, txtIds: txtIds)
+                let stepTimesteps: [MLXArray] = timesteps.map {
+                    MLXArray([$0]).asType(.float32)
+                }
+                let stepDts = LatentOps.eulerDts(sigmas: sigmas)
+                eval(stepTimesteps)
+                let largeCanvas = max(canvas.width, canvas.height) >= 768
+                if largeCanvas {
+                    Memory.cacheLimit = 256 * 1024 * 1024
+                    Memory.clearCache()
+                }
+                trace?.emit(.stageBegin("denoise"))
+                for step in 0 ..< nSteps {
+                    onProgress?(
+                        PipelineProgress(
+                            phase: .denoising,
+                            step: step,
+                            totalSteps: nSteps
+                        ))
+                    trace?.emit(.denoiseStepBegin(index: step, total: nSteps))
+                    let noisePred = try orchestrator.dit.forward(
+                        hiddenStates: latents,
+                        encoderHiddenStates: promptEmbeds,
+                        timestep: stepTimesteps[step],
+                        imgIds: imgIds,
+                        txtIds: txtIds,
+                        guidance: guidance,
+                        imageRotaryEmb: rope,
+                        trace: trace,
+                        stepIndex: step
+                    )
+                    latents = LatentOps.eulerStep(
+                        sample: latents,
+                        modelOutput: noisePred,
+                        dt: stepDts[step]
+                    )
+                    eval(latents)
+                    if largeCanvas {
+                        Memory.clearCache()
+                    }
+                    trace?.emit(.denoiseStepEnd(index: step, total: nSteps))
+                }
+                trace?.emit(.stageEnd("denoise"))
+                trace?.emit(.stageBegin("unload_dit"))
+                try await orchestrator.unloadDiTIfStaged()
+                trace?.emit(.stageEnd("unload_dit"))
+                trace?.emit(.memorySample(label: "after_unload_dit"))
+            } catch {
+                try? await orchestrator.unloadDiTIfStaged()
+                throw error
+            }
+        }
+        Memory.clearCache()
+
+        // --- Stage 3: VAE decode (decode-only after encode unload) ---
         onProgress?(PipelineProgress(phase: .decoding))
-        try await orchestrator.loadVAEExclusive()
+        trace?.emit(.stageBegin("load_vae"))
+        try await orchestrator.loadVAEExclusive(mode: .decodeOnly)
+        trace?.emit(.stageEnd("load_vae"))
         let rgb: MLXArray
         do {
+            trace?.emit(.stageBegin("decode_vae"))
             let spatial = LatentOps.unpackSequence(
                 latents, height: packedH, width: packedW)
             let decoded = try orchestrator.vae.decodePacked(spatial)
             eval(decoded)
             rgb = decoded
+            trace?.emit(.stageEnd("decode_vae"))
+            trace?.emit(.stageBegin("unload_vae"))
             try await orchestrator.unloadVAEIfStaged()
+            trace?.emit(.stageEnd("unload_vae"))
+            trace?.emit(.memorySample(label: "after_unload_vae_dec"))
         } catch {
             try? await orchestrator.unloadVAEIfStaged()
             throw error
@@ -346,7 +534,10 @@ public actor AestrixPipeline {
 
         let outURL = request.outputURL
             ?? Self.defaultOutputURL(seed: request.seed, prefix: "i2i")
+        trace?.emit(.stageBegin("export_png"))
         try ImageExport.writePNG(rgb, to: outURL)
+        trace?.emit(.stageEnd("export_png"))
+        trace?.emit(.memorySample(label: "after_export"))
 
         onProgress?(PipelineProgress(phase: .finished, step: nSteps, totalSteps: nSteps))
         return outURL

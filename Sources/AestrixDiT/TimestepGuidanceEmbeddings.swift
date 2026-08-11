@@ -35,7 +35,7 @@ public final class Flux2TimestepGuidanceEmbeddings: Module {
     }
 
     public func callAsFunction(_ timestep: MLXArray, guidance: MLXArray? = nil) -> MLXArray {
-        var t = Self.timestepEmbedding(timestep.asType(.float32), dim: inChannels)
+        let t = Self.timestepEmbedding(timestep.asType(.float32), dim: inChannels)
         var emb = linear2(silu(linear1(t)))
         if let guidance, let g1 = guidanceLinear1, let g2 = guidanceLinear2 {
             let g = Self.timestepEmbedding(guidance.asType(.float32), dim: inChannels)
@@ -44,9 +44,24 @@ public final class Flux2TimestepGuidanceEmbeddings: Module {
         return emb
     }
 
+    /// Sinusoidal freqs for `dim == ModelConstants.timestepEmbedChannels` (cached, eval'd once).
+    /// MLXArray is not Sendable; access is only from the pipeline actor / single Metal eval path.
+    nonisolated(unsafe) private static let cachedFreqs256: MLXArray = {
+        let half = ModelConstants.timestepEmbedChannels / 2
+        let freqs = exp(
+            -log(Float(10000.0)) * MLXArray(0..<half).asType(.float32) / Float(half))
+        eval(freqs)
+        return freqs
+    }()
+
     static func timestepEmbedding(_ timesteps: MLXArray, dim: Int, flipSinToCos: Bool = true) -> MLXArray {
         let half = dim / 2
-        let freqs = exp(-log(Float(10000.0)) * MLXArray(0..<half).asType(.float32) / Float(half))
+        let freqs: MLXArray
+        if dim == ModelConstants.timestepEmbedChannels {
+            freqs = cachedFreqs256
+        } else {
+            freqs = exp(-log(Float(10000.0)) * MLXArray(0..<half).asType(.float32) / Float(half))
+        }
         // timesteps: [B] → [B, 1]
         let args = timesteps.expandedDimensions(axis: 1) * freqs.expandedDimensions(axis: 0)
         let sins = sin(args)

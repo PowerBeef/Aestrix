@@ -62,20 +62,55 @@ enum LatentOps {
     }
 
     /// Euler: `x + (σ_{t+1} − σ_t) · e`.
+    ///
+    /// Uses a compiled kernel so the cheap residual add is fused across denoise steps.
     static func eulerStep(
         sample: MLXArray,
         modelOutput: MLXArray,
         sigma: Float,
         sigmaNext: Float
     ) -> MLXArray {
-        let dt = sigmaNext - sigma
-        return sample + modelOutput * dt
+        eulerStep(sample: sample, modelOutput: modelOutput, dt: MLXArray(sigmaNext - sigma))
     }
+
+    /// Euler with a **precomputed** `dt` array (preferred in the denoise loop).
+    static func eulerStep(
+        sample: MLXArray,
+        modelOutput: MLXArray,
+        dt: MLXArray
+    ) -> MLXArray {
+        compiledEuler(sample, modelOutput, dt)
+    }
+
+    /// Precompute per-step `σ_{t+1} − σ_t` for a schedule (eval once before denoise).
+    static func eulerDts(sigmas: [Float]) -> [MLXArray] {
+        precondition(sigmas.count >= 2)
+        var dts: [MLXArray] = []
+        dts.reserveCapacity(sigmas.count - 1)
+        for i in 0 ..< (sigmas.count - 1) {
+            dts.append(MLXArray(sigmas[i + 1] - sigmas[i]))
+        }
+        eval(dts)
+        return dts
+    }
+
+    /// Compiled once: `(sample, pred, dt) → sample + pred * dt`.
+    private static let compiledEuler: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
+        compile(shapeless: true) { (sample: MLXArray, pred: MLXArray, dt: MLXArray) -> MLXArray in
+            sample + pred * dt
+        }
+    }()
 
     /// Flow-match scale noise (diffusers-style): `(1 − σ)·x₀ + σ·ε`.
     static func scaleNoise(clean: MLXArray, noise: MLXArray, sigma: Float) -> MLXArray {
-        clean * (1 - sigma) + noise * sigma
+        compiledScaleNoise(clean, noise, MLXArray(sigma))
     }
+
+    private static let compiledScaleNoise: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
+        compile(shapeless: true) { (clean: MLXArray, noise: MLXArray, sigma: MLXArray) -> MLXArray in
+            clean * (1 - sigma) + noise * sigma
+        }
+    }()
 
     /// Sample noise matching an existing packed latent's shape.
     static func sampleNoiseLike(_ array: MLXArray, seed: UInt64?) -> MLXArray {
