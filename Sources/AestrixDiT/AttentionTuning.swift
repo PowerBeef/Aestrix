@@ -14,6 +14,10 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     public var linearChunkThreshold: Int
     /// Sequence tokens per Linear chunk.
     public var linearChunkSize: Int
+    /// SDPA backend: `mlx` | `metal-fa` | `auto`.
+    public var backend: AttentionBackend
+    /// When `backend == .auto`, use Metal FA if joint seq ≥ this (default 1024).
+    public var metalFAMinSeq: Int
 
     public init(
         queryChunkThreshold: Int = 1536,
@@ -21,16 +25,22 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         queryChunkSize: Int = 512,
         f16SeqThreshold: Int = 2048,
         linearChunkThreshold: Int = 1536,
-        linearChunkSize: Int = 512
+        linearChunkSize: Int = 512,
+        /// Default **mlx** (chunked SDPA). Use `metal-fa` / `auto` to exercise custom FA2;
+        /// naive Metal FA is correct + low-temp memory but not yet MFA-speed at L≈4608.
+        backend: AttentionBackend = .mlx,
+        metalFAMinSeq: Int = 1024
     ) {
         self.queryChunkThreshold = queryChunkThreshold
         self.queryChunkSize = queryChunkSize
         self.f16SeqThreshold = f16SeqThreshold
         self.linearChunkThreshold = linearChunkThreshold
         self.linearChunkSize = linearChunkSize
+        self.backend = backend
+        self.metalFAMinSeq = metalFAMinSeq
     }
 
-    /// Product defaults (pre–Phase C baseline).
+    /// Product defaults.
     public static let `default` = AttentionTuning()
 
     /// Active knobs for the process. Mutate only when no DiT forward is in flight.
@@ -40,8 +50,8 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         current = .default
     }
 
-    /// Short label for bench reports, e.g. `q256/t1536/f16@2048/lin512`.
+    /// Short label for bench reports.
     public var shortLabel: String {
-        "q\(queryChunkSize)/t\(queryChunkThreshold)/f16@\(f16SeqThreshold)/lin\(linearChunkSize)"
+        "\(backend.rawValue)/q\(queryChunkSize)/t\(queryChunkThreshold)/f16@\(f16SeqThreshold)/lin\(linearChunkSize)"
     }
 }

@@ -26,7 +26,7 @@ I2I adds VAE encode (then unload) before TE/DiT.
 
 | Policy | Behavior |
 |--------|----------|
-| `staged` (default) | One heavy module at a time; DiT **activation** checkpointing + chunked attention; VAE decode-only + **tiled decode** |
+| `staged` (default) | One heavy module at a time; DiT **activation** checkpointing; **MLX Steel fused FA** (D=128); VAE decode-only + **tiled cosine blend** |
 | `stagedAggressive` | Reserved for tighter devices (optional DiT **weight** streaming — not default; measure first) |
 | `resident` | Keep quant modules warm (Tier H only) |
 
@@ -36,11 +36,13 @@ I2I adds VAE encode (then unload) before TE/DiT.
 |-----------|--------|
 | Staged TE → DiT → VAE | Done (default) |
 | DiT per-block `eval` + `clearCache` | Done |
-| Query-chunked SDPA + f16 QKV (long seq) | Done |
+| **MLX Steel fused FA** (full Q, D∈{64,80,128}) | Done (product default for Klein) |
+| f16 QKV when seq > 2048 | Done |
+| Query-chunked SDPA | Fallback only (unsupported head dims) |
 | VAE decode-only for T2I | Done |
-| VAE tiled decode (overlap + cosine blend default) | Done |
+| VAE tiled decode (overlap + cosine blend) | Done |
 | DiT **weight** streaming (block JIT load) | Not default — iOS headroom spike |
-| Custom Metal FlashAttention | Parked (MLX SDPA + chunking) |
+| Aestrix float4 fused Metal FA | Research / non-Steel D (`MetalFlashAttention`) |
 
 ## Measurement
 
@@ -56,4 +58,4 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | DiT | 2.18 GB |
 | VAE | 0.17 GB (decode-only ~97 MB) |
 
-On 8 GB M2 after the low-RAM path, **live peak active ≈ DiT weights (~2 GiB)** at both 512² and 1024²; watermark ~3.0–3.3 GiB. Prefer **512² for interactive speed**, not because 1024² OOMs.
+On 8 GB M2 after the low-RAM path, **live peak active ≈ DiT weights (~2.0 GiB)** at both 512² and 1024²; watermark ~**3.0 GiB (512)** / ~**3.75 GiB (1024)**. Prefer **512² for interactive speed**, not because 1024² OOMs.

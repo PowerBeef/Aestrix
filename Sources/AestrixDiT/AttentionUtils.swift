@@ -50,8 +50,31 @@ enum AttentionUtils {
         let scale = 1.0 / Foundation.sqrt(Float(query.dim(-1)))
         // query/key/value: [B, H, S, D]
         let seq = query.dim(2)
-        let thr = AttentionTuning.current.queryChunkThreshold
-        let chunkSize = max(1, AttentionTuning.current.queryChunkSize)
+        let tuning = AttentionTuning.current
+        let useFusedFA: Bool = {
+            switch tuning.backend {
+            case .metalFA: return true
+            case .mlx:
+                // Product mlx: use Steel fused FA (full Q) when MLX supports it (D∈{64,80,128}).
+                // Query-chunking was a pre-Steel low-RAM hack and is slower on current MLX.
+                return MetalFlashAttention.steelHeadDims.contains(headDim) && seq > 8
+            case .auto:
+                return seq >= tuning.metalFAMinSeq && headDim <= 128
+            }
+        }()
+
+        if useFusedFA {
+            // Steel fused FA2 (simdgroup MMA) or hybrid FA2 — single logical forward.
+            var hidden = MetalFlashAttention.scaledDotProductAttention(
+                query: query, key: key, value: value, scale: scale
+            )
+            // [B, H, S, D] → [B, S, H*D]
+            hidden = hidden.transposed(0, 2, 1, 3)
+            return hidden.reshaped([batchSize, -1, numHeads * headDim])
+        }
+
+        let thr = tuning.queryChunkThreshold
+        let chunkSize = max(1, tuning.queryChunkSize)
         if seq <= thr {
             var hidden = MLXFast.scaledDotProductAttention(
                 queries: query,
@@ -64,7 +87,7 @@ enum AttentionUtils {
             return hidden.reshaped([batchSize, -1, numHeads * headDim])
         }
 
-        // Query-chunked SDPA: lower peak for 1024² (joint L≈4608).
+        // Query-chunked MLX SDPA: only for unsupported head dims / extreme lengths.
         var chunks: [MLXArray] = []
         chunks.reserveCapacity((seq + chunkSize - 1) / chunkSize)
         var start = 0

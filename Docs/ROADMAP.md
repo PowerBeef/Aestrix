@@ -115,12 +115,16 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] Research full DiT-step `MLX.compile` (S1) — **Affine quant not the blocker**; staged unload prevents amortization; park full compile  
 - [x] Research VAE decode-only — **shipped for T2I/I2I decode** (`VAELoadMode.decodeOnly`, ~67 MB less, load_vae ~−40%)  
 - [x] M2-supported software opts: RoPE ω / temb freqs / TE causal cache, Euler `dt` precompute, GPU label in bench  
+- [x] Pressure-map / res-ladder / dit-one-step harness  
+- [x] 1024² low-RAM path (checkpointed DiT + chunked then **Steel FA** + decode-only + tiled VAE)  
+- [x] VAE overlap + cosine blend tiles (`VAETileConfig`)  
+- [x] AttentionTuning + SDPA query chunk sweep; **Steel fused FA** as product path for D=128  
 - [ ] Optional: block-level compile spike under **resident DiT** bench mode (still not amortized on staged M2)  
-
+- [ ] DiT **weight** streaming for iOS jetsam (`stagedAggressive`)  
 - [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  
 
-**Latest measured (8 GB Mac mini, release):** e2e **28.8 s → 27.4 s (−4.9%)**, denoise/step **5.54 s → 5.24 s (−5.4%)**, peak RSS ≈ flat (~2.14 GB). Research write-up: `Docs/PERF.md` § Research deep-dive.
+**Latest fair A/B (8 GB Mac mini, release, Steel FA, W1T3):** 512² e2e **~31 s** / 1024² e2e **~94 s**; denoise/step **~6.1 s** / **~20.2 s**; peak active **~2.0 GiB**; watermark **~3.0 / 3.75 GiB**. Full tables: `Docs/PERF.md`.
 
 **Acceptance for any “faster / leaner” claim**
 

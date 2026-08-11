@@ -21,6 +21,9 @@ public actor BenchRunner {
         if let v = config.attentionF16SeqThreshold { t.f16SeqThreshold = v }
         if let v = config.attentionLinearChunkSize { t.linearChunkSize = v }
         if let v = config.attentionLinearChunkThreshold { t.linearChunkThreshold = v }
+        if let raw = config.attentionBackend, let backend = AttentionBackend(rawValue: raw) {
+            t.backend = backend
+        }
         AttentionTuning.current = t
     }
 

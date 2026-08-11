@@ -49,9 +49,11 @@ mlx-swift
 | `AestrixCore` | Types, errors, tier, memory probe, **pure math** (RoPE, timestep emb, modulation layout, scheduler) |
 | `AestrixWeights` | Download / resolve snapshot paths |
 | `AestrixText` | Tokenizer + Qwen3 3-layer tap |
-| `AestrixDiT` | MMDiT (MLX; Phase 2+) |
-| `AestrixVAE` | Encode/decode (MLX; Phase 3+) |
+| `AestrixDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` |
+| `AestrixVAE` | Encode / decode-only / tiled cosine blend |
 | `AestrixRuntime` | Orchestrator + public pipeline API |
+| `AestrixBench` | Multi-trial timings, pressure maps, attn knobs |
+| `AestrixEval` | Pixel quality (no Metal) |
 | `AestrixCLI` | Executable |
 
 ## Phase 1 pure math (no Metal required)
@@ -71,6 +73,7 @@ Scheduler primary path: `linspace(1, 1/N, N)` → exponential time-shift with μ
 |------|------|
 | `Flux2Transformer` | Full Klein-4B graph (5 double + 20 single) |
 | `Flux2Attention` / `Flux2ParallelSelfAttention` | Joint + fused single-stream attn |
+| `MetalFlashAttention` / `AttentionTuning` | Steel fused FA (product), hybrid FA2, float4 Metal research path |
 | `Flux2FeedForward` / `Flux2SwiGLU` | mlp_ratio 3.0 |
 | `Flux2Modulation` / `AdaLayerNormContinuous` | AdaLN conditioning |
 | `Flux2PosEmbed` / `Flux2TimestepGuidanceEmbeddings` | RoPE + temb |

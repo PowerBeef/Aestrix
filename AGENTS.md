@@ -44,9 +44,9 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 
 1. **Serial residency**: TE encode → unload → DiT denoise → unload → VAE decode → unload; `Memory.clearCache()` after unload and between large-canvas stages.
 2. **Qwen3 TE**: chat template required; layers **9/18/27** concat → **7680**; full **512** padded tokens to DiT by default.
-3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **chunked SDPA/Linears**, **f16 Q/K/V** when seq > 2048.
+3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **MLX Steel fused FA** (simdgroup MMA, full Q, D=128); **f16 Q/K/V** when seq > 2048.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
-5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: use release build + full metallib; measured ~**97 s** e2e / peak MLX watermark ~**3.3 GB** on M2 after low-RAM path.
+5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; fair A/B ~**31 s** @ 512² / ~**94 s** @ 1024² (M2 8 GB); peak active ~**2.0 GiB**, watermark ~**3.0–3.8 GiB**.
 6. **VAE**: T2I / final I2I decode use **decode-only** weights (~97 MB). Large canvases use **tiled decode** (`VAETileConfig`: default overlap + cosine blend).
 7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` (module-split TE/DiT/VAE). See `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
@@ -60,7 +60,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | Phase | Status | Notes |
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
-| **P9 Performance harness** | **Done / partial** | `AestrixBench`, pressure probes; 1024² low-RAM path measured |
+| **P9 Performance harness** | **Done** | `AestrixBench`, pressure probes; Steel FA + tiled VAE; 512/1024 fair A/B in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Parked** | Regression suite, release pins |
 | Out of v1 | Tracked only | Multi-ref, CFG, LoRA, bf16 — see roadmap |

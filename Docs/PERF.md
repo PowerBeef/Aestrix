@@ -176,30 +176,33 @@ Prioritize only after a **baseline** report exists on the target machine. IDs ma
 **Machine:** Mac mini, Apple M2, 8 GB unified, thermal nominal  
 **Build:** `swift build -c release` + `Scripts/ensure-metallib.sh`, **4-bit** weights  
 
-### Fair A/B: 512² vs 1024² (same binary, same settings)
+### Fair A/B: 512² vs 1024² (current tree — Steel FA + cosine VAE tiles)
 
-Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fair-512` / `fair-1024`.
+Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fair-steel-512` / `fair-steel-1024`  
+**Date:** 2026-08-11 · **Machine:** Mac mini Apple M2 8 GB · **Build:** release + full metallib · **Weights:** 4-bit
 
 | Metric | **512²** | **1024²** | **1024 / 512** |
 |--------|---------:|----------:|---------------:|
-| **e2e (mean)** | **30.6 s** | **96.0 s** | **3.14×** |
-| denoise total | 23.8 s | 84.2 s | 3.53× |
-| denoise / step | 5.96 s | 21.0 s | 3.53× |
-| encode TE | 2.10 s | 2.11 s | ~1.0× |
-| decode VAE | 1.72 s | 6.70 s | 3.90× |
-| **peak RSS** | **1.73 GiB** | **1.77 GiB** | **1.02×** |
-| **peak MLX active** | **2.04 GiB** | **2.04 GiB** | **1.00×** |
-| **peak MLX watermark** | **2.99 GiB** | **3.29 GiB** | **1.10×** |
+| **e2e (mean)** | **31.1 s** | **93.9 s** | **3.02×** |
+| denoise total | 24.2 s | 80.9 s | 3.34× |
+| denoise / step | 6.06 s | 20.2 s | 3.33× |
+| encode TE | 2.15 s | 2.11 s | ~1.0× |
+| decode VAE | 1.71 s | 7.93 s | 4.63× |
+| **peak RSS** | **1.74 GiB** | **1.75 GiB** | **1.01×** |
+| **peak MLX active** | **2.04 GiB** | **2.05 GiB** | **1.00×** |
+| **peak MLX watermark** | **2.99 GiB** | **3.75 GiB** | **1.25×** |
 | joint_seq_len | 1536 | 4608 | 3.0× |
 
-**How to read RAM:** With the current low-RAM path, **live peak active is dominated by DiT weights (~2 GB)** at both sizes (after `load_dit`). Watermark is only **~10% higher** at 1024² because activations are checkpointed/chunked/tiled instead of held as one fat graph. Older tables that showed **higher** RSS/watermark at 512 than at 1024 mixed **pre- and post-optimization** runs — not a fair comparison.
+**How to read RAM:** Live peak active is dominated by **DiT weights (~2 GB)** at both sizes. Watermark is higher at 1024² (activations + cosine-tile VAE accumulation) but still well under 8 GB. Prefer 512² for interactive speed.
+
+**vs prior fair A/B (chunked SDPA, hard VAE tiles):** 1024 e2e **96.0 s → 93.9 s** (−2%); denoise/step **21.0 s → 20.2 s** (−4%); watermark **3.29 → 3.75 GiB** (VAE blend path).
 
 ```bash
-.build/release/aestrix bench --label fair-512  --width 512  --height 512  \
-  --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-512.json
-.build/release/aestrix bench --label fair-1024 --width 1024 --height 1024 \
-  --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-1024.json
-.build/release/aestrix bench-compare /tmp/fair-512.json /tmp/fair-1024.json
+.build/release/aestrix bench --label fair-steel-512  --width 512  --height 512  \
+  --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-steel-512.json
+.build/release/aestrix bench --label fair-steel-1024 --width 1024 --height 1024 \
+  --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-steel-1024.json
+.build/release/aestrix bench-compare /tmp/fair-steel-512.json /tmp/fair-steel-1024.json
 ```
 
 ### Historical snapshots (not for cross-size RAM A/B)
@@ -209,6 +212,8 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 | `baseline-rel` | 28.80 s | 5.54 s | 2.13 GB | 2.04 GB | 4.30 GB | Pre low-RAM path; 512 only |
 | `opt-v3-scope` | 27.39 s | 5.24 s | 2.14 GB | 2.09 GB | 4.31 GB | Mid-series 512 |
 | `probe-768-4bit` | 49.6 s (1 cold) | 10.3 s | 2.14 GB | 2.13 GB | 8.27 GB | Pre full checkpoint/tile path |
+| `fair-512` / `fair-1024` | 30.6 / 96.0 s | 5.96 / 21.0 s | 1.73 / 1.77 GiB | 2.04 / 2.04 GiB | 2.99 / 3.29 GiB | Pre-Steel FA; hard VAE tiles |
+| **`fair-steel-512` / `fair-steel-1024`** | **31.1 / 93.9 s** | **6.06 / 20.2 s** | **1.74 / 1.75 GiB** | **2.04 / 2.05 GiB** | **2.99 / 3.75 GiB** | **Current** (Steel FA + cosine VAE) |
 
 **Shipped optimizations (cumulative in tree):**
 
@@ -226,6 +231,7 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 | M5→M2 | **VAE decode-only load for T2I/I2I decode** | ~67 MB fewer weights; **load_vae ~115→69 ms**; peak watermark slightly lower |
 | M5 tile | **VAE tiled decode** (default **overlap + cosine blend**, `VAETileConfig` tile=72/overlap=16) | Seams blended; cold 1024 decode ~8 s (was ~6.7 s hard 2×2); live VAE active still ~100 MB; e2e ~99 s cold |
 | S4/M10 | **SDPA query chunk size 256→512** (`AttentionTuning`) | ~1% faster denoise/step @ 1024²; peak RAM unchanged |
+| S4 FA | **Steel fused FA** (full-Q MLX SDPA; drop query-chunk for D=128) | denoise/step ~20.8→**20.2 s** @ 1024²; same peak RAM; + Aestrix float4 fused Metal kernel for non-Steel D |
 | Harness | Report `gpu=Apple M2 metal=Metal 4 neuralAccel=no` | Avoid confusing M5-only Metal 4 claims |
 
 ### Draw Things / PDF report mapping (2026-08-11)
@@ -234,14 +240,14 @@ External report claimed “1024 → OOM” and ranked tiled VAE as the unlock. *
 
 | PDF technique | Status | Notes |
 |---------------|--------|-------|
-| Tiled VAE (overlap + blend) | **Done** (default cosine) | Was partial hard 2×2; now `VAETileConfig` + blend |
-| Partial / JIT DiT **weights** | **Not done** | Activation checkpointing only; ~2 GiB DiT floor remains |
-| Metal FlashAttention | **Parked** | MLX SDPA + query-chunked + f16 QKV |
+| Tiled VAE (overlap + blend) | **Done** (default cosine) | `VAETileConfig` |
+| Partial / JIT DiT **weights** | **Not done** | Activation checkpointing only; ~2 GiB DiT floor |
+| Metal FlashAttention | **Done (Steel fused)** | Product path = MLX Steel simdgroup MMA FA for D=128 |
 | Intermediate release / pacing | **Done** | Block eval + clearCache + cacheLimit |
 | Further quant | **Out of product scope** | 4-bit lock |
 | Pressure harness | **Done** | `pressure-map` / `res-ladder` / `dit-one-step` |
 
-**Priority now:** quality (VAE blend) → optional DiT weight streaming for iOS → attention knobs — not “make 1024 run” (already green on 8 GB M2).
+**Priority now:** iOS jetsam (optional DiT weight streaming) → speed (resident compile spike) — 1024 on 8 GB is green.
 
 ### Phase C — Attention knob sweep (2026-08-11, M2 8 GB)
 
@@ -269,7 +275,32 @@ Configurable via `AttentionTuning` / CLI: `--attn-chunk-size`, `--attn-chunk-thr
 
 Peak MLX active **2.05 GiB** and watermark **3.75 GiB** unchanged across all knobs.
 
-**Shipped default change:** `AttentionTuning.queryChunkSize` **256 → 512**. Other defaults unchanged (threshold 1536, f16@2048, linear 512/1536). Custom Metal FA remains parked.
+**Shipped default change:** `AttentionTuning.queryChunkSize` **256 → 512**. Other defaults unchanged (threshold 1536, f16@2048, linear 512/1536).
+
+### Custom Metal FlashAttention (fused Steel + Aestrix kernels)
+
+**Key finding (v5):** MLX’s `ScaledDotProductAttention` already dispatches **Steel Attention** — a fused Metal FA2 kernel using `simdgroup_matrix` MMA (BQ=32, BK=16/32, BD=64/80/128), online softmax, and threadgroup Q/K/V tiles. It is **not** limited to Tq=1 (that was outdated docs). Fallback to unfused matmul+softmax only when head dim ∉ {64,80,128} or training/logsumexp.
+
+Older Aestrix **query-chunking** (Tq=512) fought this path. Product default now uses **one full-Q Steel launch** for FLUX D=128.
+
+| Item | Detail |
+|------|--------|
+| Product path | `AttentionUtils` → `MetalFlashAttention` → **MLX Steel fused FA** (D∈{64,80,128}) |
+| Hybrid FA2 | Host-loop steel `matmul` tiles when D unsupported |
+| Aestrix fused Metal | `scaledDotProductAttentionFusedMetal` — float4 online softmax, BQ=BK=32 (research / non-Steel D) |
+| Backend flag | `--attn-backend mlx\|metal-fa\|auto` (mlx default now = Steel for Klein) |
+| Tests | 8 cases: steel D=128, fused float4, hybrid multi-tile, f16 |
+
+**Measured (M2 8 GB, 1024², 1 denoise step warm):**
+
+| Path | denoise/step | peak active / watermark |
+|------|-------------:|-------------------------:|
+| Pre-v5 **chunked** SDPA | ~20.8 s | 2.04 / 3.75 GiB |
+| **v5 Steel fused (default)** | **~20.2 s** (−3%) | 2.05 / 3.75 GiB |
+| Hybrid FA2 host tiles (v4) | ~26.3 s | same class |
+| Pure scalar Metal FA (v0) | >10 min | — |
+
+**Default = fused Steel.** Custom float4 Metal kernel is available for experiments; next win would be porting MFA-specific register schedules only if profiling shows Steel leaves gap on target silicon.
 
 **Still dominant (~76% of e2e):** DiT denoise compute itself. M2 has Metal 4 **API** but **no Neural Accelerators** — further large speedups need silicon (M5) or algorithm (res/bits/steps), not custom MTL4 kernels.
 

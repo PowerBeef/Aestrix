@@ -16,21 +16,21 @@ prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► u
 | **Model** | FLUX.2-klein-4B only (Apache-2.0) — not 9B / Dev |
 | **Text-to-image** | Distilled defaults: **1024²**, 4 steps, guidance 1.0 |
 | **Image-to-image** | Strength-based edits (encode → re-noise → denoise) |
-| **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; long-seq chunked attention; **tiled VAE** (overlap + cosine blend) for large canvases |
+| **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; **MLX Steel fused FA** (simdgroup MMA); **tiled VAE** (overlap + cosine blend) |
 | **Weights** | Hub 4-bit packs only — no bf16 product path |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
 | **Bench** | Multi-trial timings, MLX/RSS memory, **pressure-map** block probes |
 
 ### Measured (release, 4-bit, Apple M2 8 GB — fair A/B)
 
-Same binary, warmup 1 + 3 trials, seed 42, `probe-density=stages`:
+Same binary, warmup 1 + 3 trials, seed 42, `probe-density=stages` (Steel fused FA + cosine tiled VAE):
 
-| Canvas | Time to image | Peak MLX active | Peak MLX watermark | Peak RSS |
-|--------|--------------:|----------------:|-------------------:|---------:|
-| **512²** | **~31 s** | **2.04 GiB** | **2.99 GiB** | **1.73 GiB** |
-| **1024²** | **~96 s** (~3.1×) | **2.04 GiB** | **3.29 GiB** (~1.1×) | **1.77 GiB** |
+| Canvas | Time to image | Denoise / step | Peak MLX active | Peak MLX watermark | Peak RSS |
+|--------|--------------:|---------------:|----------------:|-------------------:|---------:|
+| **512²** | **~31 s** | **~6.1 s** | **2.04 GiB** | **2.99 GiB** | **1.74 GiB** |
+| **1024²** | **~94 s** (~3.0×) | **~20.2 s** | **2.05 GiB** | **3.75 GiB** (~1.25×) | **1.75 GiB** |
 
-Live peak is dominated by DiT weights at both sizes; 1024 is slower, not dramatically hungrier on peak RSS/active. Full table: [Docs/PERF.md](Docs/PERF.md).
+Live peak is dominated by DiT weights (~2 GiB) at both sizes; 1024 is slower, not dramatically hungrier on peak RSS/active. Full tables: [Docs/PERF.md](Docs/PERF.md).
 
 ## Requirements
 
@@ -128,7 +128,7 @@ swift test
 | `aestrix schedule` | Print flow-match sigmas / timesteps |
 
 Useful flags: `--width` `--height` `--steps` `--seed` `--output` `--analyze` `--vision-brief` `--fail-on-pixel-gate`  
-Bench: `--mode pressure-map|dit-one-step|res-ladder` `--probe-density off|stages|denoise|blocks|max`  
+Bench: `--mode pressure-map|dit-one-step|res-ladder` `--probe-density off|stages|denoise|blocks|max` `--attn-backend mlx|metal-fa|auto`
 
 Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md)
 
@@ -138,8 +138,8 @@ Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Do
 |--------|------|
 | `AestrixCore` | Config, scheduler, RoPE math, `PipelineTrace` / probe density |
 | `AestrixText` | Qwen3 3-layer-tap encoder + tokenizer |
-| `AestrixDiT` | FLUX.2 MMDiT (checkpointed blocks, long-seq attention path) |
-| `AestrixVAE` | Encode / decode-only load / **tiled** large decode |
+| `AestrixDiT` | FLUX.2 MMDiT (checkpointed blocks, **Steel fused FA**, `AttentionTuning`) |
+| `AestrixVAE` | Encode / decode-only load / **tiled cosine-blend** large decode |
 | `AestrixRuntime` | Staged pipeline actor |
 | `AestrixEval` | Image quality harness (no Metal) |
 | `AestrixBench` | Multi-trial metrics, pressure reports |
@@ -170,8 +170,9 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 |------|--------|
 | macOS library + CLI | **Working** (T2I, I2I, eval) |
 | 4-bit staged load | **Working** |
-| 1024² on 8 GB class Macs | **Working** (checkpointed DiT + tiled VAE; slower than 512²) |
-| Performance harness | **Working** (`bench`, pressure-map, ladder) |
+| 1024² on 8 GB class Macs | **Working** (~94 s e2e; Steel FA + tiled VAE) |
+| Performance harness | **Working** (`bench`, pressure-map, ladder, attn backends) |
+| MLX Steel fused FA | **Working** (product default for D=128) |
 | iOS host | **Parked** — [Docs/ROADMAP.md](Docs/ROADMAP.md) |
 | Multi-reference / CFG / LoRA | Out of v1 (tracked on roadmap) |
 
@@ -179,7 +180,7 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 
 | Doc | Topic |
 |-----|--------|
-| [AGENTS.md](AGENTS.md) | Product locks & agent conventions |
+| [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | Product locks & agent conventions |
 | [Docs/ROADMAP.md](Docs/ROADMAP.md) | Done vs parked backlog |
 | [Docs/PERF.md](Docs/PERF.md) | Benchmarks, pressure probes, 1024 path |
 | [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |

@@ -49,6 +49,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionF16SeqThreshold: Int?
     public var attentionLinearChunkSize: Int?
     public var attentionLinearChunkThreshold: Int?
+    /// `mlx` | `metal-fa` | `auto` (nil = product default).
+    public var attentionBackend: String?
 
     public init(
         mode: BenchMode = .t2i,
@@ -72,7 +74,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionQueryChunkThreshold: Int? = nil,
         attentionF16SeqThreshold: Int? = nil,
         attentionLinearChunkSize: Int? = nil,
-        attentionLinearChunkThreshold: Int? = nil
+        attentionLinearChunkThreshold: Int? = nil,
+        attentionBackend: String? = nil
     ) {
         self.mode = mode
         self.label = label
@@ -96,6 +99,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionF16SeqThreshold = attentionF16SeqThreshold
         self.attentionLinearChunkSize = attentionLinearChunkSize
         self.attentionLinearChunkThreshold = attentionLinearChunkThreshold
+        self.attentionBackend = attentionBackend
     }
 
     /// Config tuned for pressure-map diagnosis.

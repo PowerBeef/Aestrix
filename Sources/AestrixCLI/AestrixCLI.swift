@@ -665,6 +665,9 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which Linear is chunked (default 1536).")
     var attnLinearThreshold: Int?
 
+    @Option(name: .long, help: "Attention backend: mlx | metal-fa | auto (default auto).")
+    var attnBackend: String?
+
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"
 
@@ -737,7 +740,8 @@ struct Bench: AsyncParsableCommand {
             attentionQueryChunkThreshold: attnChunkThreshold,
             attentionF16SeqThreshold: attnF16Threshold,
             attentionLinearChunkSize: attnLinearChunk,
-            attentionLinearChunkThreshold: attnLinearThreshold
+            attentionLinearChunkThreshold: attnLinearThreshold,
+            attentionBackend: attnBackend
         )
 
         let aestrixConfig = AestrixConfig.autoDetectingTier()
