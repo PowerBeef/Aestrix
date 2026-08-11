@@ -88,9 +88,8 @@ install_metallib() {
       echo "installed metallib → $dir"
     fi
   done
-  # Optional: package resource (large; bootstrap also copies beside exe).
-  mkdir -p "$ROOT/Sources/AestrixCLI/Resources"
-  cp "$OUT" "$ROOT/Sources/AestrixCLI/Resources/mlx.metallib"
+  # Do NOT overwrite Sources/AestrixCLI/Resources/mlx.metallib — that path holds a
+  # tiny SPM package stub committed to git. Full kernels go next to the binary only.
 }
 
 if need_rebuild; then
