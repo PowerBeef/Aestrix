@@ -53,17 +53,14 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 
 ## Phase status
 
+**Authoritative backlog / parked work:** [`Docs/ROADMAP.md`](Docs/ROADMAP.md)
+
 | Phase | Status | Notes |
 |-------|--------|--------|
-| 0 Scaffold / snapshot | **Done** | SPM targets, cache layout, `aestrix info` |
-| 1 Pure math | **Done** | RoPE, timestep emb, modulation, scheduler |
-| 2 DiT load | **Done** | `Flux2Transformer` + 4-bit load; `load-dit` |
-| 3 VAE load | **Done** | `Flux2VAE` + load; `load-vae` |
-| 4 Qwen3 TE | **Done** | 3-layer tap, chat template, BPE tokenizer |
-| 5 Staged T2I | **Done** | `aestrix t2i` |
-| 6 I2I strength | **Done** | `aestrix i2i` |
-| Eval workflow | **Done** | Pixel + vision procedure (`Docs/EVAL_WORKFLOW.md`) |
-| 7 iOS host | Pending | Same staged core |
+| 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
+| **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
+| **P8 macOS polish** | **Parked** | Regression suite, bench-mem, release pins |
+| Out of v1 | Tracked only | Multi-ref, CFG, LoRA, bf16 — see roadmap |
 
 ## Process rule (blocking)
 

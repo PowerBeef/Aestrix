@@ -166,4 +166,6 @@ No-Metal quality/accuracy feedback for agents and CI.
 - **Eval procedure:** `Docs/EVAL_WORKFLOW.md`  
 - Eval metrics: `Docs/IMAGE_ANALYSIS.md`  
 - Eval prompts: `Docs/eval-prompts.md`  
+- **Roadmap (parked work):** `Docs/ROADMAP.md`  
+
 

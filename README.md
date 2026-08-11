@@ -142,16 +142,19 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 
 | Area | State |
 |------|--------|
-| macOS library + CLI | Working (T2I, I2I, eval) |
-| 4-bit staged load | Working |
-| iOS host | Planned |
-| Multi-reference edit / CFG / LoRA | Out of v1 scope |
+| macOS library + CLI | **Working** (T2I, I2I, eval) |
+| 4-bit staged load | **Working** |
+| iOS host | **Parked** — see [Docs/ROADMAP.md](Docs/ROADMAP.md) |
+| Multi-reference / CFG / LoRA | Out of v1 (tracked on roadmap) |
+
+Remaining work is intentionally deferred and tracked in **[Docs/ROADMAP.md](Docs/ROADMAP.md)** so it can be resumed without losing context.
 
 ## Documentation
 
 | Doc | Topic |
 |-----|--------|
 | [AGENTS.md](AGENTS.md) | Product locks & agent conventions |
+| [Docs/ROADMAP.md](Docs/ROADMAP.md) | **Done vs parked backlog** |
 | [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |
 | [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs & cache layout |
 | [Docs/MEMORY.md](Docs/MEMORY.md) | Staged residency & tiers |
