@@ -41,7 +41,7 @@ Color/style edits keep composition; the source’s quirks survive the edit — t
 | Source (T2I) | `i2i --strength 0.8` |
 |:--:|:--:|
 | <img src="Docs/assets/readme/i2i-mug-before.jpg" width="320"> | <img src="Docs/assets/readme/i2i-mug-after.jpg" width="320"> |
-| <sub>*“A cobalt blue ceramic mug on a rustic wooden table”*</sub> | <sub>*“the same ceramic mug but emerald green …”* — seed 42</sub> |
+| <sub>*“A cobalt blue ceramic mug with a single curved handle … morning light”* — seed 42</sub> | <sub>*“the same ceramic mug but emerald green glaze, keeping the same bright morning light …”* — seed 7</sub> |
 
 ### Identity-preserving edit (`--identity`)
 
