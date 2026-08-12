@@ -17,6 +17,10 @@ public struct IdentityPreserveConfig: Sendable, Equatable {
     public var cleanPullDecay: Bool
     /// Strength → start-noise curve.
     public var scheduleCurve: StrengthScheduleCurve
+    /// Spatially downsample reference tokens by this factor (1 = full ref, 2 = quarter
+    /// tokens). Cuts identity-I2I joint sequence cost; identity fidelity trade-off —
+    /// experimental, default off.
+    public var refDownsample: Int
 
     public init(
         useReferenceLatents: Bool = false,
@@ -24,7 +28,8 @@ public struct IdentityPreserveConfig: Sendable, Equatable {
         faceStrengthScale: Float = 0.45,
         cleanPullAlpha: Float = 0,
         cleanPullDecay: Bool = true,
-        scheduleCurve: StrengthScheduleCurve = .colorEdit
+        scheduleCurve: StrengthScheduleCurve = .colorEdit,
+        refDownsample: Int = 1
     ) {
         self.useReferenceLatents = useReferenceLatents
         self.facePreserve = facePreserve
@@ -32,6 +37,7 @@ public struct IdentityPreserveConfig: Sendable, Equatable {
         self.cleanPullAlpha = min(1, max(0, cleanPullAlpha))
         self.cleanPullDecay = cleanPullDecay
         self.scheduleCurve = scheduleCurve
+        self.refDownsample = max(1, refDownsample)
     }
 
     /// Classic v1 path: strength-only, color curve, no face/ref.

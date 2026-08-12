@@ -46,13 +46,14 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 2. **Qwen3 TE**: chat template required; layers **9/18/27** concat → **7680**; full **512** padded tokens to DiT by default.
 3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **MLX Steel fused FA** (simdgroup MMA, full Q, D=128); **f16 Q/K/V** when seq > 2048.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
-5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; fair A/B ~**31 s** @ 512² / ~**94 s** @ 1024² (M2 8 GB); peak active ~**2.0 GiB**, watermark ~**3.0–3.8 GiB**.
+5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-11 pass: 512² e2e ~**31.7 s** (opt-in `--text-tokens auto` ~**21.4 s**), 1024² ~**104 s** same-day (−11.8% / −3.7% vs baseline); peak active ~**2.0 GiB**, watermark ~**3.0–4.0 GiB**. See `Docs/PERF.md`.
 6. **VAE**: T2I / final I2I decode use **decode-only** weights (~97 MB). Large canvases use **tiled decode** (`VAETileConfig`: default overlap + cosine blend).
 7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` (module-split TE/DiT/VAE). See `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
 10. **I2I strength**: full N-step strength schedule + mid-range curve; color edits often need **≥ 0.8**.
 11. **I2I identity (Tier B)**: `--identity` enables reference latents (`t=10`), Vision face mask (regional σ + clean-pull), and milder `identity` schedule. Prefer **strength ≥ 0.85** for big edits. Default I2I remains strength-only.
+12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Aestrix/embeds`, keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical). `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **opt-in / experimental**; big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
 
 ## Phase status
 
@@ -62,7 +63,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `aestrix i2i --identity` |
-| **P9 Performance harness** | **Done** | `AestrixBench`, pressure probes; Steel FA + tiled VAE; 512/1024 fair A/B in `Docs/PERF.md` |
+| **P9 Performance harness** | **Done** | `AestrixBench`, pressure probes; Steel FA + tiled VAE; 2026-08-11 optimization pass (sync/cache, VAE stitch/encode-only, compiled RoPE/AdaLN, embed cache, `session`, opt-in `--text-tokens auto`) — tables in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Parked** | Regression suite, release pins |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
@@ -165,6 +166,8 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `aestrix analyze-image` | Pixel / brief only |
 | `aestrix bench` | Timings, memory, pressure probes (`pressure-map`, `dit-one-step`, `res-ladder`) |
 | `aestrix bench-compare A B` | Percent deltas between JSON reports |
+| `aestrix session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
+| `aestrix dit-compile-spike` | Research: block-level `MLX.compile` timing (NO-GO on record, see PERF.md) |
 | `Scripts/eval-generation.sh` | Eval existing PNG |
 | `Scripts/ensure-metallib.sh` | Build/install full Metal library |
 

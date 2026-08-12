@@ -18,6 +18,16 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     public var backend: AttentionBackend
     /// When `backend == .auto`, use Metal FA if joint seq ≥ this (default 1024).
     public var metalFAMinSeq: Int
+    /// Per-block `Memory.clearCache()` in the DiT forward only when joint seq **>** this.
+    /// Small canvases (512² joint=1536) keep the buffer pool warm; large canvases keep the
+    /// aggressive clears that made 1024² fit on 8 GB.
+    public var blockCacheClearSeqThreshold: Int
+    /// When per-block cache clears are active, clear every N blocks (1 = every block).
+    public var blockCacheClearInterval: Int
+    /// Materialize Q/K/V (+ fused MLP hidden) inside attention forwards. Product default
+    /// **true** (bounds lazy-graph peak). Must be **false** to trace a block under
+    /// `MLX.compile` (eval inside a traced function breaks compilation) — spike use only.
+    public var qkvCheckpoint: Bool
 
     public init(
         queryChunkThreshold: Int = 1536,
@@ -29,7 +39,10 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         /// Default **mlx** (chunked SDPA). Use `metal-fa` / `auto` to exercise custom FA2;
         /// naive Metal FA is correct + low-temp memory but not yet MFA-speed at L≈4608.
         backend: AttentionBackend = .mlx,
-        metalFAMinSeq: Int = 1024
+        metalFAMinSeq: Int = 1024,
+        blockCacheClearSeqThreshold: Int = 1536,
+        blockCacheClearInterval: Int = 1,
+        qkvCheckpoint: Bool = true
     ) {
         self.queryChunkThreshold = queryChunkThreshold
         self.queryChunkSize = queryChunkSize
@@ -38,6 +51,9 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         self.linearChunkSize = linearChunkSize
         self.backend = backend
         self.metalFAMinSeq = metalFAMinSeq
+        self.blockCacheClearSeqThreshold = blockCacheClearSeqThreshold
+        self.blockCacheClearInterval = max(1, blockCacheClearInterval)
+        self.qkvCheckpoint = qkvCheckpoint
     }
 
     /// Product defaults.

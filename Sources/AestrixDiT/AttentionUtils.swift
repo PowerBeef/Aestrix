@@ -17,10 +17,11 @@ enum AttentionUtils {
         let batch = hiddenStates.dim(0)
         let seq = hiddenStates.dim(1)
 
+        // No eval here: the sole caller (JointAttention) checkpoints after concat+RoPE,
+        // so materializing the projections twice per block only added sync overhead.
         var query = linearChunkedSequence(toQ, hiddenStates)
         var key = linearChunkedSequence(toK, hiddenStates)
         var value = linearChunkedSequence(toV, hiddenStates)
-        eval(query, key, value)
 
         query = query.reshaped([batch, seq, numHeads, headDim]).transposed(0, 2, 1, 3)
         key = key.reshaped([batch, seq, numHeads, headDim]).transposed(0, 2, 1, 3)
@@ -133,9 +134,9 @@ enum AttentionUtils {
         while start < seq {
             let end = min(start + cs, seq)
             let chunk = x[0..., start ..< end, 0...]
-            let y = linear(chunk)
-            eval(y)
-            parts.append(y)
+            // No per-chunk eval: lazy execution still runs chunk-by-chunk at the final
+            // eval and frees each chunk's temps by refcount; per-chunk sync only stalled.
+            parts.append(linear(chunk))
             start = end
         }
         let cat = concatenated(parts, axis: 1)
@@ -154,7 +155,21 @@ enum AttentionUtils {
         let cosB = cos.reshaped([1, 1, cos.dim(0), cos.dim(1)])
         let sinB = sin.reshaped([1, 1, sin.dim(0), sin.dim(1)])
 
-        func mix(_ x: MLXArray) -> MLXArray {
+        // Keep rope output in the compact attention dtype when possible.
+        let f16Thr = AttentionTuning.current.f16SeqThreshold
+        let store = outDtype == .float32 && query.dim(2) > f16Thr ? DType.float16 : outDtype
+        return (
+            compiledRopeMix(query, cosB, sinB).asType(store),
+            compiledRopeMix(key, cosB, sinB).asType(store)
+        )
+    }
+
+    /// Compiled rotate-pairs mix (runs 50×/step). Same op sequence as the previous
+    /// inline version — compile only fuses the elementwise chain per shape/dtype.
+    private static let compiledRopeMix:
+        @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray =
+    {
+        compile { (x: MLXArray, cosB: MLXArray, sinB: MLXArray) -> MLXArray in
             let xf = x.asType(.float32)
             let shape = xf.shape
             let x2 = xf.reshaped(Array(shape.dropLast()) + [-1, 2])
@@ -162,13 +177,7 @@ enum AttentionUtils {
             let imag = x2[.ellipsis, 1]
             let out0 = real * cosB + (-imag) * sinB
             let out1 = imag * cosB + real * sinB
-            let stacked = stacked([out0, out1], axis: -1)
-            return stacked.reshaped(shape)
+            return stacked([out0, out1], axis: -1).reshaped(shape)
         }
-
-        // Keep rope output in the compact attention dtype when possible.
-        let f16Thr = AttentionTuning.current.f16SeqThreshold
-        let store = outDtype == .float32 && query.dim(2) > f16Thr ? DType.float16 : outDtype
-        return (mix(query).asType(store), mix(key).asType(store))
-    }
+    }()
 }

@@ -53,7 +53,9 @@ public final class StageOrchestrator: @unchecked Sendable {
         if memoryPolicy != .resident {
             await unloadOthers(except: textEncoder.moduleName)
         }
-        try await textEncoder.load()
+        if !textEncoder.isLoaded {
+            try await textEncoder.load()
+        }
         try assertStagedInvariant()
     }
 
@@ -68,7 +70,9 @@ public final class StageOrchestrator: @unchecked Sendable {
         if memoryPolicy != .resident {
             await unloadOthers(except: dit.moduleName)
         }
-        try await dit.load()
+        if !dit.isLoaded {
+            try await dit.load()
+        }
         try assertStagedInvariant()
     }
 

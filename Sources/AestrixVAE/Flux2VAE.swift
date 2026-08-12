@@ -186,32 +186,54 @@ public final class Flux2VAE: Module {
         var sumRGB = MLXArray.zeros([batch, channels, outH, outW], dtype: firstOut.dtype)
         var sumW = MLXArray.zeros([batch, 1, outH, outW], dtype: firstOut.dtype)
 
+        // Interior tiles share fade geometry — cache RGB-resolution weight masks.
+        struct MaskKey: Hashable {
+            let th: Int
+            let tw: Int
+            let fadeTop: Int
+            let fadeBottom: Int
+            let fadeLeft: Int
+            let fadeRight: Int
+        }
+        var maskCache: [MaskKey: MLXArray] = [:]
+
         func accumulate(tileY0: Int, tileX0: Int, out: MLXArray, th: Int, tw: Int) {
-            let fadeTop = VAETileMath.leadingFade(origin: tileY0, overlap: overlap)
-            let fadeBottom = VAETileMath.trailingFade(
-                origin: tileY0, tileLen: th, fullLen: h, overlap: overlap)
-            let fadeLeft = VAETileMath.leadingFade(origin: tileX0, overlap: overlap)
-            let fadeRight = VAETileMath.trailingFade(
-                origin: tileX0, tileLen: tw, fullLen: w, overlap: overlap)
-            let maskLat = VAETileMath.weightMask(
-                tileH: th, tileW: tw,
-                fadeTop: fadeTop, fadeBottom: fadeBottom,
-                fadeLeft: fadeLeft, fadeRight: fadeRight
-            )
-            let maskRGB = VAETileMath.upsampleNearest(
-                mask: maskLat, height: th, width: tw, scaleY: scaleY, scaleX: scaleX
+            let key = MaskKey(
+                th: th, tw: tw,
+                fadeTop: VAETileMath.leadingFade(origin: tileY0, overlap: overlap),
+                fadeBottom: VAETileMath.trailingFade(
+                    origin: tileY0, tileLen: th, fullLen: h, overlap: overlap),
+                fadeLeft: VAETileMath.leadingFade(origin: tileX0, overlap: overlap),
+                fadeRight: VAETileMath.trailingFade(
+                    origin: tileX0, tileLen: tw, fullLen: w, overlap: overlap)
             )
             let rh = th * scaleY
             let rw = tw * scaleX
-            let weight = MLXArray(maskRGB, [1, 1, rh, rw]).asType(out.dtype)
+            let weight: MLXArray
+            if let cached = maskCache[key] {
+                weight = cached
+            } else {
+                let maskLat = VAETileMath.weightMask(
+                    tileH: th, tileW: tw,
+                    fadeTop: key.fadeTop, fadeBottom: key.fadeBottom,
+                    fadeLeft: key.fadeLeft, fadeRight: key.fadeRight
+                )
+                let maskRGB = VAETileMath.upsampleNearest(
+                    mask: maskLat, height: th, width: tw, scaleY: scaleY, scaleX: scaleX
+                )
+                let arr = MLXArray(maskRGB, [1, 1, rh, rw]).asType(firstOut.dtype)
+                eval(arr)
+                maskCache[key] = arr
+                weight = arr
+            }
             let yRGB = tileY0 * scaleY
             let xRGB = tileX0 * scaleX
-            let weighted = out * weight
-            // Pad tile onto full canvas then add (no in-place slice write in MLX).
-            let tileCanvas = putSlice(y0: yRGB, x0: xRGB, h: rh, w: rw, value: weighted, fullH: outH, fullW: outW)
-            let wCanvas = putSlice(y0: yRGB, x0: xRGB, h: rh, w: rw, value: weight, fullH: outH, fullW: outW)
-            sumRGB = sumRGB + tileCanvas
-            sumW = sumW + wCanvas
+            // Slice-local read-modify-write (O(tile) traffic) instead of padding each
+            // tile onto a full canvas and adding two full-size tensors per tile.
+            let ys = yRGB ..< (yRGB + rh)
+            let xs = xRGB ..< (xRGB + rw)
+            sumRGB[0..., 0..., ys, xs] = sumRGB[0..., 0..., ys, xs] + out * weight
+            sumW[0..., 0..., ys, xs] = sumW[0..., 0..., ys, xs] + weight
             eval(sumRGB, sumW)
             Memory.clearCache()
         }
@@ -240,35 +262,6 @@ public final class Flux2VAE: Module {
         eval(rgb)
         Memory.clearCache()
         return rgb
-    }
-
-    /// Embed `value` […,h,w] into a full […,fullH,fullW] canvas at (y0,x0) via pad.
-    private static func putSlice(
-        y0: Int,
-        x0: Int,
-        h: Int,
-        w: Int,
-        value: MLXArray,
-        fullH: Int,
-        fullW: Int
-    ) -> MLXArray {
-        let padTop = y0
-        let padBottom = fullH - (y0 + h)
-        let padLeft = x0
-        let padRight = fullW - (x0 + w)
-        precondition(padTop >= 0 && padBottom >= 0 && padLeft >= 0 && padRight >= 0)
-        if padTop == 0 && padBottom == 0 && padLeft == 0 && padRight == 0 {
-            return value
-        }
-        return padded(
-            value,
-            widths: [
-                IntOrPair((0, 0)),
-                IntOrPair((0, 0)),
-                IntOrPair((padTop, padBottom)),
-                IntOrPair((padLeft, padRight)),
-            ]
-        )
     }
 
     public static func unpatchify(_ latents: MLXArray) -> MLXArray {

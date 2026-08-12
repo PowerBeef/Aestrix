@@ -37,26 +37,22 @@ public final class Flux2TransformerBlock: Module {
         var h = hiddenStates
         var e = encoderHiddenStates
 
-        var nh = norm1(h)
-        nh = (1 + scaleMsa) * nh + shiftMsa
-        var ne = norm1Context(e)
-        ne = (1 + cScaleMsa) * ne + cShiftMsa
+        var nh = ModulationOps.modApply(norm1(h), scaleMsa, shiftMsa)
+        var ne = ModulationOps.modApply(norm1Context(e), cScaleMsa, cShiftMsa)
 
         let (attnH, attnE) = attn(
             hiddenStates: nh,
             encoderHiddenStates: ne,
             imageRotaryEmb: imageRotaryEmb
         )
-        h = h + gateMsa * attnH
-        e = e + cGateMsa * attnE
+        h = ModulationOps.gateAdd(h, gateMsa, attnH)
+        e = ModulationOps.gateAdd(e, cGateMsa, attnE)
 
-        nh = norm2(h)
-        nh = (1 + scaleMlp) * nh + shiftMlp
-        h = h + gateMlp * ff(nh)
+        nh = ModulationOps.modApply(norm2(h), scaleMlp, shiftMlp)
+        h = ModulationOps.gateAdd(h, gateMlp, ff(nh))
 
-        ne = norm2Context(e)
-        ne = (1 + cScaleMlp) * ne + cShiftMlp
-        e = e + cGateMlp * ffContext(ne)
+        ne = ModulationOps.modApply(norm2Context(e), cScaleMlp, cShiftMlp)
+        e = ModulationOps.gateAdd(e, cGateMlp, ffContext(ne))
 
         return (e, h)
     }
@@ -80,9 +76,8 @@ public final class Flux2SingleTransformerBlock: Module {
         imageRotaryEmb: (MLXArray, MLXArray)?
     ) -> MLXArray {
         let (modShift, modScale, modGate) = tembModParams
-        var nh = norm(hiddenStates)
-        nh = (1 + modScale) * nh + modShift
+        let nh = ModulationOps.modApply(norm(hiddenStates), modScale, modShift)
         let attnOut = attn(nh, imageRotaryEmb: imageRotaryEmb)
-        return hiddenStates + modGate * attnOut
+        return ModulationOps.gateAdd(hiddenStates, modGate, attnOut)
     }
 }

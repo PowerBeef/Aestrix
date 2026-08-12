@@ -51,6 +51,12 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionLinearChunkThreshold: Int?
     /// `mlx` | `metal-fa` | `auto` (nil = product default).
     public var attentionBackend: String?
+    /// Joint seq above which the DiT clears the cache per block (nil = product default).
+    public var attentionBlockClearSeqThreshold: Int?
+    /// Clear cache every N blocks when per-block clears are active (nil = product default).
+    public var attentionBlockClearInterval: Int?
+    /// Text token mode for T2I trials: "512" (default) | "auto" (trim experiment).
+    public var textTokens: String?
 
     public init(
         mode: BenchMode = .t2i,
@@ -75,7 +81,10 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionF16SeqThreshold: Int? = nil,
         attentionLinearChunkSize: Int? = nil,
         attentionLinearChunkThreshold: Int? = nil,
-        attentionBackend: String? = nil
+        attentionBackend: String? = nil,
+        attentionBlockClearSeqThreshold: Int? = nil,
+        attentionBlockClearInterval: Int? = nil,
+        textTokens: String? = nil
     ) {
         self.mode = mode
         self.label = label
@@ -100,6 +109,9 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionLinearChunkSize = attentionLinearChunkSize
         self.attentionLinearChunkThreshold = attentionLinearChunkThreshold
         self.attentionBackend = attentionBackend
+        self.attentionBlockClearSeqThreshold = attentionBlockClearSeqThreshold
+        self.attentionBlockClearInterval = attentionBlockClearInterval
+        self.textTokens = textTokens
     }
 
     /// Config tuned for pressure-map diagnosis.

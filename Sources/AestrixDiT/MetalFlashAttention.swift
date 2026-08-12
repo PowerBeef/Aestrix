@@ -58,14 +58,11 @@ public enum MetalFlashAttention {
            key.dim(3) == D,
            value.dim(3) == D
         {
-            // Contiguous layout helps avoid extra device copies in eval_gpu.
-            let q = ensureMatrixContiguous(query)
-            let k = ensureMatrixContiguous(key)
-            let v = ensureMatrixContiguous(value)
+            // MLXFast SDPA / eval_gpu copies to contiguous layout internally when needed.
             let out = MLXFast.scaledDotProductAttention(
-                queries: q,
-                keys: k,
-                values: v,
+                queries: query,
+                keys: key,
+                values: value,
                 scale: scale,
                 mask: nil
             )
@@ -76,13 +73,6 @@ public enum MetalFlashAttention {
         return hybridBlockGEMM(
             query: query, key: key, value: value, scale: scale, blockC: blockC
         )
-    }
-
-    /// Ensure last dim stride is 1 (matrix-contiguous) for Steel loaders.
-    private static func ensureMatrixContiguous(_ x: MLXArray) -> MLXArray {
-        // MLXFast SDPA / eval_gpu will copy if needed; asType + reshape path is a no-op when already good.
-        // Force a materialised row-contiguous view via contiguous ops when possible.
-        return x
     }
 
     // MARK: - Hybrid FA2 (block GEMM host loop) — fallback

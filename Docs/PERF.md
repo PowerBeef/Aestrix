@@ -205,6 +205,108 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 .build/release/aestrix bench-compare /tmp/fair-steel-512.json /tmp/fair-steel-1024.json
 ```
 
+### 2026-08-11 optimization pass
+
+Phased speed/memory pass (P1 sync/cache, P2 token trim, P3 caching/session/compile
+spike, P4 VAE, P5 micro-fusion). All deltas below are same-day A/Bs.
+
+#### P1 sync/cache discipline — default path
+
+Fresh same-day baseline (`base-583fcfb-*`, tree at P6c) vs Phase 1 candidate
+(`p1-sync-*`). Protocol: W1/T3, seed 42, `--probe-density stages`, release + full metallib.
+Absolute numbers run slower than the older `fair-steel-*` rows (machine state) — deltas
+within the same day are the signal.
+
+Phase 1 changes: per-block `Memory.clearCache()` gated on joint seq > 1536
+(`AttentionTuning.blockCacheClearSeqThreshold` / `blockCacheClearInterval`; 512² skips
+per-block clears, 1024² unchanged), dropped the duplicate QKV eval in `processQKV`
+(JointAttention checkpoints after concat+RoPE), removed per-chunk `eval` in
+`linearChunkedSequence` (single eval at concat), deleted the no-op
+`ensureMatrixContiguous`.
+
+| Metric | base 512² | P1 512² | Δ | base 1024² | P1 1024² | Δ |
+|--------|----------:|--------:|---:|-----------:|---------:|---:|
+| e2e (mean) | 35.9 s | 34.1 s | **−5.1%** | 108.5 s | 103.8 s | **−4.3%** |
+| denoise / step | 7.09 s | 6.57 s | **−7.3%** | 23.3 s | 22.4 s | **−3.9%** |
+| decode VAE | 1.97 s | 1.99 s | ~0 | 8.8 s | 8.6 s | −2.2% |
+| peak MLX active | 2.19 GB | 2.19 GB | 0 | 2.19 GB | 2.20 GB | +0.1% |
+| peak MLX watermark | 3.21 GB | 3.21 GB | 0 | 4.03 GB | 4.03 GB | 0 |
+| peak RSS | 1.86 GB | 1.86 GB | 0 | 1.50 GB | 1.87 GB | +24%* |
+
+\* 1024² baseline RSS was anomalously low (macOS compression / pool state); MLX
+active + watermark — the gates that matter — are flat. P1 RSS matches the 512² profile.
+
+Reports: `/tmp/base-512.json`, `/tmp/base-1024.json`, `/tmp/p1-512.json`, `/tmp/p1-1024.json`.
+
+#### P4 + P5 (VAE stitch/encode-only + compiled RoPE/AdaLN) — default path
+
+`p45-*` vs `p1-sync-*`, same W1/T3 protocol. Changes: slice-local tiled-VAE stitch with
+cached cosine masks (was full-canvas pad+add ×2 per tile), `VAELoadMode.encodeOnly`
+for I2I stage-0, identity `--ref-downsample`, compiled RoPE pair-mix
+(`compiledRopeMix`) and compiled AdaLN (`ModulationOps.modApply`/`gateAdd`,
+shapeless, shared across 25 blocks × steps).
+
+| Metric | P1 512² | P4+5 512² | Δ | P1 1024² | P4+5 1024² | Δ |
+|--------|--------:|----------:|---:|---------:|-----------:|---:|
+| e2e (mean) | 34.1 s | 31.7 s | **−7.0%** | 103.8 s | 104.4 s | +0.6% (noise) |
+| denoise / step | 6.57 s | 6.06 s | **−7.8%** | 22.4 s | 22.4 s | ≈ |
+| decode VAE | 1.99 s | 1.78 s | −8.9% | 8.6 s | 9.0 s | +4.2% (noise) |
+| peak MLX active / watermark | flat | flat | | flat | flat | |
+
+The compiled elementwise ops pay off where attention doesn't dominate (512²); at
+1024² the joint-seq attention cost swamps them. **Cumulative default-path result vs
+same-day baseline: 512² e2e −11.8% (35.9 → 31.7 s), denoise/step −14.5%
+(7.09 → 6.06 s); 1024² e2e −3.7% (108.5 → 104.4 s); MLX active + watermark flat.**
+Quality gate: seed-42 512² smoke, pixel PASS + vision checklist clean (typical klein
+two-handle quirk only). Reports: `/tmp/p45-512.json`, `/tmp/p45-1024.json`.
+
+#### P2 `--text-tokens auto` (opt-in, experimental)
+
+Trims TE output + `txtIds` to the real (unpadded) token count instead of the full 512
+padded window. Changes numerics vs the reference full-512 path (padding tokens
+participate in attention in FLUX.2), hence opt-in and off by default.
+
+- 512² bench (`p2-auto-512` vs `p45-512`, 12-word prompt → joint 1536 → ~1060):
+  e2e **−32.4%** (31.7 → 21.4 s), denoise/step **−39.8%** (6.06 → 3.64 s),
+  peak MLX active 2.19 → **2.04 GB**, watermark 3.21 → **2.99 GB**.
+- 1024²: the full W1/T3 run (`p2-auto-1024`) was thermally contaminated (encode_te
+  +27% on identical work after ~40 min sustained GPU load — treat back-to-back
+  same-day runs with suspicion). Interleaved cold one-step A/B: auto **17.1–17.3 s/step**
+  vs full512 **19.1 s/step** ≈ **−10%**, matching the seq-length ratio (4136/4608).
+- Eval gate: seeds 42/0/7 at 512², pixel scores 82–84, no hard failures; seed-42
+  visual parity vs full512 = same subject/composition/quality, minor texture drift
+  (expected numerics change).
+
+#### P3a prompt-embed disk cache (default on)
+
+`~/Library/Caches/Aestrix/embeds/<sha256>.safetensors` keyed by
+format-version | model id | TE bits | seq len | prompt (~7.9 MB per entry, f16).
+Hit skips the whole TE stage (load + encode): **−4.0 s** at 512² (28.9 → 24.9 s
+measured), byte-identical output PNG on same seed. `--no-embed-cache` opts out.
+
+#### P3b warm session (`aestrix session`, resident policy, ≥16 GB gate)
+
+Repeat prompts keep modules resident; parity confirmed (same prompt+seed byte-identical
+across staged-load and resident-reuse generations). On the 8 GB M2 mini with
+`--force-resident`: repeat-gen 25.1 s ≈ staged (no win), and a cache-miss prompt
+regressed to 35.6 s (TE encode with DiT+VAE co-resident → memory pressure) — the
+16 GB RAM gate is doing its job; below it, staged + embed cache is strictly better.
+Fixed along the way: `StageOrchestrator` exclusive loads are now idempotent
+(second resident generation used to throw `moduleAlreadyLoaded`).
+
+#### P3c block-level `MLX.compile` spike — NO-GO (S1 confirmed again)
+
+`aestrix dit-compile-spike`, 512² shapes, resident DiT, 6 iters: single-stream block
+−3.1% vs product, double-stream −1.1%; compile first-call 649 / 209 ms. Blocks are
+matmul/attention-bound; the elementwise fringes are already fused by the shipped
+compiled AdaLN/RoPE helpers. Full-forward compile stays parked.
+
+#### P5 f16 Q/K/V threshold retest (1024²)
+
+Interleaved cold one-step A/B, f32 (`--attn-f16-threshold 99999`) vs default f16:
+20.33 s vs **18.89 s** per step (f16 ~7% faster), identical peak active/watermark.
+Threshold **2048 stays**.
+
 ### Historical snapshots (not for cross-size RAM A/B)
 
 | Label | e2e mean | denoise/step | peak RSS | peak MLX active | peak MLX watermark | Notes |
@@ -233,6 +335,13 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 | S4/M10 | **SDPA query chunk size 256→512** (`AttentionTuning`) | ~1% faster denoise/step @ 1024²; peak RAM unchanged |
 | S4 FA | **Steel fused FA** (full-Q MLX SDPA; drop query-chunk for D=128) | denoise/step ~20.8→**20.2 s** @ 1024²; same peak RAM; + Aestrix float4 fused Metal kernel for non-Steel D |
 | Harness | Report `gpu=Apple M2 metal=Metal 4 neuralAccel=no` | Avoid confusing M5-only Metal 4 claims |
+| S2 P1 | **Size-gated per-block cache clears + collapsed QKV evals + single-eval chunked Linear** | denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²; watermark flat (see “2026-08-11 optimization pass”) |
+| S5 P5 | Compiled RoPE pair-mix (`compiledRopeMix`, 50×/step) + compiled AdaLN `modApply`/`gateAdd` | e2e **−7.0%** @ 512² on top of P1 (with P4); flat @ 1024² (see “P4 + P5” subsection) |
+| M5 P4 | VAE encode-only load for I2I stage-0 (`VAELoadMode.encodeOnly`, ~67 MB) | Decoder never resident during reference encode |
+| M5 P4 | Tiled VAE stitch: slice-local accumulate + cached cosine masks (was full-canvas pad+add ×2 per tile) | decode −8.9% @ 512²; 1024² within noise (see “P4 + P5” subsection) |
+| S6 P2 | `--text-tokens auto` trim (opt-in; numerics differ from full-512 reference) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; watermark 3.21 → 2.99 GB @ 512² |
+| S7 P3a | Prompt-embed disk cache (default on; `--no-embed-cache`) | Hit skips TE stage: **−4 s** @ 512², byte-identical output |
+| — P3b | `aestrix session` warm mode (resident policy, ≥16 GB gate, `--force-resident`) | No win on 8 GB (gate validated); resident reuse byte-identical |
 
 ### Draw Things / PDF report mapping (2026-08-11)
 

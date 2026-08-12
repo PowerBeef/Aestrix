@@ -60,9 +60,14 @@ public final class Flux2ParallelSelfAttention: Module {
             (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
         }
 
-        // Free proj graph before attention.
-        eval(query, key, value, mlpHidden)
-        Memory.clearCache()
+        // Free proj graph before attention. Cache clear only on long sequences
+        // (same gate as the transformer's per-block clears).
+        if AttentionTuning.current.qkvCheckpoint {
+            eval(query, key, value, mlpHidden)
+            if seq > AttentionTuning.current.blockCacheClearSeqThreshold {
+                Memory.clearCache()
+            }
+        }
 
         var attnOut = AttentionUtils.computeAttention(
             query: query, key: key, value: value,

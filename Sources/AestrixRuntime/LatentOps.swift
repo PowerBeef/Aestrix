@@ -44,6 +44,45 @@ enum LatentOps {
         imageIds(width: width, height: height, tCoord: (index + 1) * 10)
     }
 
+    /// Reference ids for a `factor`-downsampled reference grid. Coordinates keep the
+    /// full-resolution spacing (y·factor, x·factor) so RoPE positions stay spatially
+    /// aligned with the denoise tokens.
+    static func referenceImageIdsDownsampled(
+        width: Int, height: Int, factor: Int, index: Int = 0
+    ) -> MLXArray {
+        precondition(factor >= 1)
+        let (h, w) = packedSpatial(width: width, height: height)
+        precondition(h % factor == 0 && w % factor == 0, "packed grid must divide factor")
+        let dh = h / factor
+        let dw = w / factor
+        let t = Float((index + 1) * 10)
+        var flat: [Float] = []
+        flat.reserveCapacity(dh * dw * 4)
+        for y in 0 ..< dh {
+            for x in 0 ..< dw {
+                flat.append(t)
+                flat.append(Float(y * factor))
+                flat.append(Float(x * factor))
+                flat.append(0)
+            }
+        }
+        return MLXArray(flat).reshaped([1, dh * dw, 4])
+    }
+
+    /// Average-pool packed latents `[B, H·W, C]` by `factor` in each spatial dim
+    /// (→ `[B, (H/f)·(W/f), C]`). Used for reduced-reference identity I2I.
+    static func downsamplePacked(
+        _ packed: MLXArray, height: Int, width: Int, factor: Int
+    ) -> MLXArray {
+        guard factor > 1 else { return packed }
+        precondition(height % factor == 0 && width % factor == 0)
+        let b = packed.dim(0)
+        let c = packed.dim(2)
+        var x = packed.reshaped([b, height / factor, factor, width / factor, factor, c])
+        x = x.mean(axes: [2, 4])
+        return x.reshaped([b, (height / factor) * (width / factor), c])
+    }
+
     /// Concatenate denoise tokens with one or more reference packed latents on sequence axis.
     static func concatImageAndReferences(
         denoise: MLXArray,

@@ -120,12 +120,18 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] 1024² low-RAM path (checkpointed DiT + chunked then **Steel FA** + decode-only + tiled VAE)  
 - [x] VAE overlap + cosine blend tiles (`VAETileConfig`)  
 - [x] AttentionTuning + SDPA query chunk sweep; **Steel fused FA** as product path for D=128  
-- [ ] Optional: block-level compile spike under **resident DiT** bench mode (still not amortized on staged M2)  
+- [x] Block-level compile spike under **resident DiT** (`aestrix dit-compile-spike`) — **NO-GO**: −3.1% single / −1.1% double block; full compile stays parked  
+- [x] 2026-08-11 pass P1: size-gated per-block `clearCache` + collapsed QKV evals + single-eval chunked Linear — denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²  
+- [x] 2026-08-11 pass P4+P5: slice-local tiled-VAE stitch + cached masks, `VAELoadMode.encodeOnly` (I2I stage-0), identity `--ref-downsample`, compiled RoPE/AdaLN — cumulative **−11.8% e2e @ 512²**, **−3.7% @ 1024²**, watermark flat  
+- [x] `--text-tokens auto` trim (opt-in, experimental; numerics differ from full-512) — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²; eval gate seeds 42/0/7 pass  
+- [x] Prompt-embed disk cache (default on) — TE stage skipped on hit (**−4 s** @ 512², byte-identical)  
+- [x] `aestrix session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
+- [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks; **2048 stays**  
 - [ ] DiT **weight** streaming for iOS jetsam (`stagedAggressive`)  
 - [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  
 
-**Latest fair A/B (8 GB Mac mini, release, Steel FA, W1T3):** 512² e2e **~31 s** / 1024² e2e **~94 s**; denoise/step **~6.1 s** / **~20.2 s**; peak active **~2.0 GiB**; watermark **~3.0 / 3.75 GiB**. Full tables: `Docs/PERF.md`.
+**Latest default-path A/B (8 GB Mac mini, release, Steel FA, W1T3, 2026-08-11):** 512² e2e **~31.7 s** / 1024² e2e **~104 s** (same-day baseline 35.9 / 108.5 s); denoise/step **~6.1 s** / **~22.4 s**; peak active **~2.0 GiB**; watermark **~3.0 / 4.0 GiB**. Opt-in `--text-tokens auto`: 512² e2e **~21.4 s**. Full tables: `Docs/PERF.md` (“2026-08-11 optimization pass”).
 
 **Acceptance for any “faster / leaner” claim**
 

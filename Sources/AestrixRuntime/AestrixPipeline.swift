@@ -173,31 +173,54 @@ public actor AestrixPipeline {
 
         // Stages 1–2 nested so prompt embeds + RoPE drop before VAE (lower peak RAM).
         do {
-            // --- Stage 1: text encoder ---
+            // --- Stage 1: text encoder (skipped entirely on embed-cache hit) ---
             onProgress?(PipelineProgress(phase: .encodingText))
-            trace?.emit(.stageBegin("load_te"))
-            try await orchestrator.loadTextEncoderExclusive()
-            trace?.emit(.stageEnd("load_te"))
-            trace?.emit(.memorySample(label: "after_load_te"))
-            let promptEmbeds: MLXArray
-            do {
-                trace?.emit(.stageBegin("encode_te"))
-                // TextEncoderModule.encode already evals embeds.
-                let (embeds, _) = try orchestrator.textEncoder.encode(
-                    request.prompt, trace: trace)
-                promptEmbeds = embeds
-                trace?.emit(.stageEnd("encode_te"))
-                trace?.emit(.memorySample(label: "after_encode_te"))
-                if let trace, trace.density != .off {
-                    trace.emit(.peakReset(label: "after_te"))
+            var promptEmbeds: MLXArray
+            var realTokens = 0
+            let embedURL = request.embedCache
+                ? PromptEmbedCache.entryURL(prompt: request.prompt, modelID: config.modelID)
+                : nil
+            if let embedURL, let cached = PromptEmbedCache.load(url: embedURL) {
+                promptEmbeds = cached.embeds
+                realTokens = cached.realTokens
+                eval(promptEmbeds)
+                trace?.note("embed_cache=hit", minDensity: .stages)
+                trace?.emit(.memorySample(label: "after_embed_cache_hit"))
+            } else {
+                trace?.emit(.stageBegin("load_te"))
+                try await orchestrator.loadTextEncoderExclusive()
+                trace?.emit(.stageEnd("load_te"))
+                trace?.emit(.memorySample(label: "after_load_te"))
+                do {
+                    trace?.emit(.stageBegin("encode_te"))
+                    // TextEncoderModule.encode already evals embeds.
+                    let (embeds, real) = try orchestrator.textEncoder.encode(
+                        request.prompt, trace: trace)
+                    promptEmbeds = embeds
+                    realTokens = real
+                    trace?.emit(.stageEnd("encode_te"))
+                    trace?.emit(.memorySample(label: "after_encode_te"))
+                    if let trace, trace.density != .off {
+                        trace.emit(.peakReset(label: "after_te"))
+                    }
+                    trace?.emit(.stageBegin("unload_te"))
+                    try await orchestrator.unloadTextEncoderIfStaged()
+                    trace?.emit(.stageEnd("unload_te"))
+                    trace?.emit(.memorySample(label: "after_unload_te"))
+                } catch {
+                    try? await orchestrator.unloadTextEncoderIfStaged()
+                    throw error
                 }
-                trace?.emit(.stageBegin("unload_te"))
-                try await orchestrator.unloadTextEncoderIfStaged()
-                trace?.emit(.stageEnd("unload_te"))
-                trace?.emit(.memorySample(label: "after_unload_te"))
-            } catch {
-                try? await orchestrator.unloadTextEncoderIfStaged()
-                throw error
+                if let embedURL {
+                    PromptEmbedCache.store(
+                        embeds: promptEmbeds, realTokens: realTokens, url: embedURL)
+                }
+            }
+
+            // Experiment: trim padded text tokens before the DiT (--text-tokens auto).
+            if request.textTokens == .auto {
+                promptEmbeds = Self.trimTextTokens(
+                    promptEmbeds, realTokens: realTokens, trace: trace)
             }
 
             let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
@@ -427,7 +450,8 @@ public actor AestrixPipeline {
             eval(imageNCHW)
 
             trace?.emit(.stageBegin("load_vae"))
-            try await orchestrator.loadVAEExclusive()
+            // Encode-only weights: decoder (~97 MB) is not needed for the reference encode.
+            try await orchestrator.loadVAEExclusive(mode: .encodeOnly)
             trace?.emit(.stageEnd("load_vae"))
             trace?.emit(.memorySample(label: "after_load_vae_enc"))
             let cleanPacked: MLXArray
@@ -449,34 +473,60 @@ public actor AestrixPipeline {
             // imageNCHW drops at end of this do; free cache before TE.
             Memory.clearCache()
 
-            // --- Stage 1: text encoder ---
+            // --- Stage 1: text encoder (skipped entirely on embed-cache hit) ---
             onProgress?(PipelineProgress(phase: .encodingText))
-            trace?.emit(.stageBegin("load_te"))
-            try await orchestrator.loadTextEncoderExclusive()
-            trace?.emit(.stageEnd("load_te"))
-            let promptEmbeds: MLXArray
-            do {
-                trace?.emit(.stageBegin("encode_te"))
-                let (embeds, _) = try orchestrator.textEncoder.encode(
-                    request.prompt, trace: trace)
-                promptEmbeds = embeds
-                trace?.emit(.stageEnd("encode_te"))
-                trace?.emit(.stageBegin("unload_te"))
-                try await orchestrator.unloadTextEncoderIfStaged()
-                trace?.emit(.stageEnd("unload_te"))
-                trace?.emit(.memorySample(label: "after_unload_te"))
-            } catch {
-                try? await orchestrator.unloadTextEncoderIfStaged()
-                throw error
+            var promptEmbeds: MLXArray
+            var realTokens = 0
+            let embedURL = request.embedCache
+                ? PromptEmbedCache.entryURL(prompt: request.prompt, modelID: config.modelID)
+                : nil
+            if let embedURL, let cached = PromptEmbedCache.load(url: embedURL) {
+                promptEmbeds = cached.embeds
+                realTokens = cached.realTokens
+                eval(promptEmbeds)
+                trace?.note("embed_cache=hit", minDensity: .stages)
+            } else {
+                trace?.emit(.stageBegin("load_te"))
+                try await orchestrator.loadTextEncoderExclusive()
+                trace?.emit(.stageEnd("load_te"))
+                do {
+                    trace?.emit(.stageBegin("encode_te"))
+                    let (embeds, real) = try orchestrator.textEncoder.encode(
+                        request.prompt, trace: trace)
+                    promptEmbeds = embeds
+                    realTokens = real
+                    trace?.emit(.stageEnd("encode_te"))
+                    trace?.emit(.stageBegin("unload_te"))
+                    try await orchestrator.unloadTextEncoderIfStaged()
+                    trace?.emit(.stageEnd("unload_te"))
+                    trace?.emit(.memorySample(label: "after_unload_te"))
+                } catch {
+                    try? await orchestrator.unloadTextEncoderIfStaged()
+                    throw error
+                }
+                if let embedURL {
+                    PromptEmbedCache.store(
+                        embeds: promptEmbeds, realTokens: realTokens, url: embedURL)
+                }
+            }
+
+            // Experiment: trim padded text tokens before the DiT (--text-tokens auto).
+            if request.textTokens == .auto {
+                promptEmbeds = Self.trimTextTokens(
+                    promptEmbeds, realTokens: realTokens, trace: trace)
             }
 
             let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
             // Denoise target at t=0; optional reference frame at t=10.
             let denoiseImgIds = LatentOps.imageIds(
                 width: canvas.width, height: canvas.height, tCoord: 0)
+            let refFactor = max(1, identity.refDownsample)
             let refImgIds: MLXArray? = identity.useReferenceLatents
-                ? LatentOps.referenceImageIds(
-                    width: canvas.width, height: canvas.height, index: 0)
+                ? (refFactor > 1
+                    ? LatentOps.referenceImageIdsDownsampled(
+                        width: canvas.width, height: canvas.height, factor: refFactor, index: 0)
+                    : LatentOps.referenceImageIds(
+                        width: canvas.width, height: canvas.height, index: 0))
                 : nil
             let fullImgIds: MLXArray
             if let refImgIds {
@@ -506,6 +556,12 @@ public actor AestrixPipeline {
 
             // Keep a clean copy for reference-latent conditioning and clean-pull.
             let refClean = cleanPacked
+            // Optionally reduced reference tokens for the DiT concat (clean-pull always
+            // uses the full-resolution refClean).
+            let refTokens = identity.useReferenceLatents && refFactor > 1
+                ? LatentOps.downsamplePacked(
+                    cleanPacked, height: packedH, width: packedW, factor: refFactor)
+                : cleanPacked
             let guidance: MLXArray? = nil
             let useRef = identity.useReferenceLatents
             let pullBase = identity.cleanPullAlpha
@@ -517,7 +573,7 @@ public actor AestrixPipeline {
             trace?.emit(.stageEnd("load_dit"))
             trace?.emit(.memorySample(label: "after_load_dit"))
             do {
-                eval(fullImgIds, txtIds, promptEmbeds, refClean)
+                eval(fullImgIds, txtIds, promptEmbeds, refClean, refTokens)
                 let rope = try orchestrator.dit.prepareRotaryEmbeddings(
                     imgIds: fullImgIds, txtIds: txtIds)
                 let stepTimesteps: [MLXArray] = timesteps.map {
@@ -544,7 +600,7 @@ public actor AestrixPipeline {
                     let hidden: MLXArray
                     if useRef {
                         hidden = LatentOps.concatImageAndReferences(
-                            denoise: latents, references: [refClean])
+                            denoise: latents, references: [refTokens])
                     } else {
                         hidden = latents
                     }
@@ -643,6 +699,25 @@ public actor AestrixPipeline {
 
         onProgress?(PipelineProgress(phase: .finished, step: nSteps, totalSteps: nSteps))
         return outURL
+    }
+
+    /// Trim padded text embeddings to real prompt length rounded up to a multiple of 8.
+    ///
+    /// Padding sits at the end and Qwen attention is causal, so real-token embeddings are
+    /// identical trimmed or not — only the DiT joint attention (which has no text mask)
+    /// sees fewer tokens. Numerics-changing experiment; gated by `TextTokenMode.auto`.
+    private static func trimTextTokens(
+        _ embeds: MLXArray, realTokens: Int, trace: PipelineTrace?
+    ) -> MLXArray {
+        let seqLen = embeds.dim(1)
+        guard realTokens > 0 else { return embeds }
+        let trimmed = min(seqLen, max(8, (realTokens + 7) / 8 * 8))
+        guard trimmed < seqLen else { return embeds }
+        trace?.note(
+            "text_tokens=" + String(trimmed) + " (auto trim, real=" + String(realTokens)
+                + ", padded=" + String(seqLen) + ")",
+            minDensity: .stages)
+        return embeds[0..., ..<trimmed, 0...]
     }
 
     private func beginGeneration() throws {

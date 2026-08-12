@@ -24,6 +24,8 @@ public actor BenchRunner {
         if let raw = config.attentionBackend, let backend = AttentionBackend(rawValue: raw) {
             t.backend = backend
         }
+        if let v = config.attentionBlockClearSeqThreshold { t.blockCacheClearSeqThreshold = v }
+        if let v = config.attentionBlockClearInterval { t.blockCacheClearInterval = max(1, v) }
         AttentionTuning.current = t
     }
 
@@ -199,13 +201,15 @@ public actor BenchRunner {
         let outURL = outDir.appendingPathComponent(
             "bench_\(config.label)_s\(config.seed)_t\(Date().timeIntervalSince1970).png"
         )
+        let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .full512
         let request = T2IRequest(
             prompt: config.prompt,
             width: config.width,
             height: config.height,
             steps: steps,
             seed: config.seed,
-            outputURL: outURL
+            outputURL: outURL,
+            textTokens: textTokenMode
         )
         let url = try await pipeline.generate(request, trace: collector.trace)
         return url.path

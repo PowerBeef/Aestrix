@@ -13,8 +13,9 @@ struct AestrixCLI: AsyncParsableCommand {
         subcommands: [
             MemSelfTest.self, Info.self, Schedule.self,
             LoadDiT.self, LoadVAE.self, LoadTE.self,
-            EncodePrompt.self, T2I.self, I2I.self,
+            EncodePrompt.self, T2I.self, I2I.self, Session.self,
             AnalyzeImage.self, Bench.self, BenchCompare.self,
+            DiTCompileSpike.self,
         ]
     )
 }
@@ -336,10 +337,19 @@ struct T2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Exit 2 if pixel quality gate fails (use with --analyze).")
     var failOnPixelGate: Bool = false
 
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim to prompt length; experimental).")
+    var textTokens: String = "512"
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
+    var embedCache: Bool = true
+
     func run() async throws {
         ensureMLXReady()
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
+        }
+        guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
+            throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
         }
         var config = AestrixConfig.autoDetectingTier()
         config.weightPreset = preset
@@ -360,7 +370,9 @@ struct T2I: AsyncParsableCommand {
             steps: steps,
             guidance: 1.0,
             seed: seed,
-            outputURL: outURL
+            outputURL: outURL,
+            textTokens: textTokenMode,
+            embedCache: embedCache
         )
         print(
             "t2i width=\(width) height=\(height) steps=\(steps) weights=\(preset.rawValue) seed=\(seed.map(String.init) ?? "random") snapshot=\(await pipeline.snapshotPath ?? "?")"
@@ -454,6 +466,9 @@ struct I2I: AsyncParsableCommand {
     @Option(name: .long, help: "Strength curve: color (default) | identity | linear")
     var schedule: String?
 
+    @Option(name: .long, help: "Downsample reference tokens by this factor with --identity/--ref-latents (1 = full ref; 2 = quarter tokens, faster, identity trade-off).")
+    var refDownsample: Int = 1
+
     @Flag(name: .long, help: "After write: run pixel eval + print report (writes sidecar .eval.json).")
     var analyze: Bool = false
 
@@ -466,10 +481,19 @@ struct I2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Exit 2 if pixel quality gate fails (use with --analyze).")
     var failOnPixelGate: Bool = false
 
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim to prompt length; experimental).")
+    var textTokens: String = "512"
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
+    var embedCache: Bool = true
+
     func run() async throws {
         ensureMLXReady()
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
+        }
+        guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
+            throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
         }
         if strength <= 0 || strength > 1 {
             throw ValidationError("strength must be in (0, 1], got \(strength)")
@@ -498,6 +522,12 @@ struct I2I: AsyncParsableCommand {
             }
             idCfg.scheduleCurve = curve
         }
+        if refDownsample != 1 {
+            guard refDownsample >= 1, refDownsample <= 4 else {
+                throw ValidationError("ref-downsample must be 1…4, got \(refDownsample)")
+            }
+            idCfg.refDownsample = refDownsample
+        }
 
         var config = AestrixConfig.autoDetectingTier()
         config.weightPreset = preset
@@ -520,7 +550,9 @@ struct I2I: AsyncParsableCommand {
             guidance: 1.0,
             seed: seed,
             outputURL: output.map { URL(fileURLWithPath: $0) },
-            identity: idCfg
+            identity: idCfg,
+            textTokens: textTokenMode,
+            embedCache: embedCache
         )
         let idParts: [String] = [
             idCfg.useReferenceLatents ? "ref-latents" : nil,
@@ -730,6 +762,15 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Attention backend: mlx | metal-fa | auto (default auto).")
     var attnBackend: String?
 
+    @Option(name: .long, help: "Joint seq above which the DiT clears cache per block (default 1536).")
+    var attnBlockClearThreshold: Int?
+
+    @Option(name: .long, help: "Clear cache every N blocks when per-block clears are active (default 1).")
+    var attnBlockClearInterval: Int?
+
+    @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default) | auto (trim experiment).")
+    var textTokens: String?
+
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"
 
@@ -803,7 +844,10 @@ struct Bench: AsyncParsableCommand {
             attentionF16SeqThreshold: attnF16Threshold,
             attentionLinearChunkSize: attnLinearChunk,
             attentionLinearChunkThreshold: attnLinearThreshold,
-            attentionBackend: attnBackend
+            attentionBackend: attnBackend,
+            attentionBlockClearSeqThreshold: attnBlockClearThreshold,
+            attentionBlockClearInterval: attnBlockClearInterval,
+            textTokens: textTokens
         )
 
         let aestrixConfig = AestrixConfig.autoDetectingTier()

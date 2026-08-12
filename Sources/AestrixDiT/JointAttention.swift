@@ -68,7 +68,9 @@ public final class Flux2Attention: Module {
             (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
         }
 
-        eval(query, key, value)
+        if AttentionTuning.current.qkvCheckpoint {
+            eval(query, key, value)
+        }
 
         let joint = AttentionUtils.computeAttention(
             query: query, key: key, value: value,

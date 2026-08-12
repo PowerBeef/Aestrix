@@ -19,6 +19,31 @@ public enum VAEWeights {
         return model
     }
 
+    /// Load encoder + quant_conv + BN only (~67 MB vs ~165 MB full). I2I stage-0 encode.
+    public static func loadEncodeOnly(from directory: URL) throws -> Flux2VAEEncoderOnly {
+        let model = Flux2VAEEncoderOnly()
+        quantizeAttentionLinears(model)
+        let arrays = try SafetensorsLoader.loadMergedArrays(in: directory)
+        var filtered: [String: MLXArray] = [:]
+        filtered.reserveCapacity(arrays.count)
+        for (key, value) in arrays {
+            if key.hasPrefix("encoder.")
+                || key.hasPrefix("quant_conv.")
+                || key.hasPrefix("bn.")
+            {
+                filtered[key] = value
+            }
+        }
+        precondition(
+            !filtered.isEmpty,
+            "no encode-side keys in VAE safetensors at " + directory.path)
+        let nested = NestedDictionary<String, MLXArray>.unflattened(filtered)
+        // Shape check only — decoder keys intentionally absent from this module.
+        try model.update(parameters: nested, verify: [.shapeMismatch, .allModelKeysSet])
+        eval(model)
+        return model
+    }
+
     /// Load decoder + BN + post_quant only (~97 MB vs ~165 MB full). T2I path.
     public static func loadDecodeOnly(from directory: URL) throws -> Flux2VAEDecoderOnly {
         let model = Flux2VAEDecoderOnly()

@@ -161,6 +161,13 @@ public final class Flux2Transformer: Module {
         let tembImg = doubleStreamModulationImg(temb)
         let tembTxt = doubleStreamModulationTxt(temb)
 
+        // Per-block cache clears are only needed on large canvases (they made 1024² fit
+        // on 8 GB); on small canvases they just thrash the Metal buffer pool.
+        let tuning = AttentionTuning.current
+        let jointSeq = hiddenStates.dim(1) + encoderHiddenStates.dim(1)
+        let clearPerBlock = jointSeq > tuning.blockCacheClearSeqThreshold
+        let clearInterval = tuning.blockCacheClearInterval
+
         // Checkpoint after each major stage: MLX lazy graphs otherwise hold *all* block
         // intermediates until the outer eval — that inflated peak watermark (~8 GB at 768²
         // vs ~2 GB live active) and OOMs 1024² on 8 GB unified memory.
@@ -178,14 +185,18 @@ public final class Flux2Transformer: Module {
             e = out.encoder
             h = out.hidden
             eval(h, e)
-            Memory.clearCache()
+            if clearPerBlock, (bi + 1) % clearInterval == 0 {
+                Memory.clearCache()
+            }
             sample("after_double_\(bi)", block: bi)
         }
 
         let txtLen = e.dim(1)
         h = concatenated([e, h], axis: 1)
         eval(h)
-        Memory.clearCache()
+        if clearPerBlock {
+            Memory.clearCache()
+        }
         sample("after_concat")
 
         let tembSingle = singleStreamModulation(temb)[0]
@@ -196,7 +207,9 @@ public final class Flux2Transformer: Module {
             h = block(h, tembModParams: tembSingle, imageRotaryEmb: concatRope)
             // Always checkpoint single-stream (L is largest after concat).
             eval(h)
-            Memory.clearCache()
+            if clearPerBlock, (bi + 1) % clearInterval == 0 {
+                Memory.clearCache()
+            }
             if density.instrumentsDiTBlocks, singleSample.contains(bi) {
                 sample("after_single_\(bi)", block: bi)
             }
