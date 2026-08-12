@@ -36,7 +36,7 @@ All images below are unedited Aestrix outputs (release build, 4-bit weights, 4 s
 
 ### Image-to-image (strength edit)
 
-Color/style edits keep composition; the source’s quirks survive the edit — that’s the point.
+Color/style edits recolor the subject while keeping its shape, framing, and lighting.
 
 | Source (T2I) | `i2i --strength 0.8` |
 |:--:|:--:|
