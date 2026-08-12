@@ -18,19 +18,21 @@ prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► u
 | **Image-to-image** | Strength edits + optional **identity** stack (ref latents, face mask, clean-pull) |
 | **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; **MLX Steel fused FA** (simdgroup MMA); **tiled VAE** (overlap + cosine blend) |
 | **Weights** | Hub 4-bit packs only — no bf16 product path |
+| **Speed** | Prompt-embed disk cache (default on), warm `session` mode (≥16 GB), opt-in `--text-tokens auto` trim |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
 | **Bench** | Multi-trial timings, MLX/RSS memory, **pressure-map** block probes |
 
-### Measured (release, 4-bit, Apple M2 8 GB — fair A/B)
+### Measured (release, 4-bit, Apple M2 8 GB — same-day A/B, 2026-08-11 optimization pass)
 
-Same binary, warmup 1 + 3 trials, seed 42, `probe-density=stages` (Steel fused FA + cosine tiled VAE):
+Same binary, warmup 1 + 3 trials, seed 42, `probe-density=stages` (Steel fused FA + cosine tiled VAE, compiled RoPE/AdaLN):
 
 | Canvas | Time to image | Denoise / step | Peak MLX active | Peak MLX watermark | Peak RSS |
 |--------|--------------:|---------------:|----------------:|-------------------:|---------:|
-| **512²** | **~31 s** | **~6.1 s** | **2.04 GiB** | **2.99 GiB** | **1.74 GiB** |
-| **1024²** | **~94 s** (~3.0×) | **~20.2 s** | **2.05 GiB** | **3.75 GiB** (~1.25×) | **1.75 GiB** |
+| **512²** | **~31.7 s** (−11.8% vs pre-pass) | **~6.1 s** | **2.04 GiB** | **2.99–3.21 GiB** | **1.74 GiB** |
+| **1024²** | **~104 s** (−3.7% vs pre-pass) | **~22.4 s** | **2.05 GiB** | **~4.0 GiB** | **1.75 GiB** |
+| **512²** + `--text-tokens auto` (opt-in) | **~21.4 s** | **~3.6 s** | **2.04 GiB** | **2.99 GiB** | **1.73 GiB** |
 
-Live peak is dominated by DiT weights (~2 GiB) at both sizes; 1024 is slower, not dramatically hungrier on peak RSS/active. Full tables: [Docs/PERF.md](Docs/PERF.md).
+Repeat prompts skip the text-encoder stage entirely via the on-disk prompt-embed cache (default on, byte-identical output, −4 s at 512²). `--text-tokens auto` trims padding tokens — large win on short prompts, but numerics differ from the full-512 reference (experimental). Live peak is dominated by DiT weights (~2 GiB) at both sizes; 1024 is slower, not dramatically hungrier on peak RSS/active. Absolute times vary a few percent with machine/thermal state — compare same-day A/Bs only. Full tables: [Docs/PERF.md](Docs/PERF.md).
 
 ## Requirements
 
