@@ -180,6 +180,27 @@ struct MetricsAggregatorTests {
         let s1024 = PressureAnalytics.canvasStats(width: 1024, height: 1024)
         #expect(s1024.imageSeqLen == 4096)
         #expect(s1024.jointSeqLen == 512 + 4096)
+
+        let identity512 = PressureAnalytics.canvasStats(
+            width: 512, height: 512, referenceSeqLen: 1024)
+        #expect(identity512.jointSeqLen == 512 + 1024 + 1024)
+        #expect(identity512.referenceSeqLen == 1024)
+    }
+
+    @Test("host process parser sorts and preserves names")
+    func hostProcessParser() {
+        let output = """
+          101  2.5  1000 /usr/bin/quiet
+          202 48.0  2000 /Applications/Cursor Helper
+          malformed
+          303 17.5  3000 /usr/bin/swift
+        """
+        let parsed = HostContention.parsePSOutput(output, limit: 2)
+        #expect(parsed.count == 2)
+        #expect(parsed[0].pid == 202)
+        #expect(parsed[0].name == "/Applications/Cursor Helper")
+        #expect(parsed[0].rssBytes == 2_048_000)
+        #expect(parsed[1].pid == 303)
     }
 
     @Test("rank by active and delta")

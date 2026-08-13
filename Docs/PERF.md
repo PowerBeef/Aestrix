@@ -28,6 +28,11 @@ swift build && ./Scripts/ensure-metallib.sh
 
 # Compare two reports
 .build/release/aestrix bench-compare /tmp/aestrix-baseline.json /tmp/aestrix-candidate.json
+
+# I2I / identity (512² first on 8 GB; 1024 needs --force-headroom and swap=0)
+.build/release/aestrix bench --mode identity-i2i --image /path/to/ref.png \
+  --width 512 --height 512 --strength 0.9 --with-quality \
+  --json /tmp/id-i2i.json
 ```
 
 Snapshot path (default):
@@ -42,7 +47,10 @@ Snapshot path (default):
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--mode` | `t2i` | `t2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `mem-stages` \| `te-only` \| `dit-steps` \| `vae-decode` \| `load-only` |
+| `--mode` | `t2i` | `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `mem-stages` \| `te-only` \| `dit-steps` \| `vae-decode` \| `load-only` |
+| `--image` | — | Required for `i2i` / `identity-i2i` |
+| `--strength` | 0.8 / 0.9 | I2I denoise strength (identity default 0.9) |
+| `--force-headroom` | off | Allow 1024² I2I bench on 8 GB after swap is 0 |
 | `--probe-density` | `denoise` | `off` \| `stages` \| `denoise` \| `blocks` \| `max` |
 | `--fail-soft` | off | Keep JSON when a trial errors |
 | `--reset-peak-each-phase` | off | Reset MLX peak between TE/DiT/VAE |
@@ -58,7 +66,7 @@ Snapshot path (default):
 | `--json` | auto under Caches | Report path |
 | `--output-dir` | Caches/Aestrix/bench | Trial PNGs (`t2i`) |
 | `--cache-limit` | MLX default | Optional `Memory.cacheLimit` bytes |
-| `--with-quality` | off | Pixel technical score + color match per PNG |
+| `--with-quality` | off | Pixel score + color; I2I adds SSIM; identity adds face-crop SSIM |
 
 ### `aestrix bench-compare BASE CANDIDATE`
 

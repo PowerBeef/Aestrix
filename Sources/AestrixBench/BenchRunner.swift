@@ -118,11 +118,18 @@ public actor BenchRunner {
         )
         let e2eStart = CFAbsoluteTimeGetCurrent()
 
+        let hostBefore = HostContention.capture()
         do {
             let outputPath: String?
             switch config.mode {
             case .t2i, .pressureMap:
                 outputPath = try await runT2I(collector: collector, steps: config.steps)
+            case .i2i:
+                outputPath = try await runI2I(
+                    collector: collector, steps: config.steps, identity: identityEnabled)
+            case .identityI2I:
+                outputPath = try await runI2I(
+                    collector: collector, steps: config.steps, identity: true)
             case .ditOneStep:
                 outputPath = try await runT2I(collector: collector, steps: 1)
             case .memStages:
@@ -145,14 +152,17 @@ public actor BenchRunner {
             }
 
             let e2eMs = (CFAbsoluteTimeGetCurrent() - e2eStart) * 1000
+            let hostAfter = HostContention.capture()
             return finishTrial(
                 index: index, cold: cold, e2eMs: e2eMs, collector: collector,
-                outputPath: outputPath, error: nil)
+                outputPath: outputPath, hostBefore: hostBefore, hostAfter: hostAfter, error: nil)
         } catch {
             let e2eMs = (CFAbsoluteTimeGetCurrent() - e2eStart) * 1000
+            let hostAfter = HostContention.capture()
             return finishTrial(
                 index: index, cold: cold, e2eMs: e2eMs, collector: collector,
-                outputPath: nil, error: String(describing: error))
+                outputPath: nil, hostBefore: hostBefore, hostAfter: hostAfter,
+                error: String(describing: error))
         }
     }
 
@@ -162,6 +172,8 @@ public actor BenchRunner {
         e2eMs: Double,
         collector: TraceCollector,
         outputPath: String?,
+        hostBefore: HostContentionSnapshot?,
+        hostAfter: HostContentionSnapshot?,
         error: String?
     ) -> BenchTrial {
         let timings = collector.buildTimings(e2eMs: e2eMs)
@@ -170,10 +182,22 @@ public actor BenchRunner {
 
         var qualityScore: Float?
         var qualityColor: Bool?
+        var qualityReferenceSSIM: Float?
+        var qualityFidelity: Float?
+        var qualityFaceSSIM: Float?
+        var qualityFaceFidelity: Float?
+        var generatedFaceCount: Int?
+        var referenceFaceCount: Int?
         if config.withQuality, let path = outputPath, error == nil {
             if let q = try? qualityFromPNG(path: path) {
                 qualityScore = q.score
                 qualityColor = q.colorMatch
+                qualityReferenceSSIM = q.referenceSSIM
+                qualityFidelity = q.fidelityScore
+                qualityFaceSSIM = q.faceReferenceSSIM
+                qualityFaceFidelity = q.faceFidelityScore
+                generatedFaceCount = q.generatedFaceCount
+                referenceFaceCount = q.referenceFaceCount
             }
         }
 
@@ -189,6 +213,14 @@ public actor BenchRunner {
             outputPath: outputPath,
             qualityTechnicalScore: qualityScore,
             qualityColorMatch: qualityColor,
+            qualityReferenceSSIM: qualityReferenceSSIM,
+            qualityFidelityScore: qualityFidelity,
+            qualityFaceReferenceSSIM: qualityFaceSSIM,
+            qualityFaceFidelityScore: qualityFaceFidelity,
+            generatedFaceCount: generatedFaceCount,
+            referenceFaceCount: referenceFaceCount,
+            hostBefore: hostBefore,
+            hostAfter: hostAfter,
             error: error,
             lastProbeId: collector.lastProbeId
         )
@@ -212,6 +244,46 @@ public actor BenchRunner {
             textTokens: textTokenMode
         )
         let url = try await pipeline.generate(request, trace: collector.trace)
+        return url.path
+    }
+
+    private func runI2I(
+        collector: TraceCollector,
+        steps: Int,
+        identity: Bool
+    ) async throws -> String {
+        guard let imagePath = config.imagePath, !imagePath.isEmpty else {
+            throw BenchError.missingImage
+        }
+        let imageURL = URL(fileURLWithPath: imagePath)
+        guard FileManager.default.fileExists(atPath: imageURL.path) else {
+            throw BenchError.missingImage
+        }
+
+        let outDir = resolvedOutputDirectory()
+        let kind = identity ? "identity_i2i" : "i2i"
+        let outURL = outDir.appendingPathComponent(
+            "bench_\(config.label)_\(kind)_s\(config.seed)_t\(Date().timeIntervalSince1970).png"
+        )
+        let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .full512
+        let identityConfig = identity
+            ? IdentityPreserveConfig.identityPreset
+            : IdentityPreserveConfig.disabled
+        let strength = config.strength ?? (identity ? 0.9 : 0.8)
+        let request = I2IRequest(
+            prompt: config.prompt,
+            imageURL: imageURL,
+            strength: strength,
+            width: config.width,
+            height: config.height,
+            steps: steps,
+            seed: config.seed,
+            outputURL: outURL,
+            identity: identityConfig,
+            textTokens: textTokenMode,
+            embedCache: false
+        )
+        let url = try await pipeline.edit(request, trace: collector.trace)
         return url.path
     }
 
@@ -292,12 +364,56 @@ public actor BenchRunner {
         return url
     }
 
-    private func qualityFromPNG(path: String) throws -> (score: Float, colorMatch: Bool?) {
+    private func qualityFromPNG(
+        path: String
+    ) throws -> (
+        score: Float,
+        colorMatch: Bool?,
+        referenceSSIM: Float?,
+        fidelityScore: Float?,
+        faceReferenceSSIM: Float?,
+        faceFidelityScore: Float?,
+        generatedFaceCount: Int?,
+        referenceFaceCount: Int?
+    ) {
+        let referenceURL = config.imagePath.map { URL(fileURLWithPath: $0) }
+        let resolvedStrength = referenceURL == nil
+            ? nil
+            : (config.strength ?? (identityEnabled ? 0.9 : 0.8))
         let report = try ImageAnalyzer.analyze(
             imageURL: URL(fileURLWithPath: path),
-            options: .init(prompt: config.prompt, maxAnalysisSide: 512)
+            options: .init(
+                prompt: config.prompt,
+                referenceURL: referenceURL,
+                maxAnalysisSide: 512,
+                i2iStrength: resolvedStrength,
+                skipSemantic: true
+            )
         )
-        return (report.technical.technicalScore, report.promptAlignment.colorMatch)
+        let face: FaceRegionCompare.Metrics?
+        if identityEnabled, let referenceURL {
+            face = try? FaceRegionCompare.compare(
+                generatedURL: URL(fileURLWithPath: path),
+                referenceURL: referenceURL,
+                maxSide: 1024
+            )
+        } else {
+            face = nil
+        }
+        return (
+            report.technical.technicalScore,
+            report.promptAlignment.colorMatch,
+            report.reference?.ssim,
+            report.reference?.fidelityScore,
+            face?.ssim,
+            face?.fidelityScore,
+            face?.generatedFaceCount,
+            face?.referenceFaceCount
+        )
+    }
+
+    private var identityEnabled: Bool {
+        config.mode == .identityI2I || config.identity == true
     }
 }
 
@@ -306,12 +422,14 @@ public actor BenchRunner {
 public enum BenchError: Error, Sendable, LocalizedError {
     case warmupFailed(String)
     case missingSnapshot
+    case missingImage
     case invalidReport(String)
 
     public var errorDescription: String? {
         switch self {
         case .warmupFailed(let detail): return "Bench warmup failed: \(detail)"
         case .missingSnapshot: return "No local model snapshot for benchmark"
+        case .missingImage: return "I2I benchmark requires an existing --image path"
         case .invalidReport(let detail): return "Invalid bench report: \(detail)"
         }
     }

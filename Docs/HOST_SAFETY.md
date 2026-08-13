@@ -33,3 +33,9 @@ If swap is up or WindowServer stutters: stop, do not retry 1024.
 ## Agent defaults
 
 See **AGENTS.md → Host safety**. Prefer `swift test`. No parallel Metal agents.
+
+## I2I / identity bench (safe slice)
+
+`aestrix bench --mode i2i|identity-i2i --image PATH` records host contention per trial (`CONTAMINATED` if another process is ≥15% CPU). On this 8 GB host, 1024² I2I bench requires `--force-headroom` after `vm.swapusage` is 0. Prefer `--width 512 --height 512` first.
+
+`--with-quality` on identity mode adds Vision **face-crop SSIM** (not a biometric ID score).

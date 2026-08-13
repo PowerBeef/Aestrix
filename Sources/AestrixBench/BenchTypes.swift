@@ -6,6 +6,10 @@ import AestrixCore
 public enum BenchMode: String, Sendable, Codable, CaseIterable {
     /// Full staged T2I generation.
     case t2i
+    /// Full staged strength-only image-to-image.
+    case i2i
+    /// Full staged identity-preserving I2I (`IdentityPreserveConfig.identityPreset`).
+    case identityI2I = "identity-i2i"
     /// Load/unload TE, DiT, VAE only (no forward).
     case memStages = "mem-stages"
     /// Load TE + encode only, then unload.
@@ -57,6 +61,12 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionBlockClearInterval: Int?
     /// Text token mode for T2I trials: "512" (default) | "auto" (trim experiment).
     public var textTokens: String?
+    /// Reference image for I2I / identity-I2I modes.
+    public var imagePath: String?
+    /// I2I denoise strength. Defaults: 0.8 strength / 0.9 identity.
+    public var strength: Float?
+    /// Enable identity stack when `--image` is used with a diagnostic mode.
+    public var identity: Bool?
 
     public init(
         mode: BenchMode = .t2i,
@@ -84,7 +94,10 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionBackend: String? = nil,
         attentionBlockClearSeqThreshold: Int? = nil,
         attentionBlockClearInterval: Int? = nil,
-        textTokens: String? = nil
+        textTokens: String? = nil,
+        imagePath: String? = nil,
+        strength: Float? = nil,
+        identity: Bool? = nil
     ) {
         self.mode = mode
         self.label = label
@@ -112,6 +125,9 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionBlockClearSeqThreshold = attentionBlockClearSeqThreshold
         self.attentionBlockClearInterval = attentionBlockClearInterval
         self.textTokens = textTokens
+        self.imagePath = imagePath
+        self.strength = strength
+        self.identity = identity
     }
 
     /// Config tuned for pressure-map diagnosis.
@@ -208,6 +224,8 @@ public struct CanvasAnalytics: Sendable, Codable, Equatable {
     public var jointSeqLen: Int
     public var packedH: Int
     public var packedW: Int
+    /// Extra packed tokens when identity I2I concatenates a reference (nil for T2I).
+    public var referenceSeqLen: Int?
     /// Rough single-stream activation footprint estimate (bytes, f32 activations).
     public var estSingleStreamActBytes: UInt64
     public var note: String
@@ -220,6 +238,7 @@ public struct CanvasAnalytics: Sendable, Codable, Equatable {
         jointSeqLen: Int,
         packedH: Int,
         packedW: Int,
+        referenceSeqLen: Int? = nil,
         estSingleStreamActBytes: UInt64,
         note: String
     ) {
@@ -230,6 +249,7 @@ public struct CanvasAnalytics: Sendable, Codable, Equatable {
         self.jointSeqLen = jointSeqLen
         self.packedH = packedH
         self.packedW = packedW
+        self.referenceSeqLen = referenceSeqLen
         self.estSingleStreamActBytes = estSingleStreamActBytes
         self.note = note
     }
@@ -333,6 +353,14 @@ public struct BenchTrial: Sendable, Codable, Equatable {
     public var outputPath: String?
     public var qualityTechnicalScore: Float?
     public var qualityColorMatch: Bool?
+    public var qualityReferenceSSIM: Float?
+    public var qualityFidelityScore: Float?
+    public var qualityFaceReferenceSSIM: Float?
+    public var qualityFaceFidelityScore: Float?
+    public var generatedFaceCount: Int?
+    public var referenceFaceCount: Int?
+    public var hostBefore: HostContentionSnapshot?
+    public var hostAfter: HostContentionSnapshot?
     public var error: String?
     public var lastProbeId: String?
 
@@ -348,6 +376,14 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         outputPath: String? = nil,
         qualityTechnicalScore: Float? = nil,
         qualityColorMatch: Bool? = nil,
+        qualityReferenceSSIM: Float? = nil,
+        qualityFidelityScore: Float? = nil,
+        qualityFaceReferenceSSIM: Float? = nil,
+        qualityFaceFidelityScore: Float? = nil,
+        generatedFaceCount: Int? = nil,
+        referenceFaceCount: Int? = nil,
+        hostBefore: HostContentionSnapshot? = nil,
+        hostAfter: HostContentionSnapshot? = nil,
         error: String? = nil,
         lastProbeId: String? = nil
     ) {
@@ -362,6 +398,14 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         self.outputPath = outputPath
         self.qualityTechnicalScore = qualityTechnicalScore
         self.qualityColorMatch = qualityColorMatch
+        self.qualityReferenceSSIM = qualityReferenceSSIM
+        self.qualityFidelityScore = qualityFidelityScore
+        self.qualityFaceReferenceSSIM = qualityFaceReferenceSSIM
+        self.qualityFaceFidelityScore = qualityFaceFidelityScore
+        self.generatedFaceCount = generatedFaceCount
+        self.referenceFaceCount = referenceFaceCount
+        self.hostBefore = hostBefore
+        self.hostAfter = hostAfter
         self.error = error
         self.lastProbeId = lastProbeId
     }
@@ -443,5 +487,5 @@ public struct BenchReport: Sendable, Codable, Equatable {
     public var aggregate: BenchAggregate
     public var pressure: PressureReport?
 
-    public static let currentSchema = "1.1"
+    public static let currentSchema = "1.2"
 }

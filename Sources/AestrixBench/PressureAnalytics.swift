@@ -12,15 +12,22 @@ public enum PressureAnalytics {
     public static func canvasStats(
         width: Int,
         height: Int,
-        textSeqLen: Int = ModelConstants.maxSequenceLength
+        textSeqLen: Int = ModelConstants.maxSequenceLength,
+        referenceSeqLen: Int? = nil
     ) -> CanvasAnalytics {
         let (ph, pw) = packedSpatial(width: width, height: height)
         let imageSeq = ph * pw
-        let joint = textSeqLen + imageSeq
+        let ref = max(0, referenceSeqLen ?? 0)
+        let joint = textSeqLen + imageSeq + ref
         // Rough: one f32 activation [1, L, innerDim] + similar residual (~2×).
         let act = UInt64(joint) * UInt64(ModelConstants.innerDim) * 4 * 2
-        let note =
-            "joint=text(\(textSeqLen))+img(\(imageSeq)); single-stream L=\(joint); "
+        var note =
+            "joint=text(\(textSeqLen))+img(\(imageSeq))"
+        if ref > 0 {
+            note += "+ref(\(ref))"
+        }
+        note +=
+            "; single-stream L=\(joint); "
             + "est ~\(act / 1_048_576) MiB for 2×[1,L,\(ModelConstants.innerDim)] f32 (not full attn temps)"
         return CanvasAnalytics(
             width: width,
@@ -30,6 +37,7 @@ public enum PressureAnalytics {
             jointSeqLen: joint,
             packedH: ph,
             packedW: pw,
+            referenceSeqLen: referenceSeqLen,
             estSingleStreamActBytes: act,
             note: note
         )

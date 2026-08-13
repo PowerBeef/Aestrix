@@ -89,23 +89,33 @@ public enum BenchReportWriter {
                 } else {
                     stepPart = ""
                 }
+                let contaminated = t.hostBefore?.contaminated == true
+                    || t.hostAfter?.contaminated == true
+                let hostTag = contaminated ? " CONTAMINATED" : ""
                 lines.append(
                     String(
-                        format: "  trial %d%@ e2e=%.0fms%@ peak_rss=%@",
+                        format: "  trial %d%@ e2e=%.0fms%@ peak_rss=%@%@",
                         t.index,
                         coldTag,
                         t.timingsMs.e2e,
                         stepPart,
-                        MemoryProbe.formatBytes(t.peakRssBytes)
+                        MemoryProbe.formatBytes(t.peakRssBytes),
+                        hostTag
                     )
                 )
+                if contaminated {
+                    let notes = (t.hostBefore?.notes ?? []) + (t.hostAfter?.notes ?? [])
+                    if !notes.isEmpty {
+                        lines.append("    host: \(Array(Set(notes)).sorted().joined(separator: "; "))")
+                    }
+                }
             }
         }
 
         if let p = report.pressure {
             lines.append("pressure:")
             lines.append(
-                "  density=\(p.probeDensity) joint_seq=\(p.analytic.jointSeqLen) image_seq=\(p.analytic.imageSeqLen) packed=\(p.analytic.packedH)x\(p.analytic.packedW)"
+                "  density=\(p.probeDensity) joint_seq=\(p.analytic.jointSeqLen) image_seq=\(p.analytic.imageSeqLen) ref_seq=\(p.analytic.referenceSeqLen ?? 0) packed=\(p.analytic.packedH)x\(p.analytic.packedW)"
             )
             lines.append("  \(p.analytic.note)")
             if !p.phasePeaks.isEmpty {

@@ -711,7 +711,7 @@ struct Bench: AsyncParsableCommand {
         abstract: "Performance + pressure harness (timings, MLX memory, DiT block probes). See Docs/PERF.md."
     )
 
-    @Option(name: .long, help: "Mode: t2i | pressure-map | dit-one-step | res-ladder | mem-stages | te-only | dit-steps | vae-decode | load-only")
+    @Option(name: .long, help: "Mode: t2i | i2i | identity-i2i | pressure-map | dit-one-step | res-ladder | mem-stages | te-only | dit-steps | vae-decode | load-only")
     var mode: String = "t2i"
 
     @Option(name: .long, help: "Label stored in the report (e.g. baseline, cache-limit-2g).")
@@ -744,8 +744,20 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Write JSON report to this path.")
     var json: String?
 
-    @Option(name: .long, help: "Directory for trial PNGs (t2i mode).")
+    @Option(name: .long, help: "Directory for trial PNGs.")
     var outputDir: String?
+
+    @Option(name: .long, help: "Reference image for i2i / identity-i2i.")
+    var image: String?
+
+    @Option(name: .long, help: "I2I strength in (0, 1]. Defaults: 0.8 strength, 0.9 identity.")
+    var strength: Float?
+
+    @Flag(name: .long, help: "Enable identity stack when --image is used with a diagnostic mode.")
+    var identity: Bool = false
+
+    @Flag(name: .long, help: "Allow 1024² I2I/identity bench on 8 GB after swap is 0.")
+    var forceHeadroom: Bool = false
 
     @Option(name: .long, help: "Optional MLX cacheLimit in bytes (e.g. 2147483648).")
     var cacheLimit: UInt64?
@@ -793,7 +805,7 @@ struct Bench: AsyncParsableCommand {
     var withQuality: Bool = false
 
     func run() async throws {
-        try ensureMLXReady()
+        try ensureMLXReady(forceHeadroom: forceHeadroom)
 
         guard let benchMode = BenchMode(rawValue: mode) else {
             print("error: unknown mode '\(mode)'. Use: \(BenchMode.allCases.map(\.rawValue).joined(separator: ", "))")
@@ -801,6 +813,24 @@ struct Bench: AsyncParsableCommand {
         }
         guard let density = ProbeDensity(rawValue: probeDensity) else {
             print("error: unknown probe-density '\(probeDensity)'")
+            throw ExitCode.failure
+        }
+
+        let needsImage = benchMode == .i2i || benchMode == .identityI2I || identity
+        if needsImage {
+            guard let image, FileManager.default.fileExists(atPath: image) else {
+                print("error: \(benchMode.rawValue) requires --image PATH to an existing file")
+                throw ExitCode.failure
+            }
+        }
+        let tier = DeviceTier.detect()
+        if needsImage, tier == .low, max(width, height) >= 1024, !forceHeadroom {
+            print("error: 1024² I2I/identity bench on 8 GB-class hosts needs --force-headroom")
+            print("  (sysctl vm.swapusage must be 0; prefer --width 512 first)")
+            throw ExitCode.failure
+        }
+        if let strength, strength <= 0 || strength > 1 {
+            print("error: --strength must be in (0, 1]")
             throw ExitCode.failure
         }
 
@@ -853,7 +883,10 @@ struct Bench: AsyncParsableCommand {
             attentionBackend: attnBackend,
             attentionBlockClearSeqThreshold: attnBlockClearThreshold,
             attentionBlockClearInterval: attnBlockClearInterval,
-            textTokens: textTokens
+            textTokens: textTokens,
+            imagePath: image,
+            strength: strength,
+            identity: identity
         )
 
         let aestrixConfig = AestrixConfig.autoDetectingTier()
@@ -864,7 +897,11 @@ struct Bench: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        let analytic = PressureAnalytics.canvasStats(width: width, height: height)
+        let identityOn = benchMode == .identityI2I || identity
+        let (ph, pw) = PressureAnalytics.packedSpatial(width: width, height: height)
+        let refSeq = identityOn ? ph * pw : nil
+        let analytic = PressureAnalytics.canvasStats(
+            width: width, height: height, referenceSeqLen: refSeq)
         print(
             "bench start label=\(label) mode=\(benchMode.rawValue) \(width)x\(height) steps=\(config.steps) density=\(effectiveDensity.rawValue) joint_seq=\(analytic.jointSeqLen)"
         )

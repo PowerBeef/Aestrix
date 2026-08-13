@@ -178,3 +178,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08 | Tier-B identity I2I: single-ref latents + face mask + clean-pull + schedule curves |
 | 2026-08 | Park remaining work; macOS CLI is current focus surface |
 | 2026-08-13 | 8 GB host: WindowServer watchdog from Cursor+Metal compile; quarantine Cursor opts; HostPreflight |
+| 2026-08-13 | Promote safe Wave-0 slice: HostContention + i2i/identity-i2i bench + face-region SSIM |
