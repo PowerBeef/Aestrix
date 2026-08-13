@@ -81,6 +81,21 @@ Do not stack untested phase work on a broken foundation (e.g. metallib, load fai
 - Prefer **`swift build -c release`** for generation / benches.
 - Smoke: `aestrix load-te` · `load-dit` · `load-vae` · `t2i` / `bench` (needs snapshot + metallib).
 
+## Host safety (8 GB Mac mini — blocking)
+
+This machine is **8 GB unified** (`Mac14,3`). Cursor agents + `swift build`/`swift test` + `MTLCompilerService` + optional DiT (~2 GiB) starved **WindowServer** for 127 s and triggered a **watchdog kernel panic** (2026-08-13). Separate `aestrix` Metal command-buffer aborts (VAE decode) are process crashes that can worsen compositor stalls.
+
+**Rules for every agent on this host:**
+
+1. **One Metal owner.** Do not run `aestrix` generate/bench/compile-spike while Xcode, another `aestrix`, or a second IDE is compiling Metal.
+2. **Agents default to `swift test` and 512² smokes.** 1024² generate/bench only when the user asks **and** `sysctl vm.swapusage` shows **0** used.
+3. **Never** `MLX.compile` the full DiT; **never** `dit-compile-spike` on this host without `--force` on an idle machine.
+4. **Never** relax cache-clear / `EvalCachePolicy.high` here.
+5. After any reboot, hang, or `aestrix-*.ips`, **stop and inspect** DiagnosticReports before retrying.
+6. Experimental Cursor work lives on branch **`cursor-opt-quarantine`** — do not merge until file-by-file audit.
+
+CLI: `HostPreflight` takes `~/Library/Caches/Aestrix/aestrix.lock` and refuses a second instance or extreme swap. Details: [`Docs/HOST_SAFETY.md`](Docs/HOST_SAFETY.md).
+
 ---
 
 ## Generation evaluation workflow (mandatory)

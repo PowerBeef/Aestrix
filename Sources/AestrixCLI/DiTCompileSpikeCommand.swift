@@ -20,9 +20,17 @@ struct DiTCompileSpike: AsyncParsableCommand {
     @Option(help: "Timed iterations per variant (after 1 warmup).")
     var iters: Int = 6
 
+    @Flag(name: .long, help: "Run on 8 GB-class hosts (not recommended; GPU compile can starve WindowServer).")
+    var force: Bool = false
+
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         let config = AestrixConfig.autoDetectingTier()
+        if config.tier == .low, !force {
+            print("error: dit-compile-spike loads a full DiT and compiles Metal on-device.")
+            print("  Refused on 8 GB-class hosts (WindowServer watchdog risk). Pass --force if isolated.")
+            throw ExitCode.failure
+        }
         let pipeline = AestrixPipeline(config: config)
         guard let snapshotPath = await pipeline.snapshotPath else {
             print("error: no local snapshot for \(config.modelID)")

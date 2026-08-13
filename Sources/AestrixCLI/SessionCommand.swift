@@ -32,7 +32,7 @@ struct Session: AsyncParsableCommand {
     var forceResident: Bool = false
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }

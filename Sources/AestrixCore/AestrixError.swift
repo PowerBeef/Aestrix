@@ -6,6 +6,8 @@ public enum AestrixError: Error, Sendable, LocalizedError {
     case moduleAlreadyLoaded(String)
     case moduleNotLoaded(String)
     case concurrentGenerationNotAllowed
+    case anotherInstanceRunning(pids: [Int32])
+    case hostMemoryPressure(detail: String)
     case cancelled
     case outOfMemory(stage: String, detail: String)
     case weightsNotFound(modelID: String, path: String?)
@@ -26,6 +28,11 @@ public enum AestrixError: Error, Sendable, LocalizedError {
             return "Module not loaded: \(name)"
         case .concurrentGenerationNotAllowed:
             return "Only one generation may run at a time on this pipeline"
+        case .anotherInstanceRunning(let pids):
+            let list = pids.isEmpty ? "unknown pid" : pids.map(String.init).joined(separator: ", ")
+            return "Another aestrix process is running (\(list)). One Metal owner at a time on this host."
+        case .hostMemoryPressure(let detail):
+            return "Host memory pressure: \(detail)"
         case .cancelled:
             return "Generation cancelled"
         case .outOfMemory(let stage, let detail):

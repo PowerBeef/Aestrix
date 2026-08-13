@@ -21,8 +21,14 @@ struct AestrixCLI: AsyncParsableCommand {
 }
 
 /// Call at the start of any command that may touch MLX.
-func ensureMLXReady() {
+func ensureMLXReady(forceHeadroom: Bool = false) throws {
     MLXBootstrap.ensureMetallibBesideExecutable()
+    do {
+        try HostPreflight.acquireForCLI(force: forceHeadroom)
+    } catch let error as AestrixError {
+        fputs("error: \(error.localizedDescription)\n", stderr)
+        throw ExitCode.failure
+    }
 }
 
 // MARK: - Post-generation evaluation (pixel harness + vision brief)
@@ -144,7 +150,7 @@ struct LoadDiT: AsyncParsableCommand {
     )
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         let config = AestrixConfig.autoDetectingTier()
         let pipeline = AestrixPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
@@ -169,7 +175,7 @@ struct LoadVAE: AsyncParsableCommand {
     )
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         let config = AestrixConfig.autoDetectingTier()
         let pipeline = AestrixPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
@@ -194,7 +200,7 @@ struct LoadTE: AsyncParsableCommand {
     )
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         let config = AestrixConfig.autoDetectingTier()
         let pipeline = AestrixPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
@@ -222,7 +228,7 @@ struct EncodePrompt: AsyncParsableCommand {
     var prompt: String
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         let config = AestrixConfig.autoDetectingTier()
         let pipeline = AestrixPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
@@ -344,7 +350,7 @@ struct T2I: AsyncParsableCommand {
     var embedCache: Bool = true
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -488,7 +494,7 @@ struct I2I: AsyncParsableCommand {
     var embedCache: Bool = true
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -787,7 +793,7 @@ struct Bench: AsyncParsableCommand {
     var withQuality: Bool = false
 
     func run() async throws {
-        ensureMLXReady()
+        try ensureMLXReady()
 
         guard let benchMode = BenchMode(rawValue: mode) else {
             print("error: unknown mode '\(mode)'. Use: \(BenchMode.allCases.map(\.rawValue).joined(separator: ", "))")

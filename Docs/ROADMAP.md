@@ -1,8 +1,9 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-11 (P6c identity I2I)  
+**Last updated:** 2026-08-13 (host safety after WindowServer watchdog)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
-**Remaining work** is parked here so agents and humans can resume without rediscovering context.
+**Remaining work** is parked here so agents and humans can resume without rediscovering context.  
+**Experimental Cursor tree:** branch `cursor-opt-quarantine` — audit before merge. See [`Docs/HOST_SAFETY.md`](HOST_SAFETY.md).
 
 ---
 
@@ -176,3 +177,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08 | Gen quality = pixel harness + vision checklist (`EVAL_WORKFLOW.md`) |
 | 2026-08 | Tier-B identity I2I: single-ref latents + face mask + clean-pull + schedule curves |
 | 2026-08 | Park remaining work; macOS CLI is current focus surface |
+| 2026-08-13 | 8 GB host: WindowServer watchdog from Cursor+Metal compile; quarantine Cursor opts; HostPreflight |

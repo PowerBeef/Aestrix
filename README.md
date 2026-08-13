@@ -237,6 +237,7 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 | [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs & cache layout |
 | [Docs/MEMORY.md](Docs/MEMORY.md) | Staged residency & tiers |
 | [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Generation quality gates |
+| [Docs/HOST_SAFETY.md](Docs/HOST_SAFETY.md) | 8 GB / one-Metal-owner rules (watchdog) |
 
 ## License
 
