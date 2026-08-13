@@ -2,267 +2,224 @@
 
 # Aestrix
 
-**Native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) on Apple Silicon**
+**Native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)**
+
+From-scratch on Apple Silicon — not a wrapper around another port.
 
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
-[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#requirements)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#quick-start)
 [![MLX](https://img.shields.io/badge/MLX-0.31.6-blue)](https://github.com/ml-explore/mlx-swift)
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 [![Eval floors](https://github.com/PowerBeef/Aestrix/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Aestrix/actions/workflows/eval-floors.yml)
 
-Low-RAM-first inference: text encoder, DiT, and VAE **never share memory**.
-Pre-quantized **4-bit** weights, **1024²** default canvas, runs on an **8 GB** Mac.
+Text-to-image and single-image edit · **4-bit** weights · **1024²** default · fits an **8 GB** Mac
 
 <img src="Docs/assets/readme/hero-coffee-1024.jpg" width="640" alt="Cozy coffee shop interior, warm afternoon light — Aestrix T2I, 1024², 4 steps, seed 42">
 
-<sub>*“A cozy coffee shop interior bathed in warm afternoon light, steam rising lazily from ceramic cups…”* — 1024², 4 steps, seed 42, 4-bit, generated on an 8 GB M2 Mac mini.</sub>
+<sub>1024² · 4 steps · seed 42 · 4-bit · 8 GB M2 Mac mini</sub>
 
 </div>
 
 ```text
 prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► unload ──► VAE decode ──► PNG
-              ~2 GB                  ~2 GB                     decode-only / tiled
+              ~2 GB                  ~2 GB                  decode-only / tiled
 ```
 
-## Output samples
+Only one heavy module is resident at a time. Peak is roughly **max(TE, DiT, VAE)**, not the sum.
 
-All images below are unedited Aestrix outputs (release build, 4-bit weights, 4 steps, fixed seeds).
+| Generate | Default | Memory | License |
+|:--------:|:-------:|:------:|:-------:|
+| T2I + I2I + identity | 1024² · 4 steps · guidance 1.0 | Staged · ~2 GiB live | MIT + Apache-2.0 weights |
 
-### Text-to-image
+---
 
-| | |
-|:--:|:--:|
-| <img src="Docs/assets/readme/fisherman-1024.jpg" width="380"> | <img src="Docs/assets/readme/fox-512.jpg" width="380"> |
-| <sub>*“A weathered fisherman in his 70s … golden hour rim lighting on his profile.”* — 1024², seed 42</sub> | <sub>*“A red fox in a snowy forest at sunrise, photorealistic.”* — 512², seed 7</sub> |
+## Samples
 
-### Image-to-image (strength edit)
+Unedited release outputs, 4-bit, 4 steps, fixed seeds.
 
-Color/style edits recolor the subject while keeping its shape, framing, and lighting.
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="Docs/assets/readme/fisherman-1024.jpg" width="380" alt="Weathered fisherman, golden hour">
+<br><sub>T2I · 1024² · seed 42</sub>
+</td>
+<td align="center" width="50%">
+<img src="Docs/assets/readme/fox-512.jpg" width="380" alt="Red fox in snow at sunrise">
+<br><sub>T2I · 512² · seed 7</sub>
+</td>
+</tr>
+<tr>
+<td align="center">
+<img src="Docs/assets/readme/i2i-mug-before.jpg" width="280" alt="Cobalt ceramic mug">
+<br><sub>Source</sub>
+</td>
+<td align="center">
+<img src="Docs/assets/readme/i2i-mug-after.jpg" width="280" alt="Emerald ceramic mug">
+<br><sub><code>i2i --strength 0.8</code> · cobalt → emerald</sub>
+</td>
+</tr>
+<tr>
+<td align="center">
+<img src="Docs/assets/readme/identity-ref.jpg" width="280" alt="Woman, ivory blouse, studio light">
+<br><sub>Reference</sub>
+</td>
+<td align="center">
+<img src="Docs/assets/readme/identity-edit.jpg" width="280" alt="Same woman, emerald silk, golden hour">
+<br><sub><code>i2i --strength 0.9 --identity</code> · wardrobe + light; face stays</sub>
+</td>
+</tr>
+</table>
 
-| Source (T2I) | `i2i --strength 0.8` |
-|:--:|:--:|
-| <img src="Docs/assets/readme/i2i-mug-before.jpg" width="320"> | <img src="Docs/assets/readme/i2i-mug-after.jpg" width="320"> |
-| <sub>*“A cobalt blue ceramic mug with a single curved handle … morning light”* — seed 42</sub> | <sub>*“the same ceramic mug but emerald green glaze, keeping the same bright morning light …”* — seed 7</sub> |
-
-### Identity-preserving edit (`--identity`)
-
-Big wardrobe + lighting change at strength 0.9 — face shape, eyes, freckles, hair, and framing stay locked.
-
-| Reference (T2I) | `i2i --strength 0.9 --identity` |
-|:--:|:--:|
-| <img src="Docs/assets/readme/identity-ref.jpg" width="320"> | <img src="Docs/assets/readme/identity-edit.jpg" width="320"> |
-| <sub>Ivory blouse, studio light — seed 42</sub> | <sub>*“Same woman, identical face … golden hour, deep emerald green silk top.”* — seed 7</sub> |
-
-## Features
-
-| | |
-|--|--|
-| **Model** | FLUX.2-klein-4B only (Apache-2.0) — not 9B / Dev |
-| **Text-to-image** | Distilled defaults: **1024²**, 4 steps, guidance 1.0 |
-| **Image-to-image** | Strength edits + optional **identity** stack (ref latents, face mask, clean-pull) |
-| **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; **MLX Steel fused FA** (simdgroup MMA); **tiled VAE** (overlap + cosine blend) |
-| **Weights** | Hub 4-bit packs only, **pinned revision** — no bf16 product path |
-| **Speed** | Prompt-embed disk cache (default on), warm `session` mode (≥16 GB), opt-in `--text-tokens auto` trim |
-| **Eval** | Pixel quality harness + vision-review workflow for agents |
-| **Bench** | Multi-trial timings, MLX/RSS, pressure-map, **i2i / identity-i2i** + host-contention tags |
-
-## Performance
-
-Measured on an Apple M2 **8 GB** Mac mini (release, 4-bit, warmup 1 + 3 trials, seed 42). **2026-08-13** `hoist-512` / `hoist-1024` (context projection hoisted once per generate):
-
-| Canvas | Time to image | Denoise / step | Peak MLX active | Peak MLX watermark | Peak RSS |
-|--------|--------------:|---------------:|----------------:|-------------------:|---------:|
-| **512²** | **~27.5 s** | **~5.20 s** | 2.04 GiB | 2.99 GiB | 1.75 GiB |
-| **1024²** | **~87.7 s** (~3.2×) | **~18.6 s** | 2.05 GiB | 3.76 GiB | 1.77 GiB |
-| **512²** + `--text-tokens auto` (opt-in, 2026-08-11) | **~21.4 s** | ~3.6 s | 2.04 GiB | 2.99 GiB | 1.73 GiB |
-
-- Repeat prompts skip the text-encoder stage via the on-disk prompt-embed cache (default on, byte-identical output, −4 s at 512²).
-- `--text-tokens auto` trims padding tokens — a large win on short prompts, but numerics differ from the full-512 reference (experimental).
-- Live peak is dominated by DiT weights (~2 GiB) at both sizes; 1024² is slower, not dramatically hungrier on peak RSS/active.
-- Absolute times vary a few percent with machine/thermal state — compare same-day A/Bs only. Full tables: [Docs/PERF.md](Docs/PERF.md).
-
-## Requirements
-
-- Apple Silicon Mac, macOS 15+
-- Xcode 16+ / Swift 6
-- ~5 GB free for the 4-bit snapshot; **~8 GB unified** runs 1024² with the low-RAM path
+---
 
 ## Quick start
 
-### 1. Clone and build
+**Needs:** Apple Silicon, macOS 15+, Xcode 16 / Swift 6, ~5 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
 
 ```bash
-git clone https://github.com/PowerBeef/Aestrix.git
-cd Aestrix
+git clone https://github.com/PowerBeef/Aestrix.git && cd Aestrix
 swift build -c release
-./Scripts/ensure-metallib.sh   # full Metal library for MLX kernels (~130 MB)
-```
+./Scripts/ensure-metallib.sh          # full MLX Metal lib (~130 MB), not the 3 KB stub
 
-### 2. Download weights
-
-```bash
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
   --local-dir ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit
-```
 
-Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-4bit) @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (module-split `text_encoder/` `transformer/` `vae/` `tokenizer/`). Pins: [Docs/WEIGHTS.md](Docs/WEIGHTS.md), [Docs/hub-pins.json](Docs/hub-pins.json).
+.build/release/aestrix info           # tier, pin, snapshot, Steel metallib
 
-### 3. Generate
-
-```bash
-.build/release/aestrix info
-
-# Text-to-image (defaults: 1024×1024, 4 steps, 4-bit)
 .build/release/aestrix t2i \
   "A weathered fisherman at the helm of a wooden boat, golden hour rim light, shallow depth of field." \
   --seed 42 --output out.png
+```
 
-# Faster smoke at 512²
-.build/release/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
-  --width 512 --height 512 --seed 42 --output out512.png
+Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~27 s on an 8 GB M2).
 
-# Image-to-image (color / style edits often need strength ≥ 0.8)
-.build/release/aestrix i2i \
-  "the same scene at blue hour, cooler tones" \
+```bash
+# Recolor / style — strength ≥ 0.8 for object color
+.build/release/aestrix i2i "the same ceramic mug, emerald green glaze, same morning light" \
   --image out.png --strength 0.8 --seed 7 --output edit.png
 
-# Identity-preserving edit (Tier B: ref latents + face mask + milder schedule)
-.build/release/aestrix i2i \
-  "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
+# People — higher strength + identity stack (ref latents, face mask, milder schedule)
+.build/release/aestrix i2i "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
   --image portrait.png --strength 0.9 --identity --seed 7 --output edit-id.png
-
-# Warm multi-prompt session (keeps modules resident; ≥16 GB RAM)
-.build/release/aestrix session --width 1024 --height 1024
-
-# Generate + quality report + vision checklist
-.build/release/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
-  --output out.png --analyze --vision-brief
 ```
 
-### 4. Benchmark & pressure map
+Add `--analyze --vision-brief` to any generate for the pixel report + agent checklist.
 
-```bash
-# Timings + memory peaks
-.build/release/aestrix bench --width 512 --height 512 --warmup 1 --trials 3 \
-  --json /tmp/bench-512.json
+---
 
-# DiT block-level memory probes (find OOM / peak sites)
-.build/release/aestrix bench --mode pressure-map --width 768 --height 768 \
-  --probe-density blocks --json /tmp/pressure.json
+## Use it well
 
-# Compare two runs
-.build/release/aestrix bench-compare /tmp/bench-a.json /tmp/bench-b.json
+**Prompting (klein).** Narrative prose, subject first, lighting spelled out. No negative prompts — say what you want. Hex colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Recipes: [`.grok/skills/flux-best-practices`](.grok/skills/flux-best-practices).
 
-# Identity I2I bench (512² first on 8 GB)
-.build/release/aestrix bench --mode identity-i2i --image portrait.png \
-  --width 512 --height 512 --strength 0.9 --with-quality \
-  --json /tmp/id-i2i.json
-```
+**I2I.** Strength-only is for color/style. People + scene changes want `--identity` at **0.85–0.9**. See [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
 
-### 5. Tests
+**Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Aestrix/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Opt out with `--no-embed-cache`.
 
-```bash
-# Unit tests (no weights). Avoid a full unfiltered `swift test` if Metal FA
-# tests hang after a GPU abort — filter HostPreflight / GoldenMetric / Flux2Math.
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin'
-.build/release/aestrix mem-selftest
+**Many prompts.** `aestrix session` keeps modules warm on **≥16 GB**. 8 GB stays staged.
 
-# 512² pixel loop (needs snapshot + release binary)
-AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
-```
+**Not in v1:** Klein 9B / FLUX.2 Dev, multi-reference, CFG, LoRA, user-facing bf16.
+
+---
+
+## Performance
+
+Apple M2 **8 GB** Mac mini · release · 4-bit · W1/T3 · seed 42. Live peak is the DiT (~2 GiB) at both sizes — 1024² is slower, not much hungrier.
+
+| Canvas | Time | Denoise / step | MLX active | Watermark |
+|--------|-----:|---------------:|-----------:|----------:|
+| **512²** | **~27 s** | ~5.1 s | 2.04 GiB | 2.99 GiB |
+| **1024²** | **~88 s** | ~18.6 s | 2.05 GiB | 3.76 GiB |
+
+`--text-tokens auto` (experimental) can cut 512² to ~21 s by trimming pad tokens — numerics differ from the full-512 reference.
+
+Same-day A/Bs only. Tables: [Docs/PERF.md](Docs/PERF.md).
+
+---
 
 ## CLI
 
-| Command | Description |
-|---------|-------------|
-| `aestrix info` | Tier, memory policy, snapshot path, pinned Hub revision |
-| `aestrix t2i <prompt>` | Text-to-image (default **1024²**) |
-| `aestrix i2i <prompt> --image PATH` | Strength I2I; `--identity` for ref latents + face preserve |
-| `aestrix session` | Warm multi-prompt loop, modules resident (≥16 GB gate) |
-| `aestrix analyze-image PATH` | Pixel quality / accuracy report |
-| `aestrix bench` | Performance + pressure harness |
-| `aestrix bench-compare A B` | Compare two bench JSON reports |
-| `aestrix load-te` / `load-dit` / `load-vae` | Module load smoke tests |
-| `aestrix mem-selftest` | Dry staged load/unload |
-| `aestrix schedule` | Print flow-match sigmas / timesteps |
+| Command | |
+|---------|--|
+| `t2i` / `i2i` | Generate. `--identity` on I2I for people. |
+| `session` | Warm multi-prompt loop (≥16 GB). |
+| `info` | Tier, Hub pin, snapshot, Steel metallib. |
+| `analyze-image` | Pixel quality on an existing PNG. |
+| `bench` / `bench-compare` | Timings, memory, pressure-map, I2I. |
+| `load-te` `load-dit` `load-vae` | Staged load smoke. |
+| `encode-prompt` `schedule` `mem-selftest` | TE-only, sigmas, dry residency. |
 
-Useful flags: `--width` `--height` `--steps` `--seed` `--output` `--analyze` `--vision-brief` `--fail-on-pixel-gate` `--text-tokens 512|auto` `--no-embed-cache`
-I2I identity: `--identity` `--ref-latents` `--ref-downsample` `--face-preserve` `--face-strength-scale` `--clean-pull` `--schedule color|identity|linear`
-Bench: `--mode t2i|i2i|identity-i2i|pressure-map|dit-one-step|res-ladder` `--image` `--with-quality` `--probe-density off|stages|denoise|blocks|max` `--attn-backend mlx|metal-fa|auto`
+`aestrix --help` and `aestrix t2i --help` list flags.
 
-Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md)
+---
 
-## Architecture
+## Library
 
-| Module | Role |
-|--------|------|
-| `AestrixCore` | Config, scheduler, RoPE math, `PipelineTrace` / probe density |
-| `AestrixText` | Qwen3 3-layer-tap encoder + tokenizer |
-| `AestrixDiT` | FLUX.2 MMDiT (checkpointed blocks, **Steel fused FA**, `AttentionTuning`) |
-| `AestrixVAE` | Encode-only / decode-only loads / **tiled cosine-blend** large decode |
-| `AestrixRuntime` | Staged pipeline actor; I2I + identity preserve (Vision face mask); prompt-embed cache |
-| `AestrixEval` | Image quality harness (no Metal) |
-| `AestrixBench` | Multi-trial metrics, pressure reports |
-| `aestrix` | CLI |
+Public API is `AestrixPipeline` (an `actor` — all MLX state lives there).
 
-Design notes: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md) · [Docs/PERF.md](Docs/PERF.md)
+```swift
+import AestrixCore
+import AestrixRuntime
 
-## Prompting
-
-Follow Black Forest Labs **klein** guidance: narrative prose, subject first, strong lighting, **no negative prompts**.
-
-Vendored skill: [`.grok/skills/flux-best-practices`](.grok/skills/flux-best-practices) · Eval prompts: [Docs/eval-prompts.md](Docs/eval-prompts.md)
-
-## Quality workflow
-
-```bash
-.build/release/aestrix t2i "…" --output out.png --analyze --vision-brief
-# or
-./Scripts/eval-generation.sh out.png --prompt "…" --mode t2i
-# T2I eval-prompts × seeds 42/0/7 at 512²:
-AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
+let pipeline = AestrixPipeline()
+let url = try await pipeline.generate(
+    T2IRequest(
+        prompt: "A red fox in a snowy forest at sunrise, photorealistic.",
+        seed: 42
+    )
+)
 ```
 
-Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs/IMAGE_ANALYSIS.md](Docs/IMAGE_ANALYSIS.md)
+`edit(_:)` takes `I2IRequest` (`strength`, optional `identity`). Modules:
+
+| | |
+|--|--|
+| `AestrixRuntime` | Staged pipeline, I2I / identity, embed cache |
+| `AestrixText` | Qwen3 tap (layers 9/18/27 → 7680) |
+| `AestrixDiT` | MMDiT 5+20, Steel fused FA, f16 QKV |
+| `AestrixVAE` | Decode-only / encode-only, tiled cosine blend, D=512 chunked attn |
+| `AestrixEval` / `AestrixBench` | Pixel gates · multi-trial harness |
+| `AestrixCore` | Pins, scheduler, RoPE, policy |
+
+Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md).
+
+```bash
+# Filtered unit tests (no weights). Skip unfiltered `swift test` after a GPU abort.
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy'
+
+.build/release/aestrix bench --width 512 --height 512 --warmup 1 --trials 3 \
+  --json /tmp/bench.json
+AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh   # 512² pixel loop
+```
+
+---
 
 ## Status
 
-| Area | State |
-|------|--------|
-| macOS library + CLI | **Working** (T2I, I2I, identity I2I, eval) |
-| 4-bit staged load | **Working** |
-| 1024² on 8 GB class Macs | **Working** (~88 s e2e; Steel FA + tiled VAE + context hoist) |
-| Identity I2I (Tier B) | **Working** (`--identity`: ref latents + face mask + clean-pull) |
-| Performance harness | **Working** (`bench`, pressure-map, ladder, attn backends) |
-| MLX Steel fused FA | **Working** (product default for D=128) |
-| Prompt-embed cache / warm session | **Working** (cache default on; `session` ≥16 GB) |
-| iOS host | **Parked** — [Docs/ROADMAP.md](Docs/ROADMAP.md) |
-| Multi-reference (>1) / CFG / LoRA | Out of v1 (tracked on roadmap) |
+| Shipping | Parked |
+|----------|--------|
+| macOS library + CLI | iOS host (same staged core) |
+| 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
+| T2I, strength I2I, `--identity` | |
+| Steel FA · tiled VAE · embed cache · Hub pin + CI floors | |
 
-## Documentation
+Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
 
-| Doc | Topic |
-|-----|--------|
-| [AGENTS.md](AGENTS.md) | Product locks & agent conventions |
-| [Docs/ROADMAP.md](Docs/ROADMAP.md) | Done vs parked backlog |
-| [Docs/PERF.md](Docs/PERF.md) | Benchmarks, pressure probes, 1024 path |
-| [Docs/DRAW_THINGS.md](Docs/DRAW_THINGS.md) | Draw Things speed/RAM techniques vs Aestrix |
-| [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |
-| [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs, **pinned revisions**, cache layout |
-| [Docs/hub-pins.json](Docs/hub-pins.json) | Machine-readable Hub commit SHAs |
-| [Docs/MEMORY.md](Docs/MEMORY.md) | Staged residency & tiers |
-| [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Generation quality gates |
-| [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | I2I color vs identity strength curves |
-| [Docs/HOST_SAFETY.md](Docs/HOST_SAFETY.md) | 8 GB / one-Metal-owner rules (watchdog) |
-| [Docs/CURSOR_QUARANTINE.md](Docs/CURSOR_QUARANTINE.md) | Audit of deleted `cursor-opt-quarantine` (do not recreate / merge) |
+| Doc | |
+|-----|--|
+| [WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs and pinned revisions |
+| [PERF.md](Docs/PERF.md) | Benchmarks and pressure probes |
+| [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Pixel + vision quality gate |
+| [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | Color vs identity strength |
+
+---
 
 ## License
 
-| Component | License |
-|-----------|---------|
-| Aestrix source | MIT (see repository) |
-| FLUX.2-klein-4B weights | [Apache-2.0](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) (Black Forest Labs) |
-| Vendored BFL prompting skill | MIT |
+| | |
+|--|--|
+| Aestrix source | MIT |
+| FLUX.2 [klein] 4B weights | [Apache-2.0](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) · Black Forest Labs |
+| Vendored prompting skill | MIT · [black-forest-labs/skills](https://github.com/black-forest-labs/skills) |
 
 Not affiliated with Black Forest Labs or Apple. FLUX is a trademark of Black Forest Labs.
