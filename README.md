@@ -63,7 +63,7 @@ Big wardrobe + lighting change at strength 0.9 — face shape, eyes, freckles, h
 | **Weights** | Hub 4-bit packs only — no bf16 product path |
 | **Speed** | Prompt-embed disk cache (default on), warm `session` mode (≥16 GB), opt-in `--text-tokens auto` trim |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
-| **Bench** | Multi-trial timings, MLX/RSS memory, **pressure-map** block probes |
+| **Bench** | Multi-trial timings, MLX/RSS, pressure-map, **i2i / identity-i2i** + host-contention tags |
 
 ## Performance
 
@@ -151,13 +151,23 @@ Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co
 
 # Compare two runs
 .build/release/aestrix bench-compare /tmp/bench-a.json /tmp/bench-b.json
+
+# Identity I2I bench (512² first on 8 GB)
+.build/release/aestrix bench --mode identity-i2i --image portrait.png \
+  --width 512 --height 512 --strength 0.9 --with-quality \
+  --json /tmp/id-i2i.json
 ```
 
-### 5. Tests (no model required)
+### 5. Tests
 
 ```bash
-swift test
+# Unit tests (no weights). Avoid a full unfiltered `swift test` if Metal FA
+# tests hang after a GPU abort — filter HostPreflight / GoldenMetric / Flux2Math.
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math'
 .build/release/aestrix mem-selftest
+
+# 512² pixel loop (needs snapshot + release binary)
+AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
 ```
 
 ## CLI
@@ -208,6 +218,8 @@ Vendored skill: [`.grok/skills/flux-best-practices`](.grok/skills/flux-best-prac
 .build/release/aestrix t2i "…" --output out.png --analyze --vision-brief
 # or
 ./Scripts/eval-generation.sh out.png --prompt "…" --mode t2i
+# T2I eval-prompts × seeds 42/0/7 at 512²:
+AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
 ```
 
 Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs/IMAGE_ANALYSIS.md](Docs/IMAGE_ANALYSIS.md)
@@ -218,7 +230,7 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 |------|--------|
 | macOS library + CLI | **Working** (T2I, I2I, identity I2I, eval) |
 | 4-bit staged load | **Working** |
-| 1024² on 8 GB class Macs | **Working** (~104 s e2e; Steel FA + tiled VAE) |
+| 1024² on 8 GB class Macs | **Working** (~88 s e2e; Steel FA + tiled VAE + context hoist) |
 | Identity I2I (Tier B) | **Working** (`--identity`: ref latents + face mask + clean-pull) |
 | Performance harness | **Working** (`bench`, pressure-map, ladder, attn backends) |
 | MLX Steel fused FA | **Working** (product default for D=128) |

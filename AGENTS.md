@@ -65,7 +65,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `aestrix i2i --identity` |
 | **P9 Performance harness** | **Done** | `AestrixBench`, pressure probes; Steel FA + tiled VAE; 2026-08-11 optimization pass (sync/cache, VAE stitch/encode-only, compiled RoPE/AdaLN, embed cache, `session`, opt-in `--text-tokens auto`) — tables in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
-| **P8 macOS polish** | **Parked** | Regression suite, release pins |
+| **P8 macOS polish** | **Partial** | `Scripts/eval-regression.sh` (512² T2I); Hub pin still parked |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
 ## Process rule (blocking)

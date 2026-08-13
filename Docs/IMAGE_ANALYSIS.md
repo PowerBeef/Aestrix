@@ -163,13 +163,13 @@ Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objecti
 
 ### Gaps in current harness
 
-1. **No CLIPScore** — color words only; cannot score “fisherman at helm” vs wrong scene.  
-2. **No LPIPS** — I2I fidelity over-relies on SSIM (identity, not “good edit”).  
+1. **CLIPScore optional** — semantic path is Vision classify proxy (or Core ML CLIP if installed); still weaker than a dedicated CLIPScore.  
+2. **LPIPS-lite only** — I2I has SSIM/PSNR + a cheap LPIPS-lite, not full LPIPS.  
 3. **No human-preference model** — `technical_score` ≠ aesthetics or prompt adherence.  
 4. **Vision layer is agent-manual** — not automated; CI stays pixel-only (by design).  
 5. **Color gate false positives** — multi-object multi-color scenes; mitigated (warn) but not solved.  
-6. **No regression gold set** — roadmap: golden metric floors in CI.  
-7. **Tile seams** — now instrumented; was a blind spot after cosine VAE tiles.  
+6. **T2I pixel loop exists** — `Scripts/eval-regression.sh` (eval-prompts × seeds 42/0/7 at 512²). No golden *image* set.  
+7. **Tile seams** — instrumented (`seam_score`); cosine VAE tiles still expected at ≥768.  
 
 ### Recommended roadmap (priority)
 

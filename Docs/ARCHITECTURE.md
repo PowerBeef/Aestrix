@@ -123,6 +123,7 @@ Requires Metal metallib for real load (same as DiT).
 |------|------|
 | `LatentOps` | Packed noise `[B,H/16·W/16,128]`, pack/unpack, text/img RoPE ids, Euler step |
 | `ImageExport` | NCHW float → PNG via ImageIO |
+| `DiTModule.projectContext` | Hoist `[B,T,7680]→[B,T,3072]` once per generate (not per step) |
 | `AestrixPipeline.generate` | TE → unload → DiT Euler → unload → VAE decode → PNG |
 | `aestrix t2i` | CLI with `--output`, `--seed`, `--steps` |
 

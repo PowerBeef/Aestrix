@@ -73,7 +73,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `parked` |
+| **Status** | `partial` |
 | **Goal** | Harden macOS CLI for regressions and measured memory |
 
 **Backlog**
