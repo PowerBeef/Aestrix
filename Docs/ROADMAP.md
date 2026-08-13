@@ -1,9 +1,9 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-13 (P8 I2I strength-curve doc)  
+**Last updated:** 2026-08-13 (cursor-opt-quarantine audit)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
-**Experimental Cursor tree:** branch `cursor-opt-quarantine` — audit before merge. See [`Docs/HOST_SAFETY.md`](HOST_SAFETY.md).
+**Experimental Cursor tree:** branch `cursor-opt-quarantine` — **do not merge**. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
 
 ---
 
