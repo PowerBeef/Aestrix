@@ -21,10 +21,10 @@ struct AestrixCLI: AsyncParsableCommand {
 }
 
 /// Call at the start of any command that may touch MLX.
-func ensureMLXReady(forceHeadroom: Bool = false) throws {
+func ensureMLXReady() throws {
     MLXBootstrap.ensureMetallibBesideExecutable()
     do {
-        try HostPreflight.acquireForCLI(force: forceHeadroom)
+        try HostPreflight.acquireForCLI()
     } catch let error as AestrixError {
         fputs("error: \(error.localizedDescription)\n", stderr)
         throw ExitCode.failure
@@ -756,9 +756,6 @@ struct Bench: AsyncParsableCommand {
     @Flag(name: .long, help: "Enable identity stack when --image is used with a diagnostic mode.")
     var identity: Bool = false
 
-    @Flag(name: .long, help: "Allow 1024² I2I/identity bench on 8 GB after swap is 0.")
-    var forceHeadroom: Bool = false
-
     @Option(name: .long, help: "Optional MLX cacheLimit in bytes (e.g. 2147483648).")
     var cacheLimit: UInt64?
 
@@ -805,7 +802,7 @@ struct Bench: AsyncParsableCommand {
     var withQuality: Bool = false
 
     func run() async throws {
-        try ensureMLXReady(forceHeadroom: forceHeadroom)
+        try ensureMLXReady()
 
         guard let benchMode = BenchMode(rawValue: mode) else {
             print("error: unknown mode '\(mode)'. Use: \(BenchMode.allCases.map(\.rawValue).joined(separator: ", "))")
@@ -822,12 +819,6 @@ struct Bench: AsyncParsableCommand {
                 print("error: \(benchMode.rawValue) requires --image PATH to an existing file")
                 throw ExitCode.failure
             }
-        }
-        let tier = DeviceTier.detect()
-        if needsImage, tier == .low, max(width, height) >= 1024, !forceHeadroom {
-            print("error: 1024² I2I/identity bench on 8 GB-class hosts needs --force-headroom")
-            print("  (sysctl vm.swapusage must be 0; prefer --width 512 first)")
-            throw ExitCode.failure
         }
         if let strength, strength <= 0 || strength > 1 {
             print("error: --strength must be in (0, 1]")

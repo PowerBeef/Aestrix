@@ -16,28 +16,25 @@ Class A is **not** “any shell command panics the kernel.” It is **Cursor (El
 ## What we did
 
 - Uncommitted Cursor optimization tree → branch **`cursor-opt-quarantine`** (do not merge).
-- `HostPreflight`: exclusive lock + sibling `aestrix` detect + swap warn/fail.
+- `HostPreflight`: exclusive lock + sibling `aestrix` detect. Swap is **not** a run gate.
 - `dit-compile-spike` refused on `DeviceTier.low` unless `--force`.
 
 ## Operator checklist before 1024² or bench
 
 ```bash
-sysctl vm.swapusage          # used must be 0
-pgrep -lf aestrix || true    # none
+pgrep -x aestrix || true     # none (second instance is refused)
 # no second IDE compiling this package
 .build/release/aestrix t2i "…" --width 512 --height 512
 ```
-
-If swap is up or WindowServer stutters: stop, do not retry 1024.
 
 ## Agent defaults
 
 See **AGENTS.md → Host safety**. Prefer `swift test`. No parallel Metal agents.
 
-**Ambient vs competing:** `WindowServer`, Ghostty, `grok`, and `MTLCompilerService` are expected on this session and no longer mark a trial `CONTAMINATED`. Swap used and Cursor/`swift-package` still do.
+**Ambient vs competing:** `WindowServer`, Ghostty, `grok`, and `MTLCompilerService` are expected on this session and no longer mark a trial `CONTAMINATED`. Cursor / `swift-package` still do. Swap is recorded only.
 
 ## I2I / identity bench (safe slice)
 
-`aestrix bench --mode i2i|identity-i2i --image PATH` records host contention per trial (`CONTAMINATED` if another process is ≥15% CPU). On this 8 GB host, 1024² I2I bench requires `--force-headroom` after `vm.swapusage` is 0. Prefer `--width 512 --height 512` first.
+`aestrix bench --mode i2i|identity-i2i --image PATH` records host contention per trial (`CONTAMINATED` if a non-ambient process is ≥15% CPU). Prefer `--width 512 --height 512` first on 8 GB.
 
 `--with-quality` on identity mode adds Vision **face-crop SSIM** (not a biometric ID score).

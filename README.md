@@ -177,7 +177,7 @@ swift test
 
 Useful flags: `--width` `--height` `--steps` `--seed` `--output` `--analyze` `--vision-brief` `--fail-on-pixel-gate` `--text-tokens 512|auto` `--no-embed-cache`
 I2I identity: `--identity` `--ref-latents` `--ref-downsample` `--face-preserve` `--face-strength-scale` `--clean-pull` `--schedule color|identity|linear`
-Bench: `--mode t2i|i2i|identity-i2i|pressure-map|dit-one-step|res-ladder` `--image` `--with-quality` `--force-headroom` `--probe-density off|stages|denoise|blocks|max` `--attn-backend mlx|metal-fa|auto`
+Bench: `--mode t2i|i2i|identity-i2i|pressure-map|dit-one-step|res-ladder` `--image` `--with-quality` `--probe-density off|stages|denoise|blocks|max` `--attn-backend mlx|metal-fa|auto`
 
 Performance: [Docs/PERF.md](Docs/PERF.md) · Quality: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md)
 

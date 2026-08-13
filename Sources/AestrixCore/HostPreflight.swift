@@ -7,12 +7,8 @@ import Darwin
 /// Process-wide host checks so two Metal jobs cannot share an 8 GB Mac.
 ///
 /// Acquires an exclusive lock under `~/Library/Caches/Aestrix/aestrix.lock`.
-/// Warns on modest swap; fails hard when another live `aestrix` holds the lock
-/// or swap is extreme (watchdog / WindowServer starvation class).
+/// Fails only when another live `aestrix` holds the lock. Swap is not a gate.
 public enum HostPreflight {
-    public static let swapWarnBytes: UInt64 = 256 * 1024 * 1024
-    public static let swapFailBytes: UInt64 = 1536 * 1024 * 1024
-
     public struct Snapshot: Sendable, Equatable {
         public var physicalMemoryBytes: UInt64
         public var swapUsedBytes: UInt64
@@ -32,9 +28,6 @@ public enum HostPreflight {
         let swap = swapUsedBytes() ?? 0
         let others = siblingAestrixPIDs()
         var notes: [String] = []
-        if swap >= swapWarnBytes {
-            notes.append("swap_used=\(swap)")
-        }
         if !others.isEmpty {
             notes.append("other_aestrix=\(others.map(String.init).joined(separator: ","))")
         }
@@ -47,37 +40,14 @@ public enum HostPreflight {
     }
 
     /// Call once from CLI commands that touch Metal / MLX.
-    /// - Parameter force: skip swap-fail (still takes the lock).
-    public static func acquireForCLI(force: Bool = false) throws {
+    public static func acquireForCLI() throws {
         try lockQueue.sync {
             if lockHandle != nil { return }
             let snap = snapshot()
             if !snap.otherAestrixPIDs.isEmpty {
                 throw AestrixError.anotherInstanceRunning(pids: snap.otherAestrixPIDs)
             }
-            if snap.swapUsedBytes >= swapFailBytes, !force {
-                throw AestrixError.hostMemoryPressure(
-                    detail: "swap \(formatBytes(snap.swapUsedBytes)) exceeds "
-                        + "\(formatBytes(swapFailBytes)); another GPU/editor job "
-                        + "is likely active. Quit it or pass --force-headroom."
-                )
-            }
             try takeLockFile()
-            if snap.swapUsedBytes >= swapWarnBytes {
-                fputs(
-                    "warning: host swap is \(formatBytes(snap.swapUsedBytes)) "
-                        + "on a \(formatBytes(snap.physicalMemoryBytes)) machine. "
-                        + "Avoid 1024² generate/bench until swap is 0.\n",
-                    stderr
-                )
-            }
-            if snap.isLowMemoryHost {
-                fputs(
-                    "note: 8 GB-class host — agents should prefer swift test / 512²; "
-                        + "one Metal owner at a time (see AGENTS.md).\n",
-                    stderr
-                )
-            }
         }
     }
 

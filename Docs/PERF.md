@@ -29,7 +29,7 @@ swift build && ./Scripts/ensure-metallib.sh
 # Compare two reports
 .build/release/aestrix bench-compare /tmp/aestrix-baseline.json /tmp/aestrix-candidate.json
 
-# I2I / identity (512² first on 8 GB; 1024 needs --force-headroom and swap=0)
+# I2I / identity
 .build/release/aestrix bench --mode identity-i2i --image /path/to/ref.png \
   --width 512 --height 512 --strength 0.9 --with-quality \
   --json /tmp/id-i2i.json
@@ -50,7 +50,6 @@ Snapshot path (default):
 | `--mode` | `t2i` | `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `mem-stages` \| `te-only` \| `dit-steps` \| `vae-decode` \| `load-only` |
 | `--image` | — | Required for `i2i` / `identity-i2i` |
 | `--strength` | 0.8 / 0.9 | I2I denoise strength (identity default 0.9) |
-| `--force-headroom` | off | Allow 1024² I2I bench on 8 GB after swap is 0 |
 | `--probe-density` | `denoise` | `off` \| `stages` \| `denoise` \| `blocks` \| `max` |
 | `--fail-soft` | off | Keep JSON when a trial errors |
 | `--reset-peak-each-phase` | off | Reset MLX peak between TE/DiT/VAE |
@@ -221,7 +220,7 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 | face-crop fidelity | 75.0 |
 | faces detected | 1 / 1 |
 
-**Host flags (as recorded):** both trials tagged `CONTAMINATED` because `WindowServer` ~16–17% and `MTLCompilerService` ~23% exceeded a 15% CPU rule. On this mini those processes are **ambient** (compositor + our own kernel compile) when only Ghostty + Grok are running. **Swap ~570 MiB after DiT residency is real** and is why we still wait for `vm.swapusage` used = 0 before another Metal job. Later harness versions ignore WindowServer/Ghostty/Grok/MTLCompilerService for the contaminated bit.
+**Host flags (as recorded):** both trials tagged `CONTAMINATED` because `WindowServer` ~16–17% and `MTLCompilerService` ~23% exceeded a 15% CPU rule. On this mini those processes are **ambient** (compositor + our own kernel compile) when only Ghostty + Grok are running. Later harness versions ignore them for the contaminated bit. Swap after DiT is recorded, not a run gate.
 
 T2I 512² fair e2e was ~31 s / ~6.1 s per step; identity I2I is slower mainly because the DiT sequence is longer (ref tokens) (~9.5 s/step).
 
