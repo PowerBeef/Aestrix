@@ -9,6 +9,7 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     /// Query tokens per SDPA chunk when chunking is active.
     public var queryChunkSize: Int
     /// When seq **>** this, store Q/K/V (and RoPE out) in float16 after f32 RMSNorm.
+    /// Product default **512** so 512² image tokens (seq=1024) use f16; text pad (512) stays f32.
     public var f16SeqThreshold: Int
     /// Above this seq length, apply `Linear` in chunks along the sequence axis.
     public var linearChunkThreshold: Int
@@ -33,7 +34,7 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         queryChunkThreshold: Int = 1536,
         /// Phase C sweep (1024² warm): 512 beats 256 by ~1% denoise/step; 128 was neutral/slower.
         queryChunkSize: Int = 512,
-        f16SeqThreshold: Int = 2048,
+        f16SeqThreshold: Int = 512,
         linearChunkThreshold: Int = 1536,
         linearChunkSize: Int = 512,
         /// Default **mlx** (chunked SDPA). Use `metal-fa` / `auto` to exercise custom FA2;

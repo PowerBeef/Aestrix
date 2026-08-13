@@ -1,6 +1,6 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-13 (DiT compute-dtype probe: activations fp32)  
+**Last updated:** 2026-08-13 (f16 QKV threshold 512; 512² −4.3% denoise/step)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** branch `cursor-opt-quarantine` — audit before merge. See [`Docs/HOST_SAFETY.md`](HOST_SAFETY.md).
@@ -127,7 +127,8 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] `--text-tokens auto` trim (opt-in, experimental; numerics differ from full-512) — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²; eval gate seeds 42/0/7 pass  
 - [x] Prompt-embed disk cache (default on) — TE stage skipped on hit (**−4 s** @ 512², byte-identical)  
 - [x] `aestrix session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
-- [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks; **2048 stays**  
+- [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks  
+- [x] f16 Q/K/V @ 512² (`f16SeqThreshold` **2048 → 512**) — denoise/step **−4.3%**, e2e **−3.3%**, watermark flat; eval-regression 15/15 pixel PASS |  
 - [ ] DiT **weight** streaming for iOS jetsam (`stagedAggressive`)  
 - [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  

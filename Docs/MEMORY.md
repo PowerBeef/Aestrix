@@ -37,7 +37,7 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | Staged TE → DiT → VAE | Done (default) |
 | DiT per-block `eval` + `clearCache` | Done |
 | **MLX Steel fused FA** (full Q, D∈{64,80,128}) | Done (product default for Klein) |
-| f16 QKV when seq > 2048 | Done |
+| f16 QKV when seq > 512 | Done (512² image tokens; 2026-08-13 A/B) |
 | Query-chunked SDPA | Fallback only (unsupported head dims) |
 | VAE decode-only for T2I | Done |
 | VAE tiled decode (overlap + cosine blend) | Done |

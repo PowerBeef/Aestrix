@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import AestrixCore
 import AestrixRuntime
+import AestrixDiT
 import AestrixEval
 import AestrixBench
 
@@ -18,6 +19,13 @@ struct AestrixCLI: AsyncParsableCommand {
             DiTCompileSpike.self,
         ]
     )
+}
+
+func applyAttnF16Threshold(_ value: Int?) {
+    guard let value else { return }
+    var t = AttentionTuning.current
+    t.f16SeqThreshold = value
+    AttentionTuning.current = t
 }
 
 /// Call at the start of any command that may touch MLX.
@@ -369,11 +377,15 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim to prompt length; experimental).")
     var textTokens: String = "512"
 
+    @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
+    var attnF16Threshold: Int?
+
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
     func run() async throws {
         try ensureMLXReady()
+        applyAttnF16Threshold(attnF16Threshold)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -512,11 +524,15 @@ struct I2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim to prompt length; experimental).")
     var textTokens: String = "512"
 
+    @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
+    var attnF16Threshold: Int?
+
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
     func run() async throws {
         try ensureMLXReady()
+        applyAttnF16Threshold(attnF16Threshold)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -787,7 +803,7 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which query-chunked SDPA is used (default 1536).")
     var attnChunkThreshold: Int?
 
-    @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 2048).")
+    @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512).")
     var attnF16Threshold: Int?
 
     @Option(name: .long, help: "Sequence Linear chunk size (default 512).")

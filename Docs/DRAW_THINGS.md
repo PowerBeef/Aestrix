@@ -71,9 +71,7 @@ MMDiT activations grow with depth. BF16 has range; **M1/M2 BF16 is emulated and 
 | Quantization **scales** | **`bfloat16`** (tiny: e.g. `[3072, 48]`) |
 | Latents, AdaLN, residual, FFN, Q/K/V, Steel FA @ 512² | **`float32`** |
 
-The M2 “bf16 emu on activations” tax **does not apply**. Scales are bf16 but negligible. At 512², `f16SeqThreshold` is 2048 so QKV stay f32 (image seq=1024). At 1024², image seq=4096 already stores QKV as f16.
-
-Do **not** land a default `--compute-dtype f16` from this probe. An opt-in f16 **body** would be a new quality/speed experiment, not a fix for missing emu.
+The M2 “bf16 emu on activations” tax **does not apply**. Scales are bf16 but negligible. A follow-up A/B lowered `f16SeqThreshold` **2048 → 512** so 512² image QKV matches the 1024² f16 path: denoise/step **−4.3%**, e2e **−3.3%**, watermark flat, eval-regression 15/15. Residual/FFN stay fp32.
 
 ---
 
@@ -110,7 +108,7 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 | DiT weight streaming | Parked `stagedAggressive` | iOS / watermark only |
 | 4/6/8-bit palletization | 4-bit default; 3/6/8 exist | 3-bit = honest RAM SKU |
 | 8-bit S + ANE int8 | Not in stack | Park (M3+ / iOS 26) |
-| FP16 body + FP32 residual | **Measured:** acts are fp32; 1024 already f16 QKV | No default change; optional 512 QKV f16 later |
+| FP16 body + FP32 residual | Acts are fp32; **QKV f16@512 shipped** | No full-body f16 |
 | Full-graph Core ML | Never used | Do not start |
 | Full DiT compile | NO-GO | Stay parked |
 | Rewrite in s4nnc | GPL + years | Do not |
@@ -137,7 +135,7 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 | **R4** | Port MFA / s4nnc | No | Steel FA + MIT |
 | **R5** | ANE / 8-bit S | Park | Wrong SoC and stack |
 
-**Measured:** `load-dit --dump-dtypes` @ 512². Hot path is fp32. Optional later: lower `f16SeqThreshold` so 512² uses the same f16 QKV path 1024² already has — eval-gate first. Streaming / ANE still parked.
+**Measured:** activations fp32; QKV f16@512 is the product default (2026-08-13). Streaming / ANE still parked.
 
 ---
 

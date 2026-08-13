@@ -363,7 +363,19 @@ compiled AdaLN/RoPE helpers. Full-forward compile stays parked.
 
 Interleaved cold one-step A/B, f32 (`--attn-f16-threshold 99999`) vs default f16:
 20.33 s vs **18.89 s** per step (f16 ~7% faster), identical peak active/watermark.
-Threshold **2048 stays**.
+Threshold stayed 2048 until the 512² A/B below.
+
+#### P5b f16 Q/K/V at 512² (2026-08-13)
+
+`seq > threshold` → image seq at 512² is **1024**, so `--attn-f16-threshold 512` (not 1024) enables f16 image QKV. Same-day W1T3 staged T2I, seed 42, release, 8 GB M2:
+
+| Label | e2e | denoise/step | peak active | watermark |
+|-------|----:|-------------:|------------:|----------:|
+| `f16-2048-512` (old default) | 28.18 s | 5.36 s | 2.04 GiB | 2.99 GiB |
+| **`f16-512-512` (new default)** | **27.24 s (−3.3%)** | **5.13 s (−4.3%)** | 2.04 GiB | 2.99 GiB |
+
+JSON: `/tmp/aestrix-f16-2048-512.json` vs `/tmp/aestrix-f16-512-512.json`.  
+Eval: `T2I_EXTRA='--attn-f16-threshold 512' ./Scripts/eval-regression.sh` — **15/15 pixel PASS**. Spot vision: mug (terracotta), fox, “OPEN STUDIO” poster OK. **Shipped default `f16SeqThreshold = 512`.**
 
 ### Historical snapshots (not for cross-size RAM A/B)
 
@@ -732,7 +744,7 @@ Probes showed **DiT completed** (progress `denoising step=4/4`) and OOM was in *
 
 1. **DiT activation checkpointing** — `eval` after each double/single block (stops full-graph peak ~8 GB watermark).  
 2. **Chunked long-seq attention** — query-chunked SDPA + chunked Linear for fused QKV/MLP when L>1536.  
-3. **f16 Q/K/V** when seq > 2048.  
+3. **f16 Q/K/V** when seq > 512.  
 4. **Tiled VAE decode** — 2×2 latent tiles for unpatchified spatial ≥96 (1024² and large 768²).
 
 **Measured (release, seed 42, 2 trials, 8 GB M2):** e2e **~96.5 s**, denoise/step **~21 s**, decode **~6.8 s**, peak RSS **~1.8 GB**, peak MLX active **~2.05 GB**, peak watermark **~3.3 GB**.

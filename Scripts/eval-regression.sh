@@ -44,9 +44,11 @@ for prompt in "${PROMPTS[@]}"; do
     png="$OUT/${tag}.png"
     echo "== $tag =="
     set +e
+    # shellcheck disable=SC2086
     "$AESTRIX" t2i "$prompt" \
       --width "$WIDTH" --height "$HEIGHT" --steps 4 --seed "$seed" \
-      --output "$png" --analyze --fail-on-pixel-gate
+      --output "$png" --analyze --fail-on-pixel-gate \
+      ${T2I_EXTRA:-}
     rc=$?
     set -e
     tech="?"

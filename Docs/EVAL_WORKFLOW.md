@@ -229,6 +229,7 @@ swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'
 swift test --filter AestrixEvalTests
 swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench'
 
+# Optional extra t2i flags (e.g. T2I_EXTRA='--attn-f16-threshold 2048')
 # Optional smoke gen + hard pixel gate (needs snapshot + metallib; not CI)
 ./Scripts/ensure-metallib.sh
 swift build
