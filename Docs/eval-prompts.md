@@ -24,7 +24,7 @@ Use for smoke tests and visual quality gates. Klein prefers **narrative prose**,
 
 ## I2I (strength path)
 
-Prompt style: state **what changes** and **what stays**.
+Prompt style: state **what changes** and **what stays**. Curves and bands: [`I2I_STRENGTH.md`](I2I_STRENGTH.md).
 
 1. Change the background to a tropical beach at sunset while keeping the subject’s pose, clothing, and expression exactly the same.  
 2. Transform to golden hour lighting with warm tones and long shadows, maintaining the exact composition and photorealistic style.  

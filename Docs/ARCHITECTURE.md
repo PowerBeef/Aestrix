@@ -144,7 +144,7 @@ Text RoPE ids: `[0,0,0,token_i]` (diffusers `_prepare_text_ids`). Distilled path
 | `aestrix i2i` | `--image`, `--strength`, `--identity`, `--ref-latents`, `--face-preserve`, … |
 
 **Default path:** strength-only (color curve).  
-**Identity path (`--identity`):** clean reference latents concatenated into DiT (`t=10` RoPE), face-regional start-σ, post-Euler clean-latent pull, milder schedule. Prefer strength **≥ 0.85** for wardrobe/scene changes. Multi-reference (>1 image) remains out of v1.
+**Identity path (`--identity`):** clean reference latents concatenated into DiT (`t=10` RoPE), face-regional start-σ, post-Euler clean-latent pull, milder schedule. Prefer strength **≥ 0.85** for wardrobe/scene changes. Recipes: [`I2I_STRENGTH.md`](I2I_STRENGTH.md). Multi-reference (>1 image) remains out of v1.
 
 Memory order: **VAE encode unload → TE unload → DiT unload → VAE decode unload**.
 

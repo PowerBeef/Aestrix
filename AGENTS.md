@@ -51,8 +51,8 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (module-split TE/DiT/VAE). Pins: `WeightPreset.pin`, `Docs/hub-pins.json`, `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
-10. **I2I strength**: full N-step strength schedule + mid-range curve; color edits often need **≥ 0.8**.
-11. **I2I identity (Tier B)**: `--identity` enables reference latents (`t=10`), Vision face mask (regional σ + clean-pull), and milder `identity` schedule. Strength bands: color/object **≥ 0.8**; people + scene **0.85–0.9** + `--identity`. Say **recolor same cut** vs **replace outfit**. Default I2I remains strength-only.
+10. **I2I strength**: full N-step schedule; color curve default. Color/object **≥ 0.8**. Recipes: [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md).
+11. **I2I identity (Tier B)**: `--identity` = ref latents (`t=10`) + face mask + clean-pull + milder `identity` curve. People + scene **0.85–0.9**. Say **recolor same cut** vs **replace outfit**. Default I2I stays strength-only.
 12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Aestrix/embeds`, keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical). `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **opt-in / experimental**; big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
 
 ## Phase status
@@ -65,7 +65,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `aestrix i2i --identity` |
 | **P9 Performance harness** | **Done** | `AestrixBench` (t2i / i2i / identity-i2i + host contention); Steel FA + tiled VAE + **context hoist**; 2026-08-13 `hoist-512` / `hoist-1024` in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
-| **P8 macOS polish** | **Partial** | Hub pin + GitHub eval-floors CI done; I2I strength-curve doc still open |
+| **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
 ## Process rule (blocking)

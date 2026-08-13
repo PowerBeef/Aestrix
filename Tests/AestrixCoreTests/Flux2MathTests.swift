@@ -189,6 +189,26 @@ struct Flux2MathTests {
         #expect(high.startSigma >= startSigma - 1e-5)
     }
 
+    @Test("documented startT table matches StrengthScheduleCurve")
+    func strengthCurveStartTMatchesDocs() {
+        // Docs/I2I_STRENGTH.md — keep the table and this test in lockstep.
+        let rows: [(Float, Float, Float)] = [
+            (0.35, 0.476, 0.307),
+            (0.50, 0.646, 0.445),
+            (0.65, 0.793, 0.590),
+            (0.75, 0.875, 0.692),
+            (0.80, 0.911, 0.745),
+            (0.85, 0.942, 0.801),
+            (0.90, 0.968, 0.859),
+            (1.00, 1.000, 1.000),
+        ]
+        for (s, color, identity) in rows {
+            #expect(abs(StrengthScheduleCurve.colorEdit.startT(strength: s) - color) < 0.002)
+            #expect(abs(StrengthScheduleCurve.identityPreserve.startT(strength: s) - identity) < 0.002)
+            #expect(abs(StrengthScheduleCurve.linear.startT(strength: s) - s) < 1e-5)
+        }
+    }
+
     @Test("Identity schedule starts milder than color curve at same strength")
     func identityVsColorSchedule() {
         let s: Float = 0.8

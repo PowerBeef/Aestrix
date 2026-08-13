@@ -1,6 +1,6 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-13 (f16 QKV threshold 512; 512² −4.3% denoise/step)  
+**Last updated:** 2026-08-13 (P8 I2I strength-curve doc)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** branch `cursor-opt-quarantine` — audit before merge. See [`Docs/HOST_SAFETY.md`](HOST_SAFETY.md).
@@ -73,7 +73,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `partial` |
+| **Status** | `done` |
 | **Goal** | Harden macOS CLI for regressions and measured memory |
 
 **Backlog**
@@ -82,7 +82,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] Performance harness (`aestrix bench` / `bench-compare`) — see **P9** / `Docs/PERF.md`  
 - [x] Pin Hub `revision` SHA in config / docs (`WeightPreset.pin`, `Docs/hub-pins.json`, `aestrix info`)  
 - [x] Golden metric floors in CI (pixel-only; `.github/workflows/eval-floors.yml` → `Scripts/ci-eval-floors.sh`; no image goldens; vision stays agent/human)  
-- [ ] Document known I2I strength curves for color vs structure edits  
+- [x] Document known I2I strength curves for color vs structure edits — [`Docs/I2I_STRENGTH.md`](I2I_STRENGTH.md) |  
 
 ---
 
@@ -183,3 +183,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-13 | 8 GB host: WindowServer watchdog from Cursor+Metal compile; quarantine Cursor opts; HostPreflight |
 | 2026-08-13 | Promote safe Wave-0 slice: HostContention + i2i/identity-i2i bench + face-region SSIM |
 | 2026-08-13 | Pin mlx-community Klein 4-bit Hub revision `1cebb9b45c21ece14a42615b16bf5fa4de9b56da`; CI eval floors on GitHub Actions |
+| 2026-08-13 | P8 I2I strength-curve recipes (`Docs/I2I_STRENGTH.md`); macOS polish backlog complete |

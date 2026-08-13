@@ -75,7 +75,7 @@ swift build && ./Scripts/ensure-metallib.sh
 | `--clean-pull A` | Blend clean latent into face after each step |
 | `--schedule color\|identity\|linear` | Strength → start-noise curve |
 
-**Strength bands**
+**Strength bands** (full tables + `startT` math: [`I2I_STRENGTH.md`](I2I_STRENGTH.md))
 
 | Intent | Strength | Prompt style |
 |--------|----------|--------------|

@@ -253,6 +253,7 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 | [Docs/hub-pins.json](Docs/hub-pins.json) | Machine-readable Hub commit SHAs |
 | [Docs/MEMORY.md](Docs/MEMORY.md) | Staged residency & tiers |
 | [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Generation quality gates |
+| [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | I2I color vs identity strength curves |
 | [Docs/HOST_SAFETY.md](Docs/HOST_SAFETY.md) | 8 GB / one-Metal-owner rules (watchdog) |
 
 ## License
