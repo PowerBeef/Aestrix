@@ -42,6 +42,7 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | VAE decode-only for T2I | Done |
 | VAE tiled decode (overlap + cosine blend) | Done |
 | DiT **weight** streaming (block JIT load) | Not default — iOS headroom spike |
+| Draw Things–style AdaLN split | **N/A for Klein** — shared modulation is ~4% of DiT (`Docs/DRAW_THINGS.md`) |
 | Aestrix float4 fused Metal FA | Research / non-Steel D (`MetalFlashAttention`) |
 
 ## Measurement

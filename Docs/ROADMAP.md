@@ -1,6 +1,6 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-13 (Hub revision pin + GitHub eval-floors CI)  
+**Last updated:** 2026-08-13 (Draw Things research note; Klein modulation ~4% of DiT)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** branch `cursor-opt-quarantine` — audit before merge. See [`Docs/HOST_SAFETY.md`](HOST_SAFETY.md).
@@ -131,6 +131,8 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [ ] DiT **weight** streaming for iOS jetsam (`stagedAggressive`)  
 - [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  
+- [ ] Research: M2 compute dtype (FP16 body vs bf16 emu) — see [`Docs/DRAW_THINGS.md`](DRAW_THINGS.md)  
+- [x] Research: Klein AdaLN/modulation size vs DT split — **~4% of DiT**, shared (not per-block); unload not worth it |  
 
 **Latest default-path A/B (8 GB Mac mini, release, W1T3, 2026-08-13 `hoist-*`):** 512² e2e **~27.5 s** / 1024² e2e **~87.7 s**; denoise/step **~5.20 s** / **~18.6 s**; peak active **~2.04 / 2.05 GiB**; watermark **~2.99 / 3.76 GiB**. Full tables: `Docs/PERF.md`.
 

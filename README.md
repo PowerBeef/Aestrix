@@ -247,6 +247,7 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 | [AGENTS.md](AGENTS.md) | Product locks & agent conventions |
 | [Docs/ROADMAP.md](Docs/ROADMAP.md) | Done vs parked backlog |
 | [Docs/PERF.md](Docs/PERF.md) | Benchmarks, pressure probes, 1024 path |
+| [Docs/DRAW_THINGS.md](Docs/DRAW_THINGS.md) | Draw Things speed/RAM techniques vs Aestrix |
 | [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |
 | [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs, **pinned revisions**, cache layout |
 | [Docs/hub-pins.json](Docs/hub-pins.json) | Machine-readable Hub commit SHAs |
