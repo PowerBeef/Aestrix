@@ -216,6 +216,21 @@ SHA `7c331bb` + context-projection hoist. Protocol: warmup 1 + trials 3, seed 42
 
 Trials were tight (e2e 27.44–27.53 s). This is a **cross-window** compare (tree also includes the 2026-08-11 performance pass). The hoist itself is one Linear 7680→3072 per generate instead of per step — expect a small slice of the denoise win, not the whole −14%. No same-day hoist-off A/B was run.
 
+### Current-tree 1024² T2I (`hoist-1024`, 2026-08-13)
+
+SHA `64dadfb`. Same protocol as `hoist-512` (W1 T3, seed 42, stages, fox prompt). All 3 trials OK, no new `.ips`.
+
+| Metric | fair-steel-1024 (2026-08-11) | **hoist-1024** | Δ | hoist-1024 / hoist-512 |
+|--------|-----------------------------:|---------------:|--:|-----------------------:|
+| e2e mean | 93.9 s | **87.7 s** | **−6.7%** | **3.19×** |
+| denoise / step | 20.2 s | **18.6 s** | **−7.7%** | **3.58×** |
+| decode VAE | 7.93 s | **7.96 s** | ~0 | 4.75× |
+| peak MLX active | 2.05 GiB | **2.05 GiB** | 0 | ~1.00× |
+| peak MLX watermark | 3.75 GiB | **3.76 GiB** | ~0 | 1.26× |
+| peak RSS | 1.75 GiB | **1.77 GiB** | ~0 | ~1.01× |
+
+Trials 87.40–88.06 s. Product-default 1024² is healthy on this 8 GB mini (watermark well under 4 GiB). Identity 1024 **bench** still parked (2× image tokens); a single `i2i --identity` smoke at 1024 completed (~199 s wall, SSIM 0.739, pixel PASS).
+
 ### Identity I2I 512² (host-contention harness)
 
 **Date:** 2026-08-13 · SHA `420bcdb` · M2 8 GB · release + full metallib · 4-bit  

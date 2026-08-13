@@ -1,6 +1,6 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-13 (host safety after WindowServer watchdog)  
+**Last updated:** 2026-08-13 (hoist-1024 bench + eval-regression script)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** branch `cursor-opt-quarantine` — audit before merge. See [`Docs/HOST_SAFETY.md`](HOST_SAFETY.md).
@@ -78,7 +78,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 **Backlog**
 
-- [ ] Scripted regression from `Docs/eval-prompts.md` with fixed seeds (42, 0, 7)  
+- [x] Scripted regression from `Docs/eval-prompts.md` with fixed seeds (42, 0, 7) — `Scripts/eval-regression.sh` (512² T2I)  
 - [x] Performance harness (`aestrix bench` / `bench-compare`) — see **P9** / `Docs/PERF.md`  
 - [ ] Pin Hub `revision` SHA in config / docs when shipping a release  
 - [ ] Golden image or metric floors in CI (pixel-only; vision stays agent/human)  
@@ -132,7 +132,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  
 
-**Latest default-path A/B (8 GB Mac mini, release, Steel FA, W1T3, 2026-08-11):** 512² e2e **~31.7 s** / 1024² e2e **~104 s** (same-day baseline 35.9 / 108.5 s); denoise/step **~6.1 s** / **~22.4 s**; peak active **~2.0 GiB**; watermark **~3.0 / 4.0 GiB**. Opt-in `--text-tokens auto`: 512² e2e **~21.4 s**. Full tables: `Docs/PERF.md` (“2026-08-11 optimization pass”).
+**Latest default-path A/B (8 GB Mac mini, release, W1T3, 2026-08-13 `hoist-*`):** 512² e2e **~27.5 s** / 1024² e2e **~87.7 s**; denoise/step **~5.20 s** / **~18.6 s**; peak active **~2.04 / 2.05 GiB**; watermark **~2.99 / 3.76 GiB**. Full tables: `Docs/PERF.md`.
 
 **Acceptance for any “faster / leaner” claim**
 

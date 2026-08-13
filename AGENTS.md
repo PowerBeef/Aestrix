@@ -46,7 +46,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 2. **Qwen3 TE**: chat template required; layers **9/18/27** concat → **7680**; full **512** padded tokens to DiT by default.
 3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **MLX Steel fused FA** (simdgroup MMA, full Q, D=128); **f16 Q/K/V** when seq > 2048.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
-5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-11 pass: 512² e2e ~**31.7 s** (opt-in `--text-tokens auto` ~**21.4 s**), 1024² ~**104 s** same-day (−11.8% / −3.7% vs baseline); peak active ~**2.0 GiB**, watermark ~**3.0–4.0 GiB**. See `Docs/PERF.md`.
+5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-13 `hoist-*`: 512² e2e ~**27.5 s**, 1024² ~**87.7 s**; peak active ~**2.04–2.05 GiB**, watermark ~**2.99 / 3.76 GiB**. See `Docs/PERF.md`.
 6. **VAE**: T2I / final I2I decode use **decode-only** weights (~97 MB). Large canvases use **tiled decode** (`VAETileConfig`: default overlap + cosine blend).
 7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` (module-split TE/DiT/VAE). See `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
@@ -112,6 +112,7 @@ swift build -c release && ./Scripts/ensure-metallib.sh
 # T2I (default 1024²; use --width 512 for faster smoke)
 .build/release/aestrix t2i "$PROMPT" --width 1024 --height 1024 --steps 4 --seed 42 \
   --output /tmp/out.png --analyze --vision-brief
+# Faster smoke / eval-prompts loop: Scripts/eval-regression.sh (512²)
 
 # I2I (strength-only color/style)
 .build/release/aestrix i2i "$PROMPT" --image "$REF" --strength 0.8 \

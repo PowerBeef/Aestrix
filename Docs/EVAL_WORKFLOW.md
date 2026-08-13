@@ -75,7 +75,19 @@ swift build && ./Scripts/ensure-metallib.sh
 | `--clean-pull A` | Blend clean latent into face after each step |
 | `--schedule color\|identity\|linear` | Strength → start-noise curve |
 
-Tip: with `--identity`, use **strength ≥ 0.85–0.9** for wardrobe/scene changes; lower strength locks the source too hard. Match canvas to the reference (omit `--width`/`--height` or set native size) so 1024 sources are not downscaled to 512.
+**Strength bands**
+
+| Intent | Strength | Prompt style |
+|--------|----------|--------------|
+| Mild grade / lighting | 0.35–0.55 | Say what stays |
+| Color / wardrobe on objects | **≥ 0.8** | Hex + color words |
+| People identity + scene/wardrobe | **0.85–0.9** + `--identity` | Face/pose lock **and** what changes |
+| Recolor same garment | 0.85–0.9 + `--identity` | “exact same cut; only fabric color …” |
+| New outfit | 0.85–0.9 + `--identity` | “replace the blouse with a different …” |
+
+Match canvas to the reference (omit `--width`/`--height` or set native size) so 1024 sources are not downscaled to 512.
+
+**512² pixel loop:** `Scripts/eval-regression.sh` (T2I eval-prompts 1–5 × seeds 42/0/7).
 
 ### Sidecar files (next to the PNG)
 

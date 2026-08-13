@@ -67,13 +67,13 @@ Big wardrobe + lighting change at strength 0.9 — face shape, eyes, freckles, h
 
 ## Performance
 
-Measured on an Apple M2 **8 GB** Mac mini (release, 4-bit, warmup 1 + 3 trials, seed 42, Steel fused FA + cosine tiled VAE + compiled RoPE/AdaLN — same-day A/B, 2026-08-11 optimization pass):
+Measured on an Apple M2 **8 GB** Mac mini (release, 4-bit, warmup 1 + 3 trials, seed 42). **2026-08-13** `hoist-512` / `hoist-1024` (context projection hoisted once per generate):
 
 | Canvas | Time to image | Denoise / step | Peak MLX active | Peak MLX watermark | Peak RSS |
 |--------|--------------:|---------------:|----------------:|-------------------:|---------:|
-| **512²** | **~31.7 s** (−11.8% vs pre-pass) | ~6.1 s | 2.04 GiB | 2.99–3.21 GiB | 1.74 GiB |
-| **1024²** | **~104 s** (−3.7% vs pre-pass) | ~22.4 s | 2.05 GiB | ~4.0 GiB | 1.75 GiB |
-| **512²** + `--text-tokens auto` (opt-in) | **~21.4 s** | ~3.6 s | 2.04 GiB | 2.99 GiB | 1.73 GiB |
+| **512²** | **~27.5 s** | **~5.20 s** | 2.04 GiB | 2.99 GiB | 1.75 GiB |
+| **1024²** | **~87.7 s** (~3.2×) | **~18.6 s** | 2.05 GiB | 3.76 GiB | 1.77 GiB |
+| **512²** + `--text-tokens auto` (opt-in, 2026-08-11) | **~21.4 s** | ~3.6 s | 2.04 GiB | 2.99 GiB | 1.73 GiB |
 
 - Repeat prompts skip the text-encoder stage via the on-disk prompt-embed cache (default on, byte-identical output, −4 s at 512²).
 - `--text-tokens auto` trims padding tokens — a large win on short prompts, but numerics differ from the full-512 reference (experimental).
