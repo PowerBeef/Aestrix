@@ -1,8 +1,8 @@
 # `cursor-opt-quarantine` audit
 
 **Date:** 2026-08-13  
-**Branch:** `cursor-opt-quarantine` @ `2ce2a8f`  
-**Merge-base with `main`:** `6c8b13c` (README I2I mug swap). **`main` has moved far past this.** Do not merge the branch.
+**Branch:** `cursor-opt-quarantine` @ `2ce2a8f` — **deleted** after the worth-doing items were reimplemented on `main`.  
+**Merge-base with `main`:** `6c8b13c` (README I2I mug swap). Do **not** recreate or merge that tree. Retrieve the research note with `git show 2ce2a8f:Docs/OPTIMIZATION_RESEARCH_2026.md` while the object remains.
 
 Isolated after WindowServer watchdog panics (Cursor + SwiftPM/Metal on 8 GB). See [`HOST_SAFETY.md`](HOST_SAFETY.md).
 
@@ -89,11 +89,18 @@ On a **≥16 GB** machine: `blockCacheClearInterval: 2`, 512 MiB denoise cla
 | MetalFX preview | P7 UI, not final 1024² |
 | iRDM one-step student / FlowUpscaler | Explicit new-model decision |
 
-## Recommended order (if any work follows)
+## Status on `main` (2026-08-13)
 
-1. **Do not merge** `cursor-opt-quarantine`. Leave the branch as a museum.  
-2. Optional next code slice on `main`: **VAE D=512 chunked SDPA** with eval-each-chunk **off**.  
-3. Optional hygiene: metallib Steel check in `info` / `ensure-metallib.sh`.  
-4. Everything else stays parked.
+Reimplemented from the ideas above — **not** cherry-picked from `2ce2a8f`.
 
-The research write-up on the branch is the valuable artifact. The runtime diffs are mostly obsolete or unsafe on 8 GB.
+| Item | Status |
+|------|--------|
+| Metallib Steel check | Done — `MetallibVerification` + `aestrix info` + `Scripts/ensure-metallib.sh` fail-closed on stub / missing Steel |
+| VAE D=512 chunked SDPA | Done — `VAEAttention`, `evalEachChunk = false`, `bench --mode vae-decode` actually decodes, `--vae-attn-chunk` A/B |
+| Hygiene tests | Done — `PromptEmbedCacheKeyTests`, `TextTokenModeTests` |
+| `EvalCachePolicy.mid` | Done as **bench flag only**. `--eval-cache mid` refused on `DeviceTier.low` unless `--force`. `named("high") == nil`. Product generate path stays on `product`. |
+| `evalEachChunk = true` / `.high` | Still forbidden |
+
+Branch deleted after this port. Park NAX / HardwareCapabilities / TeaCache / FlowUpscaler.
+
+The research write-up on `2ce2a8f` is the valuable artifact. The runtime diffs were obsolete or unsafe on 8 GB.

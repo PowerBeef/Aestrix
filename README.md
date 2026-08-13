@@ -255,7 +255,7 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 | [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Generation quality gates |
 | [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | I2I color vs identity strength curves |
 | [Docs/HOST_SAFETY.md](Docs/HOST_SAFETY.md) | 8 GB / one-Metal-owner rules (watchdog) |
-| [Docs/CURSOR_QUARANTINE.md](Docs/CURSOR_QUARANTINE.md) | Audit of `cursor-opt-quarantine` (do not merge) |
+| [Docs/CURSOR_QUARANTINE.md](Docs/CURSOR_QUARANTINE.md) | Audit of deleted `cursor-opt-quarantine` (do not recreate / merge) |
 
 ## License
 

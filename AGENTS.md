@@ -90,9 +90,9 @@ This machine is **8 GB unified** (`Mac14,3`). Cursor agents + `swift build`/`swi
 1. **One Metal owner.** Do not run `aestrix` generate/bench/compile-spike while Xcode, another `aestrix`, or a second IDE is compiling Metal.
 2. **Default to filtered unit tests and 512² smokes.** 1024² T2I bench is OK when asked (measured ~88 s, watermark ~3.76 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 (joint ~8704) unless the user explicitly wants that.
 3. **Never** `MLX.compile` the full DiT; **never** `dit-compile-spike` on this host without `--force` on an idle machine.
-4. **Never** relax cache-clear / `EvalCachePolicy.high` (that type lives only on `cursor-opt-quarantine`).
+4. **Never** relax cache-clear / `EvalCachePolicy.high` (that type is not in this tree).
 5. After any reboot, hang, or new `aestrix-*.ips`, **stop and inspect** DiagnosticReports before retrying.
-6. Experimental Cursor work is on **`cursor-opt-quarantine`** — do not merge VAE D=512 `evalEachChunk` or `.high` cache policy.
+6. Do not reintroduce VAE D=512 `evalEachChunk` or `EvalCachePolicy.high`. `EvalCachePolicy.mid` is a **≥16 GB bench flag only**; this host stays on `product`.
 7. **Ambient ≠ contaminated:** `WindowServer`, Ghostty, `grok`, `MTLCompilerService` do not mark bench trials dirty. Cursor / `swift-package` still do.
 
 CLI: `HostPreflight` takes `~/Library/Caches/Aestrix/aestrix.lock` and refuses a second instance. **Swap is not a run gate.** Details: [`Docs/HOST_SAFETY.md`](Docs/HOST_SAFETY.md).
@@ -100,7 +100,7 @@ CLI: `HostPreflight` takes `~/Library/Caches/Aestrix/aestrix.lock` and refuses a
 **Tests:** do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts). Prefer:
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench|HubPin'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention'
 ```
 
 ---
@@ -185,7 +185,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 
 | Command | Role |
 |---------|------|
-| `aestrix info` | Tier, policy, snapshot path, pinned Hub revision |
+| `aestrix info` | Tier, policy, snapshot path, pinned Hub revision, metallib Steel check |
 | `aestrix mem-selftest` | Dry staged residency (no weights) |
 | `aestrix schedule` | Print sigmas/timesteps |
 | `aestrix load-te` / `load-dit` / `load-vae` | Staged weight load smoke; `load-dit --dump-dtypes` = compute-dtype probe |
@@ -193,7 +193,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `aestrix t2i … --analyze --vision-brief` | Generate + eval kickoff |
 | `aestrix i2i … --analyze --vision-brief` | Edit + eval kickoff |
 | `aestrix analyze-image` | Pixel / brief only |
-| `aestrix bench` | Timings, memory, pressure; modes `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` |
+| `aestrix bench` | Timings, memory, pressure; modes `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `vae-decode`. Flags: `--vae-attn-chunk`, `--eval-cache product\|mid` |
 | `aestrix bench-compare A B` | Percent deltas between JSON reports |
 | `aestrix session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
 | `aestrix dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |

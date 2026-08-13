@@ -65,6 +65,8 @@ Snapshot path (default):
 | `--json` | auto under Caches | Report path |
 | `--output-dir` | Caches/Aestrix/bench | Trial PNGs (`t2i`) |
 | `--cache-limit` | MLX default | Optional `Memory.cacheLimit` bytes |
+| `--vae-attn-chunk` | `64` | VAE mid-block query chunk. `0` = legacy `MLXFast` SDPA |
+| `--eval-cache` | `product` | `product` (8 GB-safe) or `mid` (≥16 GB bench only; refused on tier L without `--force`) |
 | `--with-quality` | off | Pixel score + color; I2I adds SSIM; identity adds face-crop SSIM |
 
 ### `aestrix bench-compare BASE CANDIDATE`
@@ -376,6 +378,23 @@ Threshold stayed 2048 until the 512² A/B below.
 
 JSON: `/tmp/aestrix-f16-2048-512.json` vs `/tmp/aestrix-f16-512-512.json`.  
 Eval: `T2I_EXTRA='--attn-f16-threshold 512' ./Scripts/eval-regression.sh` — **15/15 pixel PASS**. Spot vision: mug (terracotta), fox, “OPEN STUDIO” poster OK. **Shipped default `f16SeqThreshold = 512`.**
+
+#### VAE D=512 query-chunked attention (2026-08-13)
+
+Steel fused FA is D∈{64,80,128}; VAE mid-block is 1-head **D=512**. Ported query-chunked f32 SDPA (`VAEAttention`, default chunk 64, **`evalEachChunk = false`**). `bench --mode vae-decode` now decodes packed noise (was load-only). `--vae-attn-chunk 0` is the MLXFast fallback.
+
+Same-day release + full metallib, 8 GB M2. 512: W1/T3. 1024: W1/T2 (XProtect remediator + swap ~1.5 GiB — treat as noisy).
+
+| Label | decode mean | vs MLXFast | peak RSS |
+|-------|------------:|-----------:|---------:|
+| `vae-mlxfast-512` | 1.70 s | — | 54 MB |
+| **`vae-chunk64-512` (default)** | **1.67 s** | **−1.8%** | 50 MB |
+| `vae-mlxfast-1024` | 7.96 s | — | 25 MB |
+| **`vae-chunk64-1024` (default)** | **8.01 s** | **+0.7%** | 23 MB |
+
+JSON: `/tmp/aestrix-vae-mlxfast-512.json` / `…-chunk64-512.json` / `…-1024.json`.  
+Numeric: `AESTRIX_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.  
+**Ship chunked as default** — decode time is within noise; the bound is the score matrix (never S×S). Untiled 1024² encode is S=16384 (~1.1 GiB scores); chunk 64 keeps scores at `[Tq, S]`. Did **not** run T2I pixel/vision on this pass (host dirty; math is the same softmax). `--eval-cache mid` was **not** measured on this 8 GB host (refused without `--force`).
 
 ### Historical snapshots (not for cross-size RAM A/B)
 
@@ -853,7 +872,7 @@ After an optimization:
 | `t2i` | Full staged generate + PNG | e2e, all stages, denoise/step, peaks |
 | `dit-steps` | Same as t2i (focus report on denoise) | denoise/step |
 | `te-only` | load TE + encodePrompt | load_te, encode_te, RSS |
-| `vae-decode` | load/unload VAE | load_vae |
+| `vae-decode` | decode packed noise (decode-only VAE) | `decode_vae`, peaks |
 | `load-only` | sequential TE, DiT, VAE load counts | load_* |
 | `mem-stages` | orchestrator memory self-test | RSS samples per stage |
 

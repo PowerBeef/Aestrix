@@ -81,8 +81,14 @@ final class Flux2AttentionBlock: Module {
         v = v.transposed(0, 2, 1, 3)
 
         let scale = 1.0 / Foundation.sqrt(Float(channels))
-        var attended = MLXFast.scaledDotProductAttention(
-            queries: q, keys: k, values: v, scale: scale, mask: nil)
+        var attended: MLXArray
+        if VAEAttentionConfig.current.useMLXFast {
+            attended = MLXFast.scaledDotProductAttention(
+                queries: q, keys: k, values: v, scale: scale, mask: nil)
+        } else {
+            attended = VAEAttention.scaledDotProductAttention(
+                query: q, key: k, value: v, scale: scale)
+        }
         attended = attended.transposed(0, 2, 1, 3).reshaped([batch, height, width, channels])
         attended = toOut(attended)
         h = h + attended

@@ -3,6 +3,7 @@ import Foundation
 import AestrixCore
 import AestrixRuntime
 import AestrixDiT
+import AestrixVAE
 import AestrixEval
 import AestrixBench
 
@@ -138,10 +139,27 @@ struct Info: AsyncParsableCommand {
         print("  tier: \(config.tier.rawValue)")
         print("  max_side: \(config.maxSide)")
         print("  memory_policy: \(config.memoryPolicy.rawValue)")
+        print("  eval_cache: \(EvalCachePolicy.current.profileName)")
         print("  weight_preset: \(config.weightPreset.rawValue)")
         print("  model_id: \(config.modelID)")
         print("  model_revision: \(config.revision)")
         print("  peak_budget: \(MemoryProbe.formatBytes(config.tier.peakBudgetBytes))")
+        let exe = URL(fileURLWithPath: CommandLine.arguments[0])
+        if let metalURL = MetallibVerification.resolveExisting(relativeTo: exe) {
+            let metal = MetallibVerification.verify(url: metalURL)
+            print("  metallib: \(metal.path)")
+            print("  metallib_bytes: \(metal.byteCount)")
+            print("  metallib_stub: \(metal.isStub)")
+            print("  metallib_steel: \(metal.productReady ? "ok" : "missing")")
+            print("  metallib_nax: \(metal.naxPackaged ? "packaged" : "optional-missing")")
+            print("  metallib_ready: \(metal.productReady)")
+            if !metal.productReady {
+                print("  metallib_hint: \(metal.note)")
+            }
+        } else {
+            print("  metallib_ready: false")
+            print("  metallib_hint: run Scripts/ensure-metallib.sh")
+        }
         if let path = await pipeline.snapshotPath {
             print("  snapshot: \(path)")
             print("  snapshot_ready: true")
@@ -806,6 +824,15 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512).")
     var attnF16Threshold: Int?
 
+    @Option(name: .long, help: "VAE mid-block attention query chunk (default 64). 0 = legacy MLXFast SDPA.")
+    var vaeAttnChunk: Int?
+
+    @Option(name: .long, help: "Eval/cache profile: product (default) | mid (≥16 GB bench only).")
+    var evalCache: String?
+
+    @Flag(name: .long, help: "Allow --eval-cache mid on 8 GB-class hosts (unsafe; research only).")
+    var force: Bool = false
+
     @Option(name: .long, help: "Sequence Linear chunk size (default 512).")
     var attnLinearChunk: Int?
 
@@ -918,7 +945,32 @@ struct Bench: AsyncParsableCommand {
             identity: identity || benchMode == .identityI2I
         )
 
+        if let chunk = vaeAttnChunk {
+            if chunk == 0 {
+                VAEAttentionConfig.current.useMLXFast = true
+            } else {
+                VAEAttentionConfig.current.useMLXFast = false
+                VAEAttentionConfig.current.queryChunkSize = chunk
+            }
+        }
+
         let aestrixConfig = AestrixConfig.autoDetectingTier()
+        if let raw = evalCache {
+            guard let policy = EvalCachePolicy.named(raw) else {
+                print("error: unknown --eval-cache '\(raw)'. Use: product | mid")
+                throw ExitCode.failure
+            }
+            if let reason = policy.refusalReason(tier: aestrixConfig.tier, force: force) {
+                print("error: \(reason)")
+                throw ExitCode.failure
+            }
+            EvalCachePolicy.current = policy
+        }
+        defer {
+            VAEAttentionConfig.resetToDefault()
+            EvalCachePolicy.resetToDefault()
+        }
+
         let pipeline = AestrixPipeline(config: aestrixConfig)
         guard await pipeline.hasLocalSnapshot else {
             print("error: no local snapshot for \(aestrixConfig.modelID) @ \(aestrixConfig.revision)")
@@ -935,6 +987,10 @@ struct Bench: AsyncParsableCommand {
             "bench start label=\(label) mode=\(benchMode.rawValue) \(width)x\(height) steps=\(config.steps) density=\(effectiveDensity.rawValue) joint_seq=\(analytic.jointSeqLen)"
         )
         print("  snapshot: \(await pipeline.snapshotPath ?? "?")")
+        print("  eval_cache: \(EvalCachePolicy.current.profileName)")
+        let vaeAttn = VAEAttentionConfig.current
+        print(
+            "  vae_attn: \(vaeAttn.useMLXFast ? "mlxfast" : "chunk\(vaeAttn.queryChunkSize)")")
         print("  \(analytic.note)")
 
         do {
@@ -998,6 +1054,15 @@ struct Bench: AsyncParsableCommand {
             ]
             if let cacheLimit {
                 args += ["--cache-limit", "\(cacheLimit)"]
+            }
+            if let vaeAttnChunk {
+                args += ["--vae-attn-chunk", "\(vaeAttnChunk)"]
+            }
+            if let evalCache {
+                args += ["--eval-cache", evalCache]
+            }
+            if force {
+                args += ["--force"]
             }
             print("  rung \(side)² …")
             let proc = Process()

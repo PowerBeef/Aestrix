@@ -39,6 +39,8 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | **MLX Steel fused FA** (full Q, D∈{64,80,128}) | Done (product default for Klein) |
 | f16 QKV when seq > 512 | Done (512² image tokens; 2026-08-13 A/B) |
 | Query-chunked SDPA | Fallback only (unsupported head dims) |
+| VAE D=512 query-chunked attention | Done (`VAEAttention`; `evalEachChunk` **off**; `--vae-attn-chunk 0` = MLXFast A/B) |
+| `EvalCachePolicy.product` | Done (default). `mid` is ≥16 GB **bench only** (`--eval-cache mid`). **No `.high`.** |
 | VAE decode-only for T2I | Done |
 | VAE tiled decode (overlap + cosine blend) | Done |
 | DiT **weight** streaming (block JIT load) | Not default — iOS headroom spike |

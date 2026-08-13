@@ -36,6 +36,19 @@ public actor AestrixPipeline {
         }
     }
 
+    /// Product default clamps at 768². `mid` keeps that floor; `.high` is not a product type.
+    private static func isLargeCanvasForCache(maxSide: Int, forceLarge: Bool = false) -> Bool {
+        forceLarge || maxSide >= EvalCachePolicy.current.pipelineCacheClampMinSide
+    }
+
+    private static func applyPreDenoiseCacheClamp() {
+        let policy = EvalCachePolicy.current
+        if let limit = policy.denoiseCacheLimitBytes {
+            Memory.cacheLimit = Int(limit)
+        }
+        Memory.clearCache()
+    }
+
     public var hasLocalSnapshot: Bool { snapshot != nil }
     public var snapshotPath: String? { snapshot?.root.path }
     /// Hugging Face commit recorded by `hf download`, when metadata is present.
@@ -93,6 +106,24 @@ public actor AestrixPipeline {
     /// Load VAE weights from snapshot, return leaf parameter count, unload if staged.
     public func loadVAE() async throws -> Int {
         try await orchestrator.loadVAEAndCountParameters()
+    }
+
+    /// Decode-only packed noise at `width`×`height` (bench `vae-decode`).
+    public func decodePackedNoise(width: Int, height: Int, seed: UInt64 = 42) async throws {
+        try DimensionValidation.validate(
+            width: width, height: height, maxSide: config.maxSide, tier: config.tier)
+        let noise = LatentOps.samplePackedNoise(width: width, height: height, seed: seed)
+        let (ph, pw) = LatentOps.packedSpatial(width: width, height: height)
+        try await orchestrator.loadVAEExclusive(mode: .decodeOnly)
+        do {
+            let spatial = LatentOps.unpackSequence(noise, height: ph, width: pw)
+            let decoded = try orchestrator.vae.decodePacked(spatial)
+            eval(decoded)
+            try await orchestrator.unloadVAEIfStaged()
+        } catch {
+            try? await orchestrator.unloadVAEIfStaged()
+            throw error
+        }
     }
 
     /// Load Qwen3 TE quant weights from snapshot, return leaf parameter count, unload if staged.
@@ -295,10 +326,10 @@ public actor AestrixPipeline {
                 eval(stepTimesteps)
                 // High-res (768²+) on unified memory: drop Metal buffer pool after every
                 // step so activation temporaries don't accumulate (8 GB M2 OOMs at 1024²).
-                let largeCanvas = max(request.width, request.height) >= 768
+                let largeCanvas = Self.isLargeCanvasForCache(
+                    maxSide: max(request.width, request.height))
                 if largeCanvas {
-                    Memory.cacheLimit = 256 * 1024 * 1024  // 256 MiB
-                    Memory.clearCache()
+                    Self.applyPreDenoiseCacheClamp()
                     trace?.emit(.memorySample(label: "after_clear_pre_denoise"))
                 }
                 if let trace, trace.density != .off {
@@ -333,7 +364,7 @@ public actor AestrixPipeline {
                     eval(latents)
                     trace?.probe(
                         "dit.step\(step).after_euler", phase: "dit", step: step, minDensity: .denoise)
-                    if largeCanvas {
+                    if largeCanvas, EvalCachePolicy.current.clearCacheAfterDenoiseStep {
                         Memory.clearCache()
                         trace?.probe(
                             "dit.step\(step).after_clear", phase: "dit", step: step,
@@ -626,10 +657,10 @@ public actor AestrixPipeline {
                 let stepDts = LatentOps.eulerDts(sigmas: sigmas)
                 eval(stepTimesteps)
                 // Ref latents double image seq → treat as large canvas for cache discipline.
-                let largeCanvas = max(canvas.width, canvas.height) >= 768 || useRef
+                let largeCanvas = Self.isLargeCanvasForCache(
+                    maxSide: max(canvas.width, canvas.height), forceLarge: useRef)
                 if largeCanvas {
-                    Memory.cacheLimit = 256 * 1024 * 1024
-                    Memory.clearCache()
+                    Self.applyPreDenoiseCacheClamp()
                 }
                 trace?.emit(.stageBegin("denoise"))
                 for step in 0 ..< nSteps {
@@ -691,7 +722,7 @@ public actor AestrixPipeline {
                     }
 
                     eval(latents)
-                    if largeCanvas {
+                    if largeCanvas, EvalCachePolicy.current.clearCacheAfterDenoiseStep {
                         Memory.clearCache()
                     }
                     trace?.emit(.denoiseStepEnd(index: step, total: nSteps))

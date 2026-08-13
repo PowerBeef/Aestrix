@@ -15,7 +15,7 @@ Class A is **not** “any shell command panics the kernel.” It is **Cursor (El
 
 ## What we did
 
-- Uncommitted Cursor optimization tree → branch **`cursor-opt-quarantine`** (do not merge). Audit: [`CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
+- Uncommitted Cursor optimization tree was isolated on **`cursor-opt-quarantine`** and later **deleted** after the safe leftovers were ported. Audit: [`CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
 - `HostPreflight`: exclusive lock + sibling `aestrix` detect. Swap is **not** a run gate.
 - `dit-compile-spike` refused on `DeviceTier.low` unless `--force`.
 

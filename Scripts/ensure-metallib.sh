@@ -92,9 +92,31 @@ install_metallib() {
   # tiny SPM package stub committed to git. Full kernels go next to the binary only.
 }
 
+verify_steel() {
+  local lib="$1"
+  local sz
+  sz=$(stat -f%z "$lib" 2>/dev/null || echo 0)
+  if (( sz < 1000000 )); then
+    echo "error: $lib is a stub ($sz bytes); expected a full MLX metallib" >&2
+    exit 1
+  fi
+  python3 - "$lib" <<'PY'
+import sys
+from pathlib import Path
+data = Path(sys.argv[1]).read_bytes()
+need = ("steel_attention", "affine_qmm", "rms_norm")
+missing = [s for s in need if s.encode() not in data]
+if missing:
+    print("error: Steel symbols missing:", ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+print("steel symbols ok in", sys.argv[1], f"({len(data)} bytes)")
+PY
+}
+
 if need_rebuild; then
   build_metallib
 else
   echo "reusing existing $OUT ($(stat -f%z "$OUT") bytes)"
 fi
+verify_steel "$OUT"
 install_metallib

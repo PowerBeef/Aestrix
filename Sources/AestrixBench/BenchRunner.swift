@@ -25,7 +25,11 @@ public actor BenchRunner {
             t.backend = backend
         }
         if let v = config.attentionBlockClearSeqThreshold { t.blockCacheClearSeqThreshold = v }
-        if let v = config.attentionBlockClearInterval { t.blockCacheClearInterval = max(1, v) }
+        if let v = config.attentionBlockClearInterval {
+            t.blockCacheClearInterval = max(1, v)
+        } else {
+            t.blockCacheClearInterval = EvalCachePolicy.current.blockCacheClearInterval
+        }
         AttentionTuning.current = t
     }
 
@@ -316,11 +320,12 @@ public actor BenchRunner {
     }
 
     private func runVAEDecode(collector: TraceCollector) async throws {
-        collector.timer.begin("load_vae")
-        collector.sample("before_load_vae")
-        _ = try await pipeline.loadVAE()
-        collector.timer.end("load_vae")
-        collector.sample("after_load_vae")
+        collector.timer.begin("decode_vae")
+        collector.sample("before_decode_vae")
+        try await pipeline.decodePackedNoise(
+            width: config.width, height: config.height, seed: config.seed)
+        collector.timer.end("decode_vae")
+        collector.sample("after_decode_vae")
         await pipeline.purge()
     }
 

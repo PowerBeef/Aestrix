@@ -1,9 +1,9 @@
 # Aestrix roadmap
 
-**Last updated:** 2026-08-13 (cursor-opt-quarantine audit)  
+**Last updated:** 2026-08-13 (quarantine leftovers ported on main)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
-**Experimental Cursor tree:** branch `cursor-opt-quarantine` — **do not merge**. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
+**Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
 
 ---
 
@@ -184,3 +184,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-13 | Promote safe Wave-0 slice: HostContention + i2i/identity-i2i bench + face-region SSIM |
 | 2026-08-13 | Pin mlx-community Klein 4-bit Hub revision `1cebb9b45c21ece14a42615b16bf5fa4de9b56da`; CI eval floors on GitHub Actions |
 | 2026-08-13 | P8 I2I strength-curve recipes (`Docs/I2I_STRENGTH.md`); macOS polish backlog complete |
+| 2026-08-13 | Port quarantine leftovers on main: Steel metallib check, VAE D=512 chunked SDPA (`evalEachChunk` off), `EvalCachePolicy.mid` bench-only |

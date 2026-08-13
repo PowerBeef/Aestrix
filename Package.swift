@@ -107,6 +107,7 @@ let package = Package(
                 "AestrixCore",
                 "AestrixRuntime",
                 "AestrixDiT",
+                "AestrixVAE",
                 "AestrixEval",
                 "AestrixBench",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -156,6 +157,7 @@ let package = Package(
             dependencies: [
                 "AestrixVAE",
                 "AestrixCore",
+                .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
     ]
