@@ -20,6 +20,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # mlx-swift 0.31.6 is tools-version 6.3. macos-15 defaults to Xcode 16.x
+      # (Swift < 6.3), which cannot resolve that pin.
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+
       - name: Cache SPM
         uses: actions/cache@v4
         with:
