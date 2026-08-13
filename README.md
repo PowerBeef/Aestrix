@@ -1,20 +1,20 @@
 <div align="center">
 
-# Aestrix
+# Imarello
 
 **Native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)**
 
-From-scratch on Apple Silicon — not a wrapper around another port.
+From-scratch on Apple Silicon — not a wrapper around another port. Formerly **Aestrix**.
 
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#quick-start)
 [![MLX](https://img.shields.io/badge/MLX-0.31.6-blue)](https://github.com/ml-explore/mlx-swift)
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
-[![Eval floors](https://github.com/PowerBeef/Aestrix/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Aestrix/actions/workflows/eval-floors.yml)
+[![Eval floors](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml)
 
 Text-to-image and single-image edit · **4-bit** weights · **1024²** default · fits an **8 GB** Mac
 
-<img src="Docs/assets/readme/hero-coffee-1024.jpg" width="640" alt="Cozy coffee shop interior, warm afternoon light — Aestrix T2I, 1024², 4 steps, seed 42">
+<img src="Docs/assets/readme/hero-coffee-1024.jpg" width="640" alt="Cozy coffee shop interior, warm afternoon light — Imarello T2I, 1024², 4 steps, seed 42">
 
 <sub>1024² · 4 steps · seed 42 · 4-bit · 8 GB M2 Mac mini</sub>
 
@@ -77,17 +77,18 @@ Unedited release outputs, 4-bit, 4 steps, fixed seeds.
 **Needs:** Apple Silicon, macOS 15+, Xcode 16 / Swift 6, ~5 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
 
 ```bash
-git clone https://github.com/PowerBeef/Aestrix.git && cd Aestrix
+git clone https://github.com/PowerBeef/Imarello.git && cd Imarello
+# Old clone URLs (`PowerBeef/Aestrix`) redirect here.
 swift build -c release
 ./Scripts/ensure-metallib.sh          # full MLX Metal lib (~130 MB), not the 3 KB stub
 
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
-  --local-dir ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit
+  --local-dir ~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit
 
-.build/release/aestrix info           # tier, pin, snapshot, Steel metallib
+.build/release/imarello info           # tier, pin, snapshot, Steel metallib
 
-.build/release/aestrix t2i \
+.build/release/imarello t2i \
   "A weathered fisherman at the helm of a wooden boat, golden hour rim light, shallow depth of field." \
   --seed 42 --output out.png
 ```
@@ -96,11 +97,11 @@ Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~2
 
 ```bash
 # Recolor / style — strength ≥ 0.8 for object color
-.build/release/aestrix i2i "the same ceramic mug, emerald green glaze, same morning light" \
+.build/release/imarello i2i "the same ceramic mug, emerald green glaze, same morning light" \
   --image out.png --strength 0.8 --seed 7 --output edit.png
 
 # People — higher strength + identity stack (ref latents, face mask, milder schedule)
-.build/release/aestrix i2i "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
+.build/release/imarello i2i "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
   --image portrait.png --strength 0.9 --identity --seed 7 --output edit-id.png
 ```
 
@@ -114,9 +115,9 @@ Add `--analyze --vision-brief` to any generate for the pixel report + agent chec
 
 **I2I.** Strength-only is for color/style. People + scene changes want `--identity` at **0.85–0.9**. See [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
 
-**Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Aestrix/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Opt out with `--no-embed-cache`.
+**Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Imarello/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Opt out with `--no-embed-cache`.
 
-**Many prompts.** `aestrix session` keeps modules warm on **≥16 GB**. 8 GB stays staged.
+**Many prompts.** `imarello session` keeps modules warm on **≥16 GB**. 8 GB stays staged.
 
 **Not in v1:** Klein 9B / FLUX.2 Dev, multi-reference, CFG, LoRA, user-facing bf16.
 
@@ -149,19 +150,19 @@ Same-day A/Bs only. Tables: [Docs/PERF.md](Docs/PERF.md).
 | `load-te` `load-dit` `load-vae` | Staged load smoke. |
 | `encode-prompt` `schedule` `mem-selftest` | TE-only, sigmas, dry residency. |
 
-`aestrix --help` and `aestrix t2i --help` list flags.
+`imarello --help` and `imarello t2i --help` list flags.
 
 ---
 
 ## Library
 
-Public API is `AestrixPipeline` (an `actor` — all MLX state lives there).
+Public API is `ImarelloPipeline` (an `actor` — all MLX state lives there).
 
 ```swift
-import AestrixCore
-import AestrixRuntime
+import ImarelloCore
+import ImarelloRuntime
 
-let pipeline = AestrixPipeline()
+let pipeline = ImarelloPipeline()
 let url = try await pipeline.generate(
     T2IRequest(
         prompt: "A red fox in a snowy forest at sunrise, photorealistic.",
@@ -174,12 +175,12 @@ let url = try await pipeline.generate(
 
 | | |
 |--|--|
-| `AestrixRuntime` | Staged pipeline, I2I / identity, embed cache |
-| `AestrixText` | Qwen3 tap (layers 9/18/27 → 7680) |
-| `AestrixDiT` | MMDiT 5+20, Steel fused FA, f16 QKV |
-| `AestrixVAE` | Decode-only / encode-only, tiled cosine blend, D=512 chunked attn |
-| `AestrixEval` / `AestrixBench` | Pixel gates · multi-trial harness |
-| `AestrixCore` | Pins, scheduler, RoPE, policy |
+| `ImarelloRuntime` | Staged pipeline, I2I / identity, embed cache |
+| `ImarelloText` | Qwen3 tap (layers 9/18/27 → 7680) |
+| `ImarelloDiT` | MMDiT 5+20, Steel fused FA, f16 QKV |
+| `ImarelloVAE` | Decode-only / encode-only, tiled cosine blend, D=512 chunked attn |
+| `ImarelloEval` / `ImarelloBench` | Pixel gates · multi-trial harness |
+| `ImarelloCore` | Pins, scheduler, RoPE, policy |
 
 Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md).
 
@@ -187,9 +188,9 @@ Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/ME
 # Filtered unit tests (no weights). Skip unfiltered `swift test` after a GPU abort.
 swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy'
 
-.build/release/aestrix bench --width 512 --height 512 --warmup 1 --trials 3 \
+.build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
   --json /tmp/bench.json
-AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh   # 512² pixel loop
+IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel loop
 ```
 
 ---
@@ -218,7 +219,7 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md)
 
 | | |
 |--|--|
-| Aestrix source | MIT |
+| Imarello source | MIT |
 | FLUX.2 [klein] 4B weights | [Apache-2.0](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) · Black Forest Labs |
 | Vendored prompting skill | MIT · [black-forest-labs/skills](https://github.com/black-forest-labs/skills) |
 

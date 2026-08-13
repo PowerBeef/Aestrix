@@ -1,12 +1,12 @@
 # Generation evaluation workflow
 
-This is the **mandatory quality procedure** for Aestrix image generations (agents and humans).
+This is the **mandatory quality procedure** for Imarello image generations (agents and humans).
 
 It has two layers:
 
 | Layer | Tool | What it catches |
 |-------|------|-----------------|
-| **A. Pixel harness** | `AestrixEval` / `aestrix analyze-image` | Sharpness, clip, hue, SSIM, color-word heuristics, structured findings |
+| **A. Pixel harness** | `ImarelloEval` / `imarello analyze-image` | Sharpness, clip, hue, SSIM, color-word heuristics, structured findings |
 | **B. Vision review** | Multimodal agent (open PNG) | Subject match, real color, text/logo, hands, artifacts, “edit applied”, aesthetics |
 
 Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers semantics.
@@ -24,8 +24,8 @@ Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers sema
 
 Run the full procedure after **any** of:
 
-- `aestrix t2i`
-- `aestrix i2i`
+- `imarello t2i`
+- `imarello i2i`
 - Manual generation used as a quality gate / regression sample
 - Before claiming “generation works” or “color edit works” in a session
 
@@ -40,31 +40,31 @@ Skip only for pure load/math tests (`load-te`, `mem-selftest`, unit tests withou
 ```bash
 swift build && ./Scripts/ensure-metallib.sh
 
-.build/debug/aestrix t2i "YOUR PROMPT" \
+.build/debug/imarello t2i "YOUR PROMPT" \
   --width 512 --height 512 --steps 4 --seed 42 \
-  --output /tmp/aestrix_out.png \
+  --output /tmp/imarello_out.png \
   --analyze --vision-brief
 ```
 
 ### I2I
 
 ```bash
-.build/debug/aestrix i2i "YOUR EDIT PROMPT" \
+.build/debug/imarello i2i "YOUR EDIT PROMPT" \
   --image /path/to/source.png \
   --strength 0.8 --steps 4 --seed 7 \
-  --output /tmp/aestrix_edit.png \
+  --output /tmp/imarello_edit.png \
   --analyze --vision-brief
 
 # People / character consistency (Tier B identity stack)
-.build/debug/aestrix i2i \
+.build/debug/imarello i2i \
   "Same person, identical face and pose; golden hour outdoor balcony, emerald silk top" \
   --image /path/to/portrait.png \
   --strength 0.9 --identity --seed 7 \
-  --output /tmp/aestrix_edit_id.png \
+  --output /tmp/imarello_edit_id.png \
   --analyze --vision-brief
 ```
 
-**Identity flags** (`aestrix i2i`):
+**Identity flags** (`imarello i2i`):
 
 | Flag | Effect |
 |------|--------|
@@ -106,11 +106,11 @@ Match canvas to the reference (omit `--width`/`--height` or set native size) so 
 ### Eval an existing PNG
 
 ```bash
-./Scripts/eval-generation.sh /tmp/aestrix_out.png \
+./Scripts/eval-generation.sh /tmp/imarello_out.png \
   --prompt "YOUR PROMPT" \
   --mode t2i
 
-./Scripts/eval-generation.sh /tmp/aestrix_edit.png \
+./Scripts/eval-generation.sh /tmp/imarello_edit.png \
   --prompt "EDIT PROMPT" \
   --reference /path/to/source.png \
   --mode i2i
@@ -159,7 +159,7 @@ Match canvas to the reference (omit `--width`/`--height` or set native size) so 
 
 ```bash
 # Strength-aware I2I eval (also automatic after i2i --analyze)
-aestrix analyze-image edit.png --reference src.png --prompt "make it blue" --strength 0.85
+imarello analyze-image edit.png --reference src.png --prompt "make it blue" --strength 0.85
 
 # CI golden floors (no weights)
 ./Scripts/ci-eval-floors.sh
@@ -226,16 +226,16 @@ Agents **must not** claim generation quality without:
 swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'
 
 # Broader local (still no generate)
-swift test --filter AestrixEvalTests
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench'
+swift test --filter ImarelloEvalTests
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench'
 
 # Optional extra t2i flags (e.g. T2I_EXTRA='--attn-f16-threshold 2048')
 # Optional smoke gen + hard pixel gate (needs snapshot + metallib; not CI)
 ./Scripts/ensure-metallib.sh
 swift build
-.build/debug/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
+.build/debug/imarello t2i "A red fox in a snowy forest at sunrise, photorealistic." \
   --width 512 --height 512 --steps 4 --seed 42 \
-  --output /tmp/aestrix_ci_t2i.png \
+  --output /tmp/imarello_ci_t2i.png \
   --analyze --fail-on-pixel-gate
 ```
 
@@ -248,7 +248,7 @@ Regression prompts: [eval-prompts.md](eval-prompts.md).
 ## Library API
 
 ```swift
-import AestrixEval
+import ImarelloEval
 
 let pixel = try ImageAnalyzer.analyze(
     imageURL: outURL,
@@ -277,8 +277,8 @@ let final = ImageAnalysisReportBuilder.mergingVision(pixel, assessment)
 
 | Command | Role |
 |---------|------|
-| `aestrix t2i … --analyze --vision-brief` | Generate + full eval kickoff |
-| `aestrix i2i … --analyze --vision-brief` | Edit + full eval kickoff |
-| `aestrix analyze-image` | Pixel / brief only |
+| `imarello t2i … --analyze --vision-brief` | Generate + full eval kickoff |
+| `imarello i2i … --analyze --vision-brief` | Edit + full eval kickoff |
+| `imarello analyze-image` | Pixel / brief only |
 | `Scripts/eval-generation.sh` | Sidecars for an existing PNG |
 | `Scripts/ensure-metallib.sh` | Required before generate on clean builds |

@@ -1,6 +1,6 @@
 # Image quality & accuracy harness
 
-`AestrixEval` provides **no-Metal** pixel analysis so agents and CI can score generations without loading weights.
+`ImarelloEval` provides **no-Metal** pixel analysis so agents and CI can score generations without loading weights.
 
 **End-to-end procedure (generate → pixel → vision → gate):**  
 **[`Docs/EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md)** — mandatory for agents after `t2i` / `i2i`.
@@ -15,19 +15,19 @@ Schema version: **1.3** (semantic/CLIP + LPIPS-lite + strength-aware I2I).
 
 ```bash
 # Technical quality only
-aestrix analyze-image out.png
+imarello analyze-image out.png
 
 # Prompt alignment (color / style heuristics)
-aestrix analyze-image out.png --prompt "a cobalt blue ceramic mug on wood"
+imarello analyze-image out.png --prompt "a cobalt blue ceramic mug on wood"
 
 # I2I fidelity vs source
-aestrix analyze-image edited.png --reference source.png --prompt "make it blue" --json report.json
+imarello analyze-image edited.png --reference source.png --prompt "make it blue" --json report.json
 
 # Vision brief for agents (paths + checklist)
-aestrix analyze-image edited.png --reference source.png --prompt "make it blue" --vision-brief
+imarello analyze-image edited.png --reference source.png --prompt "make it blue" --vision-brief
 
 # Machine-readable stdout
-aestrix analyze-image out.png --prompt "…" --json-stdout
+imarello analyze-image out.png --prompt "…" --json-stdout
 ```
 
 Exit codes:
@@ -55,7 +55,7 @@ Exit codes:
 | `hue_weights` / `top_chromatic_hues` | Center-weighted chromatic mass |
 | `noise_proxy` | High-frequency residual after blur |
 | `luminance_entropy` | Histogram richness |
-| `expects_vae_tiling` | `true` when max(side) ≥ 768 (Aestrix auto-tiles decode) |
+| `expects_vae_tiling` | `true` when max(side) ≥ 768 (Imarello auto-tiles decode) |
 | `tile_seam_score` / `_vertical` / `_horizontal` | Midline discontinuity / mean gradient (clean often &lt;2.5) |
 | `technical_score` | 0–100 composite (includes mild seam penalty when tiling expected). A flat unclipped field scores **~40** (vacuous noise+clip+seam terms); in `Float` that value is `40.nextDown`, so a `>= 40` floor can never pass a solid-color fixture. |
 
@@ -88,7 +88,7 @@ Exit codes:
 | `semantic.top_labels` | Vision classify labels (proxy backend) |
 
 **Core ML CLIP (optional):** place compiled models at  
-`~/Library/Caches/Aestrix/models/clip-coreml/image_encoder.mlmodelc` and `text_encoder.mlmodelc`  
+`~/Library/Caches/Imarello/models/clip-coreml/image_encoder.mlmodelc` and `text_encoder.mlmodelc`  
 (string text input + embedding multiarray output). See `Scripts/fetch-clip-coreml.sh`.
 
 **Default without models:** `VNClassifyImageRequest` label–token overlap (`vision_proxy`). Always available; weaker than real CLIP.
@@ -133,7 +133,7 @@ Pass `--strength` to `analyze-image` (or automatic after `i2i --analyze`):
 
 ## Backend alignment (runtime vs eval)
 
-| Runtime (Aestrix generate) | Eval harness impact |
+| Runtime (Imarello generate) | Eval harness impact |
 |----------------------------|---------------------|
 | **1024² default** | `maxAnalysisSide` default **1024** — full-res analysis for default canvas |
 | **Steel fused FA** (DiT) | Does **not** change PNG path; no metric change required |
@@ -150,7 +150,7 @@ Pixel eval is **intentionally independent of MLX** so CI/agents work without wei
 
 ### What industry uses (T2I)
 
-| Family | Examples | Role | Fit for Aestrix |
+| Family | Examples | Role | Fit for Imarello |
 |--------|----------|------|-----------------|
 | Distribution | FID, KID, Precision/Recall | Dataset vs real | Needs many gens + ref set; heavy for local CLI |
 | Prompt alignment | **CLIPScore**, BLIP | Image–text cosine | Best automated next step (Core ML / MLX CLIP optional) |
@@ -192,8 +192,8 @@ Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objecti
 
 ## Agent workflow
 
-1. Generate: `aestrix t2i` / `aestrix i2i` → PNG  
-2. Analyze: `aestrix analyze-image … --json /tmp/report.json`  
+1. Generate: `imarello t2i` / `imarello i2i` → PNG  
+2. Analyze: `imarello analyze-image … --json /tmp/report.json`  
 3. Read findings: severity `fail` / `warn` / `info` + `code`  
 4. Act: e.g. `color_mismatch` → increase I2I `--strength`, clarify color in prompt, re-run  
 5. Vision: open PNG with checklist from `VisionReview`  
@@ -201,13 +201,13 @@ Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objecti
 Example gate:
 
 ```bash
-aestrix analyze-image out.png --prompt "$PROMPT" --json /tmp/r.json || echo "quality gate failed"
+imarello analyze-image out.png --prompt "$PROMPT" --json /tmp/r.json || echo "quality gate failed"
 ```
 
 ## Library API
 
 ```swift
-import AestrixEval
+import ImarelloEval
 
 let report = try ImageAnalyzer.analyze(
     imageURL: outURL,

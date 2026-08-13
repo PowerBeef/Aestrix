@@ -1,4 +1,4 @@
-# Aestrix roadmap
+# Imarello roadmap
 
 **Last updated:** 2026-08-13 (quarantine leftovers ported on main)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
@@ -12,21 +12,21 @@
 | ID | Item | Where / notes |
 |----|------|----------------|
 | P0 | Scaffold, SPM packages, staged memory policy, BFL skills | `Package.swift`, `Docs/MEMORY.md`, `.grok/skills/flux-best-practices/` |
-| P1 | Pure math: RoPE, temb, modulation, flow-match scheduler | `AestrixCore` |
-| P2 | MMDiT + 4-bit load | `AestrixDiT`, `aestrix load-dit` |
-| P3 | VAE encode/decode + pack/BN path | `AestrixVAE`, `aestrix load-vae` |
-| P4 | Qwen3 TE, chat template, BPE, 9/18/27 tap | `AestrixText`, `aestrix load-te` / `encode-prompt` |
-| P5 | Staged T2I | `AestrixPipeline.generate`, `aestrix t2i` |
-| P6 | Strength I2I (full N-step strength schedule) | `AestrixPipeline.edit`, `aestrix i2i` |
-| P6b | Pixel + vision eval workflow | `AestrixEval`, `Docs/EVAL_WORKFLOW.md`, `--analyze` |
+| P1 | Pure math: RoPE, temb, modulation, flow-match scheduler | `ImarelloCore` |
+| P2 | MMDiT + 4-bit load | `ImarelloDiT`, `imarello load-dit` |
+| P3 | VAE encode/decode + pack/BN path | `ImarelloVAE`, `imarello load-vae` |
+| P4 | Qwen3 TE, chat template, BPE, 9/18/27 tap | `ImarelloText`, `imarello load-te` / `encode-prompt` |
+| P5 | Staged T2I | `ImarelloPipeline.generate`, `imarello t2i` |
+| P6 | Strength I2I (full N-step strength schedule) | `ImarelloPipeline.edit`, `imarello i2i` |
+| P6b | Pixel + vision eval workflow | `ImarelloEval`, `Docs/EVAL_WORKFLOW.md`, `--analyze` |
 | P6c | Tier-B identity I2I | Ref latents (t=10), face mask, clean-pull, schedule curves; `--identity` |
 
 **Resume baseline (macOS):**
 
 ```bash
 swift build && ./Scripts/ensure-metallib.sh
-# Snapshot: ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit
-.build/debug/aestrix t2i "…" --output /tmp/out.png --analyze --vision-brief
+# Snapshot: ~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit
+.build/debug/imarello t2i "…" --output /tmp/out.png --analyze --vision-brief
 ```
 
 ---
@@ -40,12 +40,12 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | Field | Detail |
 |-------|--------|
 | **Status** | `parked` |
-| **Goal** | Ship an iOS 26 app (or host) that links `AestrixRuntime` and runs staged T2I (+ I2I) on-device |
+| **Goal** | Ship an iOS 26 app (or host) that links `ImarelloRuntime` and runs staged T2I (+ I2I) on-device |
 | **Depends on** | macOS path stable (done); full metallib packaging for app targets; device memory tiers |
 
 **Acceptance criteria**
 
-- [ ] Xcode app target (or multiplatform package consumer) links `AestrixRuntime` / MLX  
+- [ ] Xcode app target (or multiplatform package consumer) links `ImarelloRuntime` / MLX  
 - [ ] Metallib / MLX resources packaged for iOS (not only SPM CLI bootstrap)  
 - [ ] On-device snapshot path (app container / shared group) documented  
 - [ ] Single 512² T2I smoke on a physical device or iOS simulator (if Metal allows)  
@@ -56,16 +56,16 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 **Resume notes**
 
-- Reuse `AestrixPipeline` actor; do not reimplement TE/DiT/VAE in the app.  
+- Reuse `ImarelloPipeline` actor; do not reimplement TE/DiT/VAE in the app.  
 - Product locks still apply: Klein 4B only, prequant only, staged default.  
 - Start with Tier L (512², 4-step) before higher resolutions.  
 - See `Docs/MEMORY.md` for peak budgets; `Docs/WEIGHTS.md` for pack layout.
 
 **Suggested first PR**
 
-1. Empty iOS app shell + SPM dependency on local `Aestrix` packages  
+1. Empty iOS app shell + SPM dependency on local `Imarello` packages  
 2. Wire metallib / MLX init parity with `MLXBootstrap`  
-3. Call `AestrixPipeline.generate` from a button with hardcoded prompt  
+3. Call `ImarelloPipeline.generate` from a button with hardcoded prompt  
 
 ---
 
@@ -79,8 +79,8 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 **Backlog**
 
 - [x] Scripted regression from `Docs/eval-prompts.md` with fixed seeds (42, 0, 7) — `Scripts/eval-regression.sh` (512² T2I)  
-- [x] Performance harness (`aestrix bench` / `bench-compare`) — see **P9** / `Docs/PERF.md`  
-- [x] Pin Hub `revision` SHA in config / docs (`WeightPreset.pin`, `Docs/hub-pins.json`, `aestrix info`)  
+- [x] Performance harness (`imarello bench` / `bench-compare`) — see **P9** / `Docs/PERF.md`  
+- [x] Pin Hub `revision` SHA in config / docs (`WeightPreset.pin`, `Docs/hub-pins.json`, `imarello info`)  
 - [x] Golden metric floors in CI (pixel-only; `.github/workflows/eval-floors.yml` → `Scripts/ci-eval-floors.sh`; no image goldens; vision stays agent/human)  
 - [x] Document known I2I strength curves for color vs structure edits — [`Docs/I2I_STRENGTH.md`](I2I_STRENGTH.md) |  
 
@@ -93,7 +93,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | **Status** | `partial` — harness shipped; optimizations data-gated |
 | **Goal** | Push generation speed and lower peak RAM without breaking quality or product locks |
 | **Docs** | `Docs/PERF.md` |
-| **Code** | `AestrixBench`, `PipelineTrace`, `aestrix bench`, `aestrix bench-compare` |
+| **Code** | `ImarelloBench`, `PipelineTrace`, `imarello bench`, `imarello bench-compare` |
 
 **Harness (done)**
 
@@ -121,12 +121,12 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] 1024² low-RAM path (checkpointed DiT + chunked then **Steel FA** + decode-only + tiled VAE)  
 - [x] VAE overlap + cosine blend tiles (`VAETileConfig`)  
 - [x] AttentionTuning + SDPA query chunk sweep; **Steel fused FA** as product path for D=128  
-- [x] Block-level compile spike under **resident DiT** (`aestrix dit-compile-spike`) — **NO-GO**: −3.1% single / −1.1% double block; full compile stays parked  
+- [x] Block-level compile spike under **resident DiT** (`imarello dit-compile-spike`) — **NO-GO**: −3.1% single / −1.1% double block; full compile stays parked  
 - [x] 2026-08-11 pass P1: size-gated per-block `clearCache` + collapsed QKV evals + single-eval chunked Linear — denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²  
 - [x] 2026-08-11 pass P4+P5: slice-local tiled-VAE stitch + cached masks, `VAELoadMode.encodeOnly` (I2I stage-0), identity `--ref-downsample`, compiled RoPE/AdaLN — cumulative **−11.8% e2e @ 512²**, **−3.7% @ 1024²**, watermark flat  
 - [x] `--text-tokens auto` trim (opt-in, experimental; numerics differ from full-512) — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²; eval gate seeds 42/0/7 pass  
 - [x] Prompt-embed disk cache (default on) — TE stage skipped on hit (**−4 s** @ 512², byte-identical)  
-- [x] `aestrix session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
+- [x] `imarello session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
 - [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks  
 - [x] f16 Q/K/V @ 512² (`f16SeqThreshold` **2048 → 512**) — denoise/step **−4.3%**, e2e **−3.3%**, watermark flat; eval-regression 15/15 pixel PASS |  
 - [ ] DiT **weight** streaming for iOS jetsam (`stagedAggressive`)  

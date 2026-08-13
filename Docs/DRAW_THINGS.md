@@ -1,16 +1,16 @@
-# Draw Things optimizations — implications for Aestrix
+# Draw Things optimizations — implications for Imarello
 
 **Date:** 2026-08-13  
-**Ask:** How Draw Things runs image models “impossibly” fast and in less RAM than the model “should” need, and what Aestrix should copy.
+**Ask:** How Draw Things runs image models “impossibly” fast and in less RAM than the model “should” need, and what Imarello should copy.
 
-This is a **research note**, not a license to rewrite the runtime. Community Draw Things code is **GPL-v3**. Aestrix is MIT. Copy **principles**, not source.
+This is a **research note**, not a license to rewrite the runtime. Community Draw Things code is **GPL-v3**. Imarello is MIT. Copy **principles**, not source.
 
 ## Sources
 
 - Liu Liu, [*Stretch iPhone to its Limit*](https://liuliu.me/eyes/stretch-iphone-to-its-limit-a-2gib-model-that-can-draw-everything-in-your-pocket/) (2022-11)
 - Engineering @ Draw Things: [MFA](https://engineering.drawthings.ai/p/integrating-metal-flashattention-accelerating-the-heart-of-image-generation-in-the-apple-ecosystem-16a86142eb18) (2023-08), [SD3 / s4nnc](https://engineering.drawthings.ai/p/from-iphone-ipad-to-mac-enabling-rapid-local-deployment-of-sd3-medium-with-s4nnc-324bd5e81cd5) (2024-06), [MFA 2.0](https://engineering.drawthings.ai/p/metal-flashattention-2-0-pushing-forward-on-device-inference-training-on-apple-silicon-fe8aac1ab23c) (2025-01), [BF16 / FP16](https://engineering.drawthings.ai/p/bf16-and-image-generation-models-803cf0515bee) (2025-04), [Qwen Image](https://engineering.drawthings.ai/p/optimizing-qwen-image-for-edge-devices) (2025-09), [ANE in a custom stack](https://engineering.drawthings.ai/p/making-apple-neural-engine-work-in) (2026-04)
 - [draw-things-community](https://github.com/drawthingsai/draw-things-community), [s4nnc](https://github.com/liuliu/s4nnc), [ccv MFA](https://github.com/liuliu/ccv/tree/unstable/lib/nnc/mfa), [metal-flash-attention](https://github.com/philipturner/metal-flash-attention)
-- Aestrix: `Docs/MEMORY.md`, `Docs/PERF.md`, `Docs/ROADMAP.md`
+- Imarello: `Docs/MEMORY.md`, `Docs/PERF.md`, `Docs/ROADMAP.md`
 
 ---
 
@@ -28,7 +28,7 @@ The engine is **not** MLX and **not** end-to-end Core ML:
 | **Metal FlashAttention** | Fused SDPA + GEMM (Philip Turner + Liu) |
 | **Optional Core ML** | **Only** int8 matmul on ANE (2026); does not own the graph |
 
-They ship Klein in-app (e.g. `flux_2_klein_4b_q6p.ckpt`). They often prefer **6-bit / 8-bit S** for quality. Aestrix’s lock is Klein **4B**, **4-bit default**, no user bf16.
+They ship Klein in-app (e.g. `flux_2_klein_4b_q6p.ckpt`). They often prefer **6-bit / 8-bit S** for quality. Imarello’s lock is Klein **4B**, **4-bit default**, no user bf16.
 
 ---
 
@@ -43,7 +43,7 @@ They ship Klein in-app (e.g. `flux_2_klein_4b_q6p.ckpt`). They often prefer **6-
 3. In-place softmax / strided GEMM (MPSGraph allocated a second 500 MiB even when aliased).
 4. Never materialize attention `N×N` (FlashAttention).
 
-**Aestrix:** MLX + Steel FA already delete the N×N matrix. The remaining fat allocation is **DiT weights (~2.0 GiB active)**, not softmax scratch. Watermark ~2.99 / 3.76 GiB @ 512 / 1024 is weights + MLX cache.
+**Imarello:** MLX + Steel FA already delete the N×N matrix. The remaining fat allocation is **DiT weights (~2.0 GiB active)**, not softmax scratch. Watermark ~2.99 / 3.76 GiB @ 512 / 1024 is weights + MLX cache.
 
 ### P2 — Peak = max(resident subgraph), not sum(model)
 
@@ -51,19 +51,19 @@ They ship Klein in-app (e.g. `flux_2_klein_4b_q6p.ckpt`). They often prefer **6-
 - **Qwen Image (20B):** ~**7 B** params are timestep-only AdaLN. Cache `1001×718×3072` instead of loading 7 B.
 - TE / denoise / VAE never co-reside.
 
-**Aestrix:** Module staging and `projectContext` hoist are done. Klein’s modulation is **shared**, not per-block (see count below) — DT’s “unload 7 B AdaLN” does **not** transfer.
+**Imarello:** Module staging and `projectContext` hoist are done. Klein’s modulation is **shared**, not per-block (see count below) — DT’s “unload 7 B AdaLN” does **not** transfer.
 
 ### P3 — Fused attention + quantized GEMM are throughput
 
 MFA 2.0 vs other Apple stacks (their numbers): up to **20%** FLUX.1/SD3 on M3/M4; ~**2%** on older SoCs for FLUX.1; up to **25%** vs mflux / **94%** vs ggml on M2 Ultra.
 
-**Aestrix:** Product path is already **MLX Steel fused FA** (D=128). Same *class* of win. Full DiT `MLX.compile` is a measured NO-GO.
+**Imarello:** Product path is already **MLX Steel fused FA** (D=128). Same *class* of win. Full DiT `MLX.compile` is a measured NO-GO.
 
 ### P4 — Numerics are a speed feature on M1/M2
 
 MMDiT activations grow with depth. BF16 has range; **M1/M2 BF16 is emulated and ~50% slower than FP16** (DT 2025-04). Their recipe: FP32 residual / last LN; FP16 block body; scale late layers (FLUX.1: ×8 on last double blocks); apply 1/√d **before** FA.
 
-**Aestrix (measured 2026-08-13, `aestrix load-dit --dump-dtypes --width 512`):**
+**Imarello (measured 2026-08-13, `imarello load-dit --dump-dtypes --width 512`):**
 
 | Site | dtype |
 |------|--------|
@@ -94,9 +94,9 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 
 ---
 
-## Catalog vs Aestrix
+## Catalog vs Imarello
 
-| Draw Things technique | Aestrix | Rec |
+| Draw Things technique | Imarello | Rec |
 |----------------------|---------|-----|
 | Staged TE / denoise / VAE | Done | Keep |
 | Flash / Steel fused FA | Done (Steel, D=128) | Do not port MFA |
@@ -143,4 +143,4 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 
 Draw Things is fast and lean because they **control allocation, fuse attention, quantize with a quality metric, and split graphs so parameter-heavy AdaLN is not resident in the hot loop** — and they **refuse to let Core ML or MPSGraph own the model**.
 
-Aestrix already has the MLX equivalents that matter: staged residency, Steel FA, tiled/decode-only VAE, checkpointing, context hoist. Klein’s shared modulation is **not** Qwen’s 7 B AdaLN. Remaining DT-shaped work is **M2 compute dtype**, then **weight streaming for iOS**. The “2× faster / half the RAM” story is mostly already spent on 4-step + 4-bit + Steel FA.
+Imarello already has the MLX equivalents that matter: staged residency, Steel FA, tiled/decode-only VAE, checkpointing, context hoist. Klein’s shared modulation is **not** Qwen’s 7 B AdaLN. Remaining DT-shaped work is **M2 compute dtype**, then **weight streaming for iOS**. The “2× faster / half the RAM” story is mostly already spent on 4-step + 4-bit + Steel FA.

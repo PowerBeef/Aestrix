@@ -1,6 +1,6 @@
-# Aestrix performance harness & optimization map
+# Imarello performance harness & optimization map
 
-**Measurement first.** Ship and trust the bench harness before large optimizations. Every speed/RAM change must show deltas via `aestrix bench` + `aestrix bench-compare`.
+**Measurement first.** Ship and trust the bench harness before large optimizations. Every speed/RAM change must show deltas via `imarello bench` + `imarello bench-compare`.
 
 Related: `Docs/MEMORY.md` (staged policy), `Docs/ARCHITECTURE.md`, `Docs/EVAL_WORKFLOW.md` (quality, not speed).
 
@@ -12,38 +12,38 @@ Related: `Docs/MEMORY.md` (staged policy), `Docs/ARCHITECTURE.md`, `Docs/EVAL_WO
 swift build && ./Scripts/ensure-metallib.sh
 
 # Full staged T2I (default canvas 1024² — may OOM on 8 GB)
-.build/release/aestrix bench --label baseline --width 512 --height 512 --json /tmp/aestrix-baseline.json
+.build/release/imarello bench --label baseline --width 512 --height 512 --json /tmp/imarello-baseline.json
 
 # Pressure map: DiT block-level MLX active samples (use for 1024 diagnosis)
-.build/release/aestrix bench --mode pressure-map --width 512 --height 512 \
+.build/release/imarello bench --mode pressure-map --width 512 --height 512 \
   --probe-density blocks --json /tmp/p512.json
 
 # One denoise step only (first-step peak)
-.build/release/aestrix bench --mode dit-one-step --width 768 --height 768 \
+.build/release/imarello bench --mode dit-one-step --width 768 --height 768 \
   --probe-density blocks --json /tmp/p768-step0.json
 
 # Resolution ladder (subprocess per side; survives Metal abort)
-.build/release/aestrix bench --mode res-ladder --ladder 512,640,768,896,1024 \
+.build/release/imarello bench --mode res-ladder --ladder 512,640,768,896,1024 \
   --probe-density blocks
 
 # Compare two reports
-.build/release/aestrix bench-compare /tmp/aestrix-baseline.json /tmp/aestrix-candidate.json
+.build/release/imarello bench-compare /tmp/imarello-baseline.json /tmp/imarello-candidate.json
 
 # I2I / identity
-.build/release/aestrix bench --mode identity-i2i --image /path/to/ref.png \
+.build/release/imarello bench --mode identity-i2i --image /path/to/ref.png \
   --width 512 --height 512 --strength 0.9 --with-quality \
   --json /tmp/id-i2i.json
 ```
 
 Snapshot path (default):
 
-`~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit`
+`~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit`
 
 ---
 
 ## CLI reference
 
-### `aestrix bench`
+### `imarello bench`
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -63,13 +63,13 @@ Snapshot path (default):
 | `--warmup` | `1` | Discarded runs (Metal compile / cache) |
 | `--cooldown` | `0` | Seconds between trials |
 | `--json` | auto under Caches | Report path |
-| `--output-dir` | Caches/Aestrix/bench | Trial PNGs (`t2i`) |
+| `--output-dir` | Caches/Imarello/bench | Trial PNGs (`t2i`) |
 | `--cache-limit` | MLX default | Optional `Memory.cacheLimit` bytes |
 | `--vae-attn-chunk` | `64` | VAE mid-block query chunk. `0` = legacy `MLXFast` SDPA |
 | `--eval-cache` | `product` | `product` (8 GB-safe) or `mid` (≥16 GB bench only; refused on tier L without `--force`) |
 | `--with-quality` | off | Pixel score + color; I2I adds SSIM; identity adds face-crop SSIM |
 
-### `aestrix bench-compare BASE CANDIDATE`
+### `imarello bench-compare BASE CANDIDATE`
 
 Prints % deltas for e2e, denoise/step, encode, decode, peak RSS, peak MLX active. Lower is better.
 
@@ -107,7 +107,7 @@ Hostname, OS, physical RAM, processor count, Metal `recommendedMaxWorkingSetSize
 
 ### Optional quality (not a speed metric)
 
-With `--with-quality`: `technical_score`, `color_match` from `AestrixEval` so you can refuse “faster but broken” regressions.
+With `--with-quality`: `technical_score`, `color_match` from `ImarelloEval` so you can refuse “faster but broken” regressions.
 
 ---
 
@@ -121,7 +121,7 @@ Snake_case keys. Load with `BenchReportWriter.loadReport`. Fields: `label`, `cre
 
 ## Instrumentation
 
-`PipelineTrace` is optional on `AestrixPipeline.generate` / `edit`:
+`PipelineTrace` is optional on `ImarelloPipeline.generate` / `edit`:
 
 - `stageBegin` / `stageEnd` for load/encode/denoise/decode/export  
 - `denoiseStepBegin` / `denoiseStepEnd` per step  
@@ -258,11 +258,11 @@ T2I 512² fair e2e was ~31 s / ~6.1 s per step; identity I2I is slower mainl
 **vs prior fair A/B (chunked SDPA, hard VAE tiles):** 1024 e2e **96.0 s → 93.9 s** (−2%); denoise/step **21.0 s → 20.2 s** (−4%); watermark **3.29 → 3.75 GiB** (VAE blend path).
 
 ```bash
-.build/release/aestrix bench --label fair-steel-512  --width 512  --height 512  \
+.build/release/imarello bench --label fair-steel-512  --width 512  --height 512  \
   --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-steel-512.json
-.build/release/aestrix bench --label fair-steel-1024 --width 1024 --height 1024 \
+.build/release/imarello bench --label fair-steel-1024 --width 1024 --height 1024 \
   --warmup 1 --trials 3 --probe-density stages --json /tmp/fair-steel-1024.json
-.build/release/aestrix bench-compare /tmp/fair-steel-512.json /tmp/fair-steel-1024.json
+.build/release/imarello bench-compare /tmp/fair-steel-512.json /tmp/fair-steel-1024.json
 ```
 
 ### 2026-08-11 optimization pass
@@ -339,12 +339,12 @@ participate in attention in FLUX.2), hence opt-in and off by default.
 
 #### P3a prompt-embed disk cache (default on)
 
-`~/Library/Caches/Aestrix/embeds/<sha256>.safetensors` keyed by
+`~/Library/Caches/Imarello/embeds/<sha256>.safetensors` keyed by
 format-version | model id | TE bits | seq len | prompt (~7.9 MB per entry, f16).
 Hit skips the whole TE stage (load + encode): **−4.0 s** at 512² (28.9 → 24.9 s
 measured), byte-identical output PNG on same seed. `--no-embed-cache` opts out.
 
-#### P3b warm session (`aestrix session`, resident policy, ≥16 GB gate)
+#### P3b warm session (`imarello session`, resident policy, ≥16 GB gate)
 
 Repeat prompts keep modules resident; parity confirmed (same prompt+seed byte-identical
 across staged-load and resident-reuse generations). On the 8 GB M2 mini with
@@ -356,7 +356,7 @@ Fixed along the way: `StageOrchestrator` exclusive loads are now idempotent
 
 #### P3c block-level `MLX.compile` spike — NO-GO (S1 confirmed again)
 
-`aestrix dit-compile-spike`, 512² shapes, resident DiT, 6 iters: single-stream block
+`imarello dit-compile-spike`, 512² shapes, resident DiT, 6 iters: single-stream block
 −3.1% vs product, double-stream −1.1%; compile first-call 649 / 209 ms. Blocks are
 matmul/attention-bound; the elementwise fringes are already fused by the shipped
 compiled AdaLN/RoPE helpers. Full-forward compile stays parked.
@@ -376,7 +376,7 @@ Threshold stayed 2048 until the 512² A/B below.
 | `f16-2048-512` (old default) | 28.18 s | 5.36 s | 2.04 GiB | 2.99 GiB |
 | **`f16-512-512` (new default)** | **27.24 s (−3.3%)** | **5.13 s (−4.3%)** | 2.04 GiB | 2.99 GiB |
 
-JSON: `/tmp/aestrix-f16-2048-512.json` vs `/tmp/aestrix-f16-512-512.json`.  
+JSON: `/tmp/imarello-f16-2048-512.json` vs `/tmp/imarello-f16-512-512.json`.  
 Eval: `T2I_EXTRA='--attn-f16-threshold 512' ./Scripts/eval-regression.sh` — **15/15 pixel PASS**. Spot vision: mug (terracotta), fox, “OPEN STUDIO” poster OK. **Shipped default `f16SeqThreshold = 512`.**
 
 #### VAE D=512 query-chunked attention (2026-08-13)
@@ -392,8 +392,8 @@ Same-day release + full metallib, 8 GB M2. 512: W1/T3. 1024: W1/T2 (XProtect r
 | `vae-mlxfast-1024` | 7.96 s | — | 25 MB |
 | **`vae-chunk64-1024` (default)** | **8.01 s** | **+0.7%** | 23 MB |
 
-JSON: `/tmp/aestrix-vae-mlxfast-512.json` / `…-chunk64-512.json` / `…-1024.json`.  
-Numeric: `AESTRIX_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.  
+JSON: `/tmp/imarello-vae-mlxfast-512.json` / `…-chunk64-512.json` / `…-1024.json`.  
+Numeric: `IMARELLO_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.  
 **Ship chunked as default** — decode time is within noise; the bound is the score matrix (never S×S). Untiled 1024² encode is S=16384 (~1.1 GiB scores); chunk 64 keeps scores at `[Tq, S]`. Did **not** run T2I pixel/vision on this pass (host dirty; math is the same softmax). `--eval-cache mid` was **not** measured on this 8 GB host (refused without `--force`).
 
 ### Historical snapshots (not for cross-size RAM A/B)
@@ -422,7 +422,7 @@ Numeric: `AESTRIX_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.
 | M5→M2 | **VAE decode-only load for T2I/I2I decode** | ~67 MB fewer weights; **load_vae ~115→69 ms**; peak watermark slightly lower |
 | M5 tile | **VAE tiled decode** (default **overlap + cosine blend**, `VAETileConfig` tile=72/overlap=16) | Seams blended; cold 1024 decode ~8 s (was ~6.7 s hard 2×2); live VAE active still ~100 MB; e2e ~99 s cold |
 | S4/M10 | **SDPA query chunk size 256→512** (`AttentionTuning`) | ~1% faster denoise/step @ 1024²; peak RAM unchanged |
-| S4 FA | **Steel fused FA** (full-Q MLX SDPA; drop query-chunk for D=128) | denoise/step ~20.8→**20.2 s** @ 1024²; same peak RAM; + Aestrix float4 fused Metal kernel for non-Steel D |
+| S4 FA | **Steel fused FA** (full-Q MLX SDPA; drop query-chunk for D=128) | denoise/step ~20.8→**20.2 s** @ 1024²; same peak RAM; + Imarello float4 fused Metal kernel for non-Steel D |
 | Harness | Report `gpu=Apple M2 metal=Metal 4 neuralAccel=no` | Avoid confusing M5-only Metal 4 claims |
 | S2 P1 | **Size-gated per-block cache clears + collapsed QKV evals + single-eval chunked Linear** | denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²; watermark flat (see “2026-08-11 optimization pass”) |
 | S5 P5 | Compiled RoPE pair-mix (`compiledRopeMix`, 50×/step) + compiled AdaLN `modApply`/`gateAdd` | e2e **−7.0%** @ 512² on top of P1 (with P4); flat @ 1024² (see “P4 + P5” subsection) |
@@ -430,7 +430,7 @@ Numeric: `AESTRIX_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.
 | M5 P4 | Tiled VAE stitch: slice-local accumulate + cached cosine masks (was full-canvas pad+add ×2 per tile) | decode −8.9% @ 512²; 1024² within noise (see “P4 + P5” subsection) |
 | S6 P2 | `--text-tokens auto` trim (opt-in; numerics differ from full-512 reference) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; watermark 3.21 → 2.99 GB @ 512² |
 | S7 P3a | Prompt-embed disk cache (default on; `--no-embed-cache`) | Hit skips TE stage: **−4 s** @ 512², byte-identical output |
-| — P3b | `aestrix session` warm mode (resident policy, ≥16 GB gate, `--force-resident`) | No win on 8 GB (gate validated); resident reuse byte-identical |
+| — P3b | `imarello session` warm mode (resident policy, ≥16 GB gate, `--force-resident`) | No win on 8 GB (gate validated); resident reuse byte-identical |
 
 ### Draw Things / PDF report mapping (2026-08-11)
 
@@ -475,17 +475,17 @@ Peak MLX active **2.05 GiB** and watermark **3.75 GiB** unchanged across all
 
 **Shipped default change:** `AttentionTuning.queryChunkSize` **256 → 512**. Other defaults unchanged (threshold 1536, f16@2048, linear 512/1536).
 
-### Custom Metal FlashAttention (fused Steel + Aestrix kernels)
+### Custom Metal FlashAttention (fused Steel + Imarello kernels)
 
 **Key finding (v5):** MLX’s `ScaledDotProductAttention` already dispatches **Steel Attention** — a fused Metal FA2 kernel using `simdgroup_matrix` MMA (BQ=32, BK=16/32, BD=64/80/128), online softmax, and threadgroup Q/K/V tiles. It is **not** limited to Tq=1 (that was outdated docs). Fallback to unfused matmul+softmax only when head dim ∉ {64,80,128} or training/logsumexp.
 
-Older Aestrix **query-chunking** (Tq=512) fought this path. Product default now uses **one full-Q Steel launch** for FLUX D=128.
+Older Imarello **query-chunking** (Tq=512) fought this path. Product default now uses **one full-Q Steel launch** for FLUX D=128.
 
 | Item | Detail |
 |------|--------|
 | Product path | `AttentionUtils` → `MetalFlashAttention` → **MLX Steel fused FA** (D∈{64,80,128}) |
 | Hybrid FA2 | Host-loop steel `matmul` tiles when D unsupported |
-| Aestrix fused Metal | `scaledDotProductAttentionFusedMetal` — float4 online softmax, BQ=BK=32 (research / non-Steel D) |
+| Imarello fused Metal | `scaledDotProductAttentionFusedMetal` — float4 online softmax, BQ=BK=32 (research / non-Steel D) |
 | Backend flag | `--attn-backend mlx\|metal-fa\|auto` (mlx default now = Steel for Klein) |
 | Tests | 8 cases: steel D=128, fused float4, hybrid multi-tile, f16 |
 
@@ -508,7 +508,7 @@ Older Aestrix **query-chunking** (Tq=512) fought this path. Product default now 
 
 ## Research deep-dive (2026-08-11)
 
-Investigation of the three highest-effort candidates after the ~5% denoise pass. Sources: mlx-swift 0.31.6 docs (`Memory`, `compile`, `QuantizedLinear`), hub pack layout, Aestrix pipeline, and **measured** `cacheLimit` sweeps on an 8 GB Mac mini.
+Investigation of the three highest-effort candidates after the ~5% denoise pass. Sources: mlx-swift 0.31.6 docs (`Memory`, `compile`, `QuantizedLinear`), hub pack layout, Imarello pipeline, and **measured** `cacheLimit` sweeps on an 8 GB Mac mini.
 
 ### Weight budget (4-bit hub pack on disk)
 
@@ -770,24 +770,24 @@ Probes showed **DiT completed** (progress `denoising step=4/4`) and OOM was in *
 
 ---
 
-## Metal 4 (and what Aestrix should / should not do)
+## Metal 4 (and what Imarello should / should not do)
 
 Metal 4 (macOS 26 / iOS 26 era) adds first-class **ML tensors**, **quantized tensor formats + scales**, **Metal Performance Primitives (MPP) / TensorOps**, tighter ML↔graphics encoding, and (on **M5** and successors) **GPU Neural Accelerators** for high-throughput matmul. This host already reports **Metal Support: Metal 4** (e.g. M2 on macOS 26); that is **API generation**, not “has Neural Accelerators.”
 
-### How Aestrix touches Metal today
+### How Imarello touches Metal today
 
 | Layer | Role |
 |-------|------|
-| **Aestrix** | Swift graph: TE / DiT / VAE, staged residency, no hand-written MTLCommandBuffers |
+| **Imarello** | Swift graph: TE / DiT / VAE, staged residency, no hand-written MTLCommandBuffers |
 | **mlx-swift (pinned)** | Array runtime, `QuantizedLinear` / `quantizedMM`, `MLXFast.scaledDotProductAttention`, `compile` |
 | **Cmlx / metallib** | Prebuilt Metal kernels (`Scripts/ensure-metallib.sh` → ~130 MB full lib, not the 3 KB stub) |
 | **GPU** | Executes fused matmul / SDPA / conv; unified memory |
 
-There is **no separate “Metal 3 code path” in Aestrix** to port. Optimization for Metal 4 is almost entirely **“ride a Metal‑4-aware MLX on a capable OS/GPU”**, not rewrite the DiT in raw `MTL4*` APIs.
+There is **no separate “Metal 3 code path” in Imarello** to port. Optimization for Metal 4 is almost entirely **“ride a Metal‑4-aware MLX on a capable OS/GPU”**, not rewrite the DiT in raw `MTL4*` APIs.
 
 ### What Metal 4 could mean for FLUX.2-klein (in principle)
 
-| Feature | Relevance to Aestrix | Who owns it |
+| Feature | Relevance to Imarello | Who owns it |
 |---------|----------------------|-------------|
 | Quantized tensor formats + scales | Matches Affine 4-bit DiT/TE packs; better native quant kernels | **MLX** backend |
 | MPP / TensorOps | Faster matmul / fused ML ops under the hood | **MLX** |
@@ -796,7 +796,7 @@ There is **no separate “Metal 3 code path” in Aestrix** to port. Optimizatio
 | MetalFX neural upscale | Could upscale 512→display cheaply as **UX** later; not a DiT replacement | Optional product later |
 | Faster shader compile / encoding | Helps cold start if MLX JIT uses new pipelines | **MLX** + full metallib |
 
-Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives for Neural Accelerators; on M5, **TTFT-style compute** benefits most; bandwidth-bound work scales closer to memory BW (~+20–30% M5 vs M4 in their LLM decode numbers). A DiT denoise step is **much closer to compute-bound matmul** than to autoregressive decode—so M5-class silicon is the hardware bet for “Metal 4 era” speed, not hand-tuned Aestrix shaders.
+Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives for Neural Accelerators; on M5, **TTFT-style compute** benefits most; bandwidth-bound work scales closer to memory BW (~+20–30% M5 vs M4 in their LLM decode numbers). A DiT denoise step is **much closer to compute-bound matmul** than to autoregressive decode—so M5-class silicon is the hardware bet for “Metal 4 era” speed, not hand-tuned Imarello shaders.
 
 ### What we should *not* do
 
@@ -811,22 +811,22 @@ Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives fo
 |--------|-----|--------|
 | **Keep full metallib** (`ensure-metallib.sh`) | Avoids JIT thrash / stub kernels; cold vs warm already a measured issue | Ongoing |
 | **Prefer `MLXFast` / fused ops** (already SDPA) | Uses best available Metal kernels MLX ships | Already |
-| **Stay on a deliberate mlx-swift pin; re-validate newer releases** | Metal 4 / M5 TensorOps land in **MLX**, not Aestrix | Medium (when Apple bumps Cmlx) |
+| **Stay on a deliberate mlx-swift pin; re-validate newer releases** | Metal 4 / M5 TensorOps land in **MLX**, not Imarello | Medium (when Apple bumps Cmlx) |
 | **Record GPU chip + OS in bench `SystemSnapshot`** | Separate “M2 Metal 4 API” vs “M5 Neural Accel” baselines | Small harness tweak |
 | **Optional: lower-res generate + MetalFX/display upscale** | Latency UX on Tier L; not a substitute for DiT opts | Product later |
 | **Profile with Metal capture** (`MTL_CAPTURE_ENABLED`, MLX metal debugger) | See if denoise is ALU-bound vs bandwidth on this GPU | Occasional |
 
 ### Expected outcomes by hardware class
 
-| Hardware | Metal 4 API | Neural Accelerators | Realistic Aestrix lever |
+| Hardware | Metal 4 API | Neural Accelerators | Realistic Imarello lever |
 |----------|:-----------:|:-------------------:|-------------------------|
 | M1–M4 (this Mini: **M2**) | Yes (on macOS 26) | No | Software: eval/RoPE/stage opts (done); MLX upgrades; res/bits |
-| **M5 / M5 Pro / Max** | Yes | Yes | **Same Aestrix binary**, newer MLX + OS → large DiT speedup without Aestrix Metal rewrites |
+| **M5 / M5 Pro / Max** | Yes | Yes | **Same Imarello binary**, newer MLX + OS → large DiT speedup without Imarello Metal rewrites |
 | iOS 26 + A19-class | Yes | Per SoC | Same staged core; metallib packaging (P7) |
 
 ### Verdict
 
-**Optimizing “for Metal 4” in Aestrix ≠ writing Metal 4 code.** It means:
+**Optimizing “for Metal 4” in Imarello ≠ writing Metal 4 code.** It means:
 
 1. Stay on the **MLX Metal backend** that adopts MPP / quant tensors / Neural Accelerators.  
 2. Keep graphs **compile- and quant-friendly** (no host `item()` in hot paths — already fixed).  
@@ -842,25 +842,25 @@ Do **not** start a parallel custom-Metal DiT. Do **track mlx-swift upgrades** an
 # Cool machine, AC power, close other GPU apps
 swift build -c release && ./Scripts/ensure-metallib.sh
 
-.build/release/aestrix bench \
+.build/release/imarello bench \
   --label "baseline-release-512-s4" \
   --mode t2i --width 512 --height 512 --steps 4 \
   --warmup 1 --trials 5 --seed 42 \
-  --json ~/Desktop/aestrix-baseline.json
+  --json ~/Desktop/imarello-baseline.json
 
 # Optional quality-coupled run
-.build/release/aestrix bench \
+.build/release/imarello bench \
   --label "baseline-quality" \
   --trials 2 --with-quality \
-  --json ~/Desktop/aestrix-baseline-quality.json
+  --json ~/Desktop/imarello-baseline-quality.json
 ```
 
 After an optimization:
 
 ```bash
-.build/release/aestrix bench --label "opt-cache-2g" --cache-limit 2147483648 \
-  --json ~/Desktop/aestrix-opt.json
-.build/release/aestrix bench-compare ~/Desktop/aestrix-baseline.json ~/Desktop/aestrix-opt.json
+.build/release/imarello bench --label "opt-cache-2g" --cache-limit 2147483648 \
+  --json ~/Desktop/imarello-opt.json
+.build/release/imarello bench-compare ~/Desktop/imarello-baseline.json ~/Desktop/imarello-opt.json
 ```
 
 ---
@@ -881,10 +881,10 @@ After an optimization:
 ## Library API
 
 ```swift
-import AestrixBench
-import AestrixRuntime
+import ImarelloBench
+import ImarelloRuntime
 
-let pipeline = AestrixPipeline()
+let pipeline = ImarelloPipeline()
 let config = BenchConfig(mode: .t2i, label: "api", trials: 3, warmup: 1)
 let report = try await BenchRunner(pipeline: pipeline, config: config).run()
 print(BenchReportWriter.textSummary(report))

@@ -2,79 +2,79 @@
 import PackageDescription
 
 let package = Package(
-    name: "Aestrix",
+    name: "Imarello",
     platforms: [
         .macOS(.v15),
         .iOS(.v18),
     ],
     products: [
-        .library(name: "AestrixCore", targets: ["AestrixCore"]),
-        .library(name: "AestrixWeights", targets: ["AestrixWeights"]),
-        .library(name: "AestrixText", targets: ["AestrixText"]),
-        .library(name: "AestrixDiT", targets: ["AestrixDiT"]),
-        .library(name: "AestrixVAE", targets: ["AestrixVAE"]),
-        .library(name: "AestrixRuntime", targets: ["AestrixRuntime"]),
-        .library(name: "AestrixEval", targets: ["AestrixEval"]),
-        .library(name: "AestrixBench", targets: ["AestrixBench"]),
-        .executable(name: "aestrix", targets: ["AestrixCLI"]),
+        .library(name: "ImarelloCore", targets: ["ImarelloCore"]),
+        .library(name: "ImarelloWeights", targets: ["ImarelloWeights"]),
+        .library(name: "ImarelloText", targets: ["ImarelloText"]),
+        .library(name: "ImarelloDiT", targets: ["ImarelloDiT"]),
+        .library(name: "ImarelloVAE", targets: ["ImarelloVAE"]),
+        .library(name: "ImarelloRuntime", targets: ["ImarelloRuntime"]),
+        .library(name: "ImarelloEval", targets: ["ImarelloEval"]),
+        .library(name: "ImarelloBench", targets: ["ImarelloBench"]),
+        .executable(name: "imarello", targets: ["ImarelloCLI"]),
     ],
     dependencies: [
         // mlx-swift is declared for Phases 1+ (model port). Phase 0 stubs do not
-        // link it so `aestrix mem-selftest` works without metallib. Uncomment
+        // link it so `imarello mem-selftest` works without metallib. Uncomment
         // product deps on Text/DiT/VAE when implementing those modules.
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [
         .target(
-            name: "AestrixCore",
+            name: "ImarelloCore",
             dependencies: []
         ),
         .target(
-            name: "AestrixWeights",
+            name: "ImarelloWeights",
             dependencies: [
-                "AestrixCore",
+                "ImarelloCore",
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
         .target(
-            name: "AestrixText",
+            name: "ImarelloText",
             dependencies: [
-                "AestrixCore",
-                "AestrixWeights",
-                .product(name: "MLX", package: "mlx-swift"),
-                .product(name: "MLXNN", package: "mlx-swift"),
-                .product(name: "MLXFast", package: "mlx-swift"),
-            ]
-        ),
-        .target(
-            name: "AestrixDiT",
-            dependencies: [
-                "AestrixCore",
-                "AestrixWeights",
+                "ImarelloCore",
+                "ImarelloWeights",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
             ]
         ),
         .target(
-            name: "AestrixVAE",
+            name: "ImarelloDiT",
             dependencies: [
-                "AestrixCore",
-                "AestrixWeights",
+                "ImarelloCore",
+                "ImarelloWeights",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
             ]
         ),
         .target(
-            name: "AestrixRuntime",
+            name: "ImarelloVAE",
             dependencies: [
-                "AestrixCore",
-                "AestrixWeights",
-                "AestrixText",
-                "AestrixDiT",
-                "AestrixVAE",
+                "ImarelloCore",
+                "ImarelloWeights",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+            ]
+        ),
+        .target(
+            name: "ImarelloRuntime",
+            dependencies: [
+                "ImarelloCore",
+                "ImarelloWeights",
+                "ImarelloText",
+                "ImarelloDiT",
+                "ImarelloVAE",
                 .product(name: "MLX", package: "mlx-swift"),
             ],
             linkerSettings: [
@@ -82,9 +82,9 @@ let package = Package(
             ]
         ),
         .target(
-            name: "AestrixEval",
+            name: "ImarelloEval",
             dependencies: [
-                "AestrixCore",
+                "ImarelloCore",
             ],
             linkerSettings: [
                 .linkedFramework("Vision"),
@@ -92,24 +92,24 @@ let package = Package(
             ]
         ),
         .target(
-            name: "AestrixBench",
+            name: "ImarelloBench",
             dependencies: [
-                "AestrixCore",
-                "AestrixRuntime",
-                "AestrixDiT",
-                "AestrixEval",
+                "ImarelloCore",
+                "ImarelloRuntime",
+                "ImarelloDiT",
+                "ImarelloEval",
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
         .executableTarget(
-            name: "AestrixCLI",
+            name: "ImarelloCLI",
             dependencies: [
-                "AestrixCore",
-                "AestrixRuntime",
-                "AestrixDiT",
-                "AestrixVAE",
-                "AestrixEval",
-                "AestrixBench",
+                "ImarelloCore",
+                "ImarelloRuntime",
+                "ImarelloDiT",
+                "ImarelloVAE",
+                "ImarelloEval",
+                "ImarelloBench",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             // Placeholder default Metal library for MLX when using `swift build`
@@ -119,44 +119,44 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "AestrixCoreTests",
-            dependencies: ["AestrixCore", "AestrixWeights", "AestrixRuntime"]
+            name: "ImarelloCoreTests",
+            dependencies: ["ImarelloCore", "ImarelloWeights", "ImarelloRuntime"]
         ),
         .testTarget(
-            name: "AestrixTextTests",
+            name: "ImarelloTextTests",
             dependencies: [
-                "AestrixText",
-                "AestrixCore",
+                "ImarelloText",
+                "ImarelloCore",
             ]
         ),
         .testTarget(
-            name: "AestrixDiTTests",
+            name: "ImarelloDiTTests",
             dependencies: [
-                "AestrixDiT",
-                "AestrixCore",
+                "ImarelloDiT",
+                "ImarelloCore",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
             ]
         ),
         .testTarget(
-            name: "AestrixEvalTests",
+            name: "ImarelloEvalTests",
             dependencies: [
-                "AestrixEval",
-                "AestrixCore",
+                "ImarelloEval",
+                "ImarelloCore",
             ]
         ),
         .testTarget(
-            name: "AestrixBenchTests",
+            name: "ImarelloBenchTests",
             dependencies: [
-                "AestrixBench",
-                "AestrixCore",
+                "ImarelloBench",
+                "ImarelloCore",
             ]
         ),
         .testTarget(
-            name: "AestrixVAETests",
+            name: "ImarelloVAETests",
             dependencies: [
-                "AestrixVAE",
-                "AestrixCore",
+                "ImarelloVAE",
+                "ImarelloCore",
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),

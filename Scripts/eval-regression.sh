@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # Sequential 512² T2I pixel regression from Docs/eval-prompts.md (seeds 42, 0, 7).
-# Does not commit PNGs. Requires a built aestrix + local snapshot + metallib.
+# Does not commit PNGs. Requires a built imarello + local snapshot + metallib.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-AESTRIX="${AESTRIX:-.build/release/aestrix}"
-OUT="${OUT_DIR:-/tmp/aestrix-eval-regression}"
+IMARELLO="${IMARELLO:-${AESTRIX:-.build/release/imarello}}"
+OUT="${OUT_DIR:-/tmp/imarello-eval-regression}"
 WIDTH="${WIDTH:-512}"
 HEIGHT="${HEIGHT:-512}"
 SEEDS="${SEEDS:-42 0 7}"
 
-if [[ ! -x "$AESTRIX" ]]; then
-  echo "error: $AESTRIX not executable (build release first)" >&2
+if [[ ! -x "$IMARELLO" ]]; then
+  echo "error: $IMARELLO not executable (build release first)" >&2
   exit 1
 fi
 
 mkdir -p "$OUT"
 SUMMARY="$OUT/summary.md"
 : > "$SUMMARY"
-echo "# Aestrix 512² eval regression" >> "$SUMMARY"
+echo "# Imarello 512² eval regression" >> "$SUMMARY"
 echo "" >> "$SUMMARY"
-echo "binary: \`$AESTRIX\`  canvas: ${WIDTH}×${HEIGHT}  $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SUMMARY"
+echo "binary: \`$IMARELLO\`  canvas: ${WIDTH}×${HEIGHT}  $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SUMMARY"
 echo "" >> "$SUMMARY"
 echo "| id | seed | gate | technical | notes |" >> "$SUMMARY"
 echo "|----|-----:|------|----------:|-------|" >> "$SUMMARY"
@@ -45,7 +45,7 @@ for prompt in "${PROMPTS[@]}"; do
     echo "== $tag =="
     set +e
     # shellcheck disable=SC2086
-    "$AESTRIX" t2i "$prompt" \
+    "$IMARELLO" t2i "$prompt" \
       --width "$WIDTH" --height "$HEIGHT" --steps 4 --seed "$seed" \
       --output "$png" --analyze --fail-on-pixel-gate \
       ${T2I_EXTRA:-}

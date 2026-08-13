@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "== Aestrix Hub pins + eval golden floors =="
+echo "== Imarello Hub pins + eval golden floors =="
 # Single invocation so SPM compiles once. Do not drop the filter: Metal FA tests
 # have hung after GPU aborts on constrained hosts.
 swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "pinned_on": "2026-08-13",
-  "note": "Hugging Face git revisions Aestrix ships against. Bump WeightPreset.pin in lockstep with this file.",
+  "note": "Hugging Face git revisions Imarello ships against. Bump WeightPreset.pin in lockstep with this file.",
   "packs": {
     "3bit": {
       "model_id": "mlx-community/FLUX.2-Klein-4B-3bit",

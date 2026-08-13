@@ -2,7 +2,7 @@
 .build/
 .swiftpm/
 # Full MLX Metal library (~130MB). Generate: Scripts/ensure-metallib.sh
-# A tiny stub is committed under Sources/AestrixCLI/Resources/ for SPM package resources.
+# A tiny stub is committed under Sources/ImarelloCLI/Resources/ for SPM package resources.
 Tools/Metal/mlx.metallib
 Tools/Metal/mlx.metallib.stub
 *.xcodeproj

@@ -2,7 +2,7 @@
 
 **P8 deliverable.** Klein is distilled **4-step**. I2I does **not** slice a T2I schedule. It always runs all N steps from a start-noise set by `--strength` and `--schedule`.
 
-Code: `StrengthScheduleCurve`, `Flux2Scheduler.strengthSchedule`. CLI: `aestrix i2i`, `aestrix schedule` (T2I sigmas only).
+Code: `StrengthScheduleCurve`, `Flux2Scheduler.strengthSchedule`. CLI: `imarello i2i`, `imarello schedule` (T2I sigmas only).
 
 ## Mapping
 
@@ -51,12 +51,12 @@ Do **not** turn on `--identity` for a mug or still life. Strength-only + color c
 
 ```bash
 # Object recolor
-.build/release/aestrix i2i \
+.build/release/imarello i2i \
   "the same ceramic mug but emerald green glaze #0B5F4B, same morning light" \
   --image src.png --strength 0.8 --output edit.png --analyze --vision-brief
 
 # Same person, new wardrobe + light
-.build/release/aestrix i2i \
+.build/release/imarello i2i \
   "Same woman, identical face, eyes, freckles, hair, pose. Replace the ivory blouse with a different emerald silk wrap top. Golden hour balcony." \
   --image portrait.png --strength 0.9 --identity --output edit-id.png --analyze --vision-brief
 ```

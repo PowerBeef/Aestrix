@@ -1,4 +1,4 @@
-# Aestrix memory model
+# Imarello memory model
 
 ## North star
 
@@ -45,11 +45,11 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | VAE tiled decode (overlap + cosine blend) | Done |
 | DiT **weight** streaming (block JIT load) | Not default — iOS headroom spike |
 | Draw Things–style AdaLN split | **N/A for Klein** — shared modulation is ~4% of DiT (`Docs/DRAW_THINGS.md`) |
-| Aestrix float4 fused Metal FA | Research / non-Steel D (`MetalFlashAttention`) |
+| Imarello float4 fused Metal FA | Research / non-Steel D (`MetalFlashAttention`) |
 
 ## Measurement
 
-- CLI: `aestrix bench` (`pressure-map`, `dit-one-step`, `res-ladder`, `mem-stages`)  
+- CLI: `imarello bench` (`pressure-map`, `dit-one-step`, `res-ladder`, `mem-stages`)  
 - Instrument with `Memory.activeMemory` / process footprint around each stage  
 - Tests must assert TE and DiT are never both loaded  
 

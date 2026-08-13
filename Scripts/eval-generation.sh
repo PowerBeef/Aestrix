@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-AESTRIX="${AESTRIX:-$ROOT/.build/debug/aestrix}"
+IMARELLO="${IMARELLO:-${AESTRIX:-$ROOT/.build/debug/imarello}}"
 IMAGE=""
 PROMPT=""
 REFERENCE=""
@@ -18,10 +18,10 @@ Usage:
   Scripts/eval-generation.sh <image.png> --prompt "..." [--reference src.png] [--mode t2i|i2i]
                              [--json report.json] [--fail-on-pixel-gate]
 
-Runs aestrix analyze-image (text report + JSON) and writes a vision brief sidecar.
+Runs imarello analyze-image (text report + JSON) and writes a vision brief sidecar.
 
 Environment:
-  AESTRIX   path to aestrix binary (default: .build/debug/aestrix)
+  IMARELLO   path to imarello binary (default: .build/debug/imarello)
 EOF
 }
 
@@ -46,10 +46,10 @@ if [[ ! -f "$IMAGE" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$AESTRIX" ]]; then
-  echo "building aestrix…"
-  (cd "$ROOT" && swift build --product aestrix)
-  AESTRIX="$ROOT/.build/debug/aestrix"
+if [[ ! -x "$IMARELLO" ]]; then
+  echo "building imarello…"
+  (cd "$ROOT" && swift build --product imarello)
+  IMARELLO="$ROOT/.build/debug/imarello"
 fi
 
 if [[ -z "$MODE" ]]; then
@@ -65,14 +65,14 @@ ARGS=(analyze-image "$ABS_IMAGE" --json "$JSON_OUT" --vision-mode "$MODE")
 if [[ -n "$PROMPT" ]]; then ARGS+=(--prompt "$PROMPT"); fi
 if [[ -n "$REFERENCE" ]]; then ARGS+=(--reference "$REFERENCE"); fi
 
-echo "=== Aestrix eval-generation ==="
+echo "=== Imarello eval-generation ==="
 echo "image: $ABS_IMAGE"
 echo "mode:  $MODE"
 [[ -n "$PROMPT" ]] && echo "prompt: $PROMPT"
 [[ -n "$REFERENCE" ]] && echo "reference: $REFERENCE"
 
 set +e
-"$AESTRIX" "${ARGS[@]}"
+"$IMARELLO" "${ARGS[@]}"
 CODE=$?
 set -e
 
@@ -80,7 +80,7 @@ set -e
 BRIEF_ARGS=(analyze-image "$ABS_IMAGE" --vision-brief --vision-mode "$MODE")
 if [[ -n "$PROMPT" ]]; then BRIEF_ARGS+=(--prompt "$PROMPT"); fi
 if [[ -n "$REFERENCE" ]]; then BRIEF_ARGS+=(--reference "$REFERENCE"); fi
-"$AESTRIX" "${BRIEF_ARGS[@]}" > "$BRIEF_OUT" || true
+"$IMARELLO" "${BRIEF_ARGS[@]}" > "$BRIEF_OUT" || true
 echo "vision_brief: $BRIEF_OUT"
 echo "eval_json:    $JSON_OUT"
 

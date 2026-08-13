@@ -1,6 +1,6 @@
-# Aestrix — Agent Instructions
+# Imarello — Agent Instructions
 
-Aestrix is a **from-scratch** native **Swift + MLX** runtime for **Black Forest Labs FLUX.2 [klein] 4B** (Apache-2.0) on Apple Silicon. It is **not** a fork of existing Swift ports; public MLX ports are oracles only.
+Imarello is a **from-scratch** native **Swift + MLX** runtime for **Black Forest Labs FLUX.2 [klein] 4B** (Apache-2.0) on Apple Silicon. It is **not** a fork of existing Swift ports; public MLX ports are oracles only.
 
 ## Product locks
 
@@ -33,9 +33,9 @@ Aestrix is a **from-scratch** native **Swift + MLX** runtime for **Black Forest 
 | Hugging Face download / inspect | `hf-cli` / `hf` |
 | Build / sim / device | XcodeBuildMCP + `axiom-xcode-mcp` / `axiom-build` |
 | Concurrency / actors | `axiom-concurrency` |
-| Memory / perf audits | `axiom-performance`, **`Docs/PERF.md`**, `aestrix bench` |
+| Memory / perf audits | `axiom-performance`, **`Docs/PERF.md`**, `imarello bench` |
 | Tests | `axiom-testing` |
-| Image quality / gen feedback | **`Docs/EVAL_WORKFLOW.md`** + `aestrix analyze-image` + vision tools |
+| Image quality / gen feedback | **`Docs/EVAL_WORKFLOW.md`** + `imarello analyze-image` + vision tools |
 | “Done” claims | `verification-before-completion` + **EVAL_WORKFLOW** on sample PNGs |
 
 BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills cover **implementation**.
@@ -53,7 +53,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
 10. **I2I strength**: full N-step schedule; color curve default. Color/object **≥ 0.8**. Recipes: [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md).
 11. **I2I identity (Tier B)**: `--identity` = ref latents (`t=10`) + face mask + clean-pull + milder `identity` curve. People + scene **0.85–0.9**. Say **recolor same cut** vs **replace outfit**. Default I2I stays strength-only.
-12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Aestrix/embeds`, keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical). `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **opt-in / experimental**; big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
+12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Imarello/embeds`; leftover `~/Library/Caches/Aestrix/` is still read). Keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical. `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **opt-in / experimental**; big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
 
 ## Phase status
 
@@ -62,8 +62,8 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | Phase | Status | Notes |
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
-| **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `aestrix i2i --identity` |
-| **P9 Performance harness** | **Done** | `AestrixBench` (t2i / i2i / identity-i2i + host contention); Steel FA + tiled VAE + **context hoist**; 2026-08-13 `hoist-512` / `hoist-1024` in `Docs/PERF.md` |
+| **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
+| **P9 Performance harness** | **Done** | `ImarelloBench` (t2i / i2i / identity-i2i + host contention); Steel FA + tiled VAE + **context hoist**; 2026-08-13 `hoist-512` / `hoist-1024` in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
@@ -79,28 +79,28 @@ Do not stack untested phase work on a broken foundation (e.g. metallib, load fai
 - After `swift build` / package resolve: run **`Scripts/ensure-metallib.sh`**.
 - Large metallib is **gitignored**; regenerate after clean checkouts.
 - Prefer **`swift build -c release`** for generation / benches.
-- Smoke: `aestrix load-te` · `load-dit` · `load-vae` · `t2i` / `bench` (needs snapshot + metallib).
+- Smoke: `imarello load-te` · `load-dit` · `load-vae` · `t2i` / `bench` (needs snapshot + metallib).
 
 ## Host safety (8 GB Mac mini — blocking)
 
-This machine is **8 GB unified** (`Mac14,3`). Cursor agents + `swift build`/`swift test` + `MTLCompilerService` + optional DiT (~2 GiB) starved **WindowServer** for 127 s and triggered a **watchdog kernel panic** (2026-08-13). Separate `aestrix` Metal command-buffer aborts (VAE decode) are process crashes that can worsen compositor stalls.
+This machine is **8 GB unified** (`Mac14,3`). Cursor agents + `swift build`/`swift test` + `MTLCompilerService` + optional DiT (~2 GiB) starved **WindowServer** for 127 s and triggered a **watchdog kernel panic** (2026-08-13). Separate `imarello` Metal command-buffer aborts (VAE decode) are process crashes that can worsen compositor stalls.
 
 **Rules for every agent on this host:**
 
-1. **One Metal owner.** Do not run `aestrix` generate/bench/compile-spike while Xcode, another `aestrix`, or a second IDE is compiling Metal.
+1. **One Metal owner.** Do not run `imarello` generate/bench/compile-spike while Xcode, another `imarello`, or a second IDE is compiling Metal.
 2. **Default to filtered unit tests and 512² smokes.** 1024² T2I bench is OK when asked (measured ~88 s, watermark ~3.76 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 (joint ~8704) unless the user explicitly wants that.
 3. **Never** `MLX.compile` the full DiT; **never** `dit-compile-spike` on this host without `--force` on an idle machine.
 4. **Never** relax cache-clear / `EvalCachePolicy.high` (that type is not in this tree).
-5. After any reboot, hang, or new `aestrix-*.ips`, **stop and inspect** DiagnosticReports before retrying.
+5. After any reboot, hang, or new `imarello-*.ips`, **stop and inspect** DiagnosticReports before retrying.
 6. Do not reintroduce VAE D=512 `evalEachChunk` or `EvalCachePolicy.high`. `EvalCachePolicy.mid` is a **≥16 GB bench flag only**; this host stays on `product`.
 7. **Ambient ≠ contaminated:** `WindowServer`, Ghostty, `grok`, `MTLCompilerService` do not mark bench trials dirty. Cursor / `swift-package` still do.
 
-CLI: `HostPreflight` takes `~/Library/Caches/Aestrix/aestrix.lock` and refuses a second instance. **Swap is not a run gate.** Details: [`Docs/HOST_SAFETY.md`](Docs/HOST_SAFETY.md).
+CLI: `HostPreflight` takes `~/Library/Caches/Imarello/imarello.lock` and refuses a second instance. **Swap is not a run gate.** Details: [`Docs/HOST_SAFETY.md`](Docs/HOST_SAFETY.md).
 
 **Tests:** do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts). Prefer:
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention'
 ```
 
 ---
@@ -117,17 +117,17 @@ After every `t2i` / `i2i` used to judge quality, agents **must** run pixel eval 
 swift build -c release && ./Scripts/ensure-metallib.sh
 
 # T2I (default 1024²; use --width 512 for faster smoke)
-.build/release/aestrix t2i "$PROMPT" --width 1024 --height 1024 --steps 4 --seed 42 \
+.build/release/imarello t2i "$PROMPT" --width 1024 --height 1024 --steps 4 --seed 42 \
   --output /tmp/out.png --analyze --vision-brief
 # 512² eval-prompts × seeds 42/0/7 (pixel gate; PNGs under /tmp)
-AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
+IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh
 
 # I2I (strength-only color/style)
-.build/release/aestrix i2i "$PROMPT" --image "$REF" --strength 0.8 \
+.build/release/imarello i2i "$PROMPT" --image "$REF" --strength 0.8 \
   --output /tmp/edit.png --analyze --vision-brief
 
 # I2I identity (people / character consistency — Tier B)
-.build/release/aestrix i2i "$PROMPT" --image "$REF" --strength 0.9 --identity \
+.build/release/imarello i2i "$PROMPT" --image "$REF" --strength 0.9 --identity \
   --output /tmp/edit-id.png --analyze --vision-brief
 ```
 
@@ -137,20 +137,20 @@ AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
 
 ```bash
 # Multi-trial timings + memory (512 smoke; 1024 is product default)
-.build/release/aestrix bench --width 512 --height 512 --warmup 1 --trials 3 \
+.build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
   --json /tmp/bench.json
 
 # Identity I2I bench (512² first)
-.build/release/aestrix bench --mode identity-i2i --image "$REF" \
+.build/release/imarello bench --mode identity-i2i --image "$REF" \
   --width 512 --height 512 --strength 0.9 --with-quality \
   --json /tmp/id-i2i.json
 
 # DiT block-level pressure map
-.build/release/aestrix bench --mode pressure-map --width 768 --height 768 \
+.build/release/imarello bench --mode pressure-map --width 768 --height 768 \
   --probe-density blocks --json /tmp/pressure.json
 
 # Resolution ladder (subprocess per side)
-.build/release/aestrix bench --mode res-ladder --ladder 512,768,1024
+.build/release/imarello bench --mode res-ladder --ladder 512,768,1024
 ```
 
 Do **not** claim Tier L/M readiness or 1024² support without measured peak RSS / MLX watermark.
@@ -177,7 +177,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 - Swift 6, `actor` isolation for all MLX state (`MLXArray` is not `Sendable`).
 - Pin `mlx-swift` deliberately after validation (`0.31.6`).
 - Prefer `MLXFast.scaledDotProductAttention`.
-- Public API lives in `AestrixRuntime`; modules are loadable independently.
+- Public API lives in `ImarelloRuntime`; modules are loadable independently.
 - Instrumentation via `PipelineTrace` / `ProbeDensity` must not change numerics when density is `.off`.
 - Do not add BFL cloud API as a runtime dependency.
 
@@ -185,18 +185,18 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 
 | Command | Role |
 |---------|------|
-| `aestrix info` | Tier, policy, snapshot path, pinned Hub revision, metallib Steel check |
-| `aestrix mem-selftest` | Dry staged residency (no weights) |
-| `aestrix schedule` | Print sigmas/timesteps |
-| `aestrix load-te` / `load-dit` / `load-vae` | Staged weight load smoke; `load-dit --dump-dtypes` = compute-dtype probe |
-| `aestrix encode-prompt` | TE only → shape/token count |
-| `aestrix t2i … --analyze --vision-brief` | Generate + eval kickoff |
-| `aestrix i2i … --analyze --vision-brief` | Edit + eval kickoff |
-| `aestrix analyze-image` | Pixel / brief only |
-| `aestrix bench` | Timings, memory, pressure; modes `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `vae-decode`. Flags: `--vae-attn-chunk`, `--eval-cache product\|mid` |
-| `aestrix bench-compare A B` | Percent deltas between JSON reports |
-| `aestrix session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
-| `aestrix dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |
+| `imarello info` | Tier, policy, snapshot path, pinned Hub revision, metallib Steel check |
+| `imarello mem-selftest` | Dry staged residency (no weights) |
+| `imarello schedule` | Print sigmas/timesteps |
+| `imarello load-te` / `load-dit` / `load-vae` | Staged weight load smoke; `load-dit --dump-dtypes` = compute-dtype probe |
+| `imarello encode-prompt` | TE only → shape/token count |
+| `imarello t2i … --analyze --vision-brief` | Generate + eval kickoff |
+| `imarello i2i … --analyze --vision-brief` | Edit + eval kickoff |
+| `imarello analyze-image` | Pixel / brief only |
+| `imarello bench` | Timings, memory, pressure; modes `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `vae-decode`. Flags: `--vae-attn-chunk`, `--eval-cache product\|mid` |
+| `imarello bench-compare A B` | Percent deltas between JSON reports |
+| `imarello session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
+| `imarello dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |
 | `Scripts/eval-generation.sh` | Eval existing PNG |
 | `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate |
 | `Scripts/ci-eval-floors.sh` | Hub pins + synthetic golden floors (no weights; GitHub Actions) |

@@ -1,0 +1,14 @@
+import Testing
+@testable import ImarelloCore
+
+@Suite("Text token mode")
+struct TextTokenModeTests {
+    @Test("raw values are 512 and auto")
+    func rawValues() {
+        #expect(TextTokenMode.full512.rawValue == "512")
+        #expect(TextTokenMode.auto.rawValue == "auto")
+        #expect(TextTokenMode(rawValue: "512") == .full512)
+        #expect(TextTokenMode(rawValue: "auto") == .auto)
+        #expect(TextTokenMode(rawValue: "256") == nil)
+    }
+}

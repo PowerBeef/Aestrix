@@ -35,7 +35,7 @@ The research doc’s Wave-0 “evidence lock” is mostly **already shipped** af
 | HostPreflight lock | Done |
 | `--text-tokens auto` | Done (opt-in) |
 | Prompt-embed cache | Done (default on) |
-| `aestrix session` | Done (≥16 GB gate) |
+| `imarello session` | Done (≥16 GB gate) |
 | Steel FA D=128 | Done |
 | f16 QKV @ 512² | Done (threshold 512) |
 | P8 polish | Done |
@@ -50,7 +50,7 @@ Merging `2ce2a8f` would **rewind** those files to the `6c8b13c` shape.
 |------|-----|
 | **Whole branch** | Diverged; would clobber `main`. |
 | **`EvalCachePolicy.high`** | Relaxes per-step `clearCache` and the 768-side clamp. Forbidden in `AGENTS.md`. This is the class of change that can grow the MLX watermark on 8 GB. |
-| **VAE `evalEachChunk = true`** | Extra `eval` on every D=512 query chunk. Extra GPU sync on the VAE path that already produced `aestrix-*.ips` Metal aborts. |
+| **VAE `evalEachChunk = true`** | Extra `eval` on every D=512 query chunk. Extra GPU sync on the VAE path that already produced `imarello-*.ips` Metal aborts. |
 | **Auto-select cache policy from `DeviceTier`** | The quarantine type itself says never do this. Keep product constants. |
 | TeaCache / TaylorSeer / FORA / ToCa as default Klein | Their own note: 4-step Klein has almost no safe skip. |
 | FlowUpscaler / iRDM / Core ML backend / TensorOps W8A8 | New model or new stack. Out of v1. |
@@ -70,7 +70,7 @@ Port the **math** (chunk Q, never S×S) with:
 
 Land only if decode/encode time or peak drops and PNGs stay bit-close (or eval-regression + one I2I smoke).
 
-**2. `aestrix info` metallib / Steel symbol check**  
+**2. `imarello info` metallib / Steel symbol check**  
 `MetallibVerification` (ASCII scan of `steel_attention`, `affine_qmm`) plus `ensure-metallib.sh` failing closed on a stub is cheap packaging hygiene. Skip NAX symbol requirements on this host.
 
 **3. Optional `EvalCachePolicy.mid` as a *bench flag only***  
@@ -95,7 +95,7 @@ Reimplemented from the ideas above — **not** cherry-picked from `2ce2a8f`.
 
 | Item | Status |
 |------|--------|
-| Metallib Steel check | Done — `MetallibVerification` + `aestrix info` + `Scripts/ensure-metallib.sh` fail-closed on stub / missing Steel |
+| Metallib Steel check | Done — `MetallibVerification` + `imarello info` + `Scripts/ensure-metallib.sh` fail-closed on stub / missing Steel |
 | VAE D=512 chunked SDPA | Done — `VAEAttention`, `evalEachChunk = false`, `bench --mode vae-decode` actually decodes, `--vae-attn-chunk` A/B |
 | Hygiene tests | Done — `PromptEmbedCacheKeyTests`, `TextTokenModeTests` |
 | `EvalCachePolicy.mid` | Done as **bench flag only**. `--eval-cache mid` refused on `DeviceTier.low` unless `--force`. `named("high") == nil`. Product generate path stays on `product`. |

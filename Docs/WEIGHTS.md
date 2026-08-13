@@ -1,12 +1,12 @@
-# Aestrix weights
+# Imarello weights
 
 ## Product policy
 
 - Users download **pre-quantized MLX packages only**.
 - **Default: 4-bit.** Optional: 3-bit (Tier L), 6/8-bit (quality).
 - **No bf16** in runtime defaults or App Store flows.
-- Cache: `~/Library/Caches/Aestrix/models/` (macOS); app container on iOS.
-- **Pinned revision:** each product preset ships against a Hugging Face **commit SHA** (`WeightPreset.pin`, [`hub-pins.json`](hub-pins.json)). `aestrix info` prints `model_revision` and compares it to local `hf download` metadata when present.
+- Cache: `~/Library/Caches/Imarello/models/` (macOS); app container on iOS. Existing `~/Library/Caches/Aestrix/models/` snapshots are still resolved.
+- **Pinned revision:** each product preset ships against a Hugging Face **commit SHA** (`WeightPreset.pin`, [`hub-pins.json`](hub-pins.json)). `imarello info` prints `model_revision` and compares it to local `hf download` metadata when present.
 
 ## Canonical package (Phase 0 decision)
 
@@ -30,24 +30,24 @@ Measured on Hub API (2026-08-10):
 | VAE | `vae/*.safetensors` | **~0.17 GB** |
 | Tokenizer | `tokenizer/*` | ~11 MB |
 
-**Loader implication:** Community packs are already **module-split**. Aestrix can load `text_encoder/`, `transformer/`, `vae/` independently for staged residency **without** a mandatory re-shard import step. Optional Aestrix `manifest.json` may still record bits, group size, and revision SHA.
+**Loader implication:** Community packs are already **module-split**. Imarello can load `text_encoder/`, `transformer/`, `vae/` independently for staged residency **without** a mandatory re-shard import step. Optional Imarello `manifest.json` may still record bits, group size, and revision SHA.
 
 **Total download ~4.6 GB** class — not ~20 GB bf16.
 
 ## Loader format
 
 1. **Runtime loads** Hugging Face snapshot directories directly (prefer primary ID above).
-2. **Pin** `AestrixConfig.revision` / `WeightPreset.pinnedRevision` (shipped; see table).
-3. **Integrity**: `hf download` metadata SHA is compared to the pin by `aestrix info` (`snapshot_revision_match`). Size checks after download; content-hash of shards is still optional.
+2. **Pin** `ImarelloConfig.revision` / `WeightPreset.pinnedRevision` (shipped; see table).
+3. **Integrity**: `hf download` metadata SHA is compared to the pin by `imarello info` (`snapshot_revision_match`). Size checks after download; content-hash of shards is still optional.
 4. Maintainer-only bf16/oracle tools stay under `Tools/` and are never product defaults.
 
 ```bash
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
-  --local-dir ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit
+  --local-dir ~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit
 ```
 
-`aestrix info` prints this command as `snapshot_hint` when the cache is empty.
+`imarello info` prints this command as `snapshot_hint` when the cache is empty.
 
 ### Bumping a pin
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "description": "CI golden metric floors for AestrixEval synthetic fixtures (no model weights). Catch catastrophic regressions only. GitHub Actions: .github/workflows/eval-floors.yml → Scripts/ci-eval-floors.sh. solid_blue min_technical_score must stay below 40: a flat unclipped field scores Float(40).nextDown (vacuous noise+clip+seam weights in Float32).",
+  "description": "CI golden metric floors for ImarelloEval synthetic fixtures (no model weights). Catch catastrophic regressions only. GitHub Actions: .github/workflows/eval-floors.yml → Scripts/ci-eval-floors.sh. solid_blue min_technical_score must stay below 40: a flat unclipped field scores Float(40).nextDown (vacuous noise+clip+seam weights in Float32).",
   "machine_independent": true,
   "floors": {
     "solid_blue_color_match": {

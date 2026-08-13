@@ -1,7 +1,7 @@
 {
   "mode": "i2i",
-  "image_path": "/tmp/aestrix_edit.png",
-  "reference_path": "/tmp/aestrix_source.png",
+  "image_path": "/tmp/imarello_edit.png",
+  "reference_path": "/tmp/imarello_source.png",
   "prompt": "a solid cobalt blue ceramic mug on a wooden table",
   "caption": "A cobalt-blue single-handle ceramic mug on a wooden table by a bright window.",
   "answers": {

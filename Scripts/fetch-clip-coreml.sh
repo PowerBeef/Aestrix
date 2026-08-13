@@ -2,7 +2,7 @@
 # Optional: install Core ML CLIP encoders for real CLIPScore (P1).
 #
 # Expected layout after install:
-#   ~/Library/Caches/Aestrix/models/clip-coreml/
+#   ~/Library/Caches/Imarello/models/clip-coreml/
 #     image_encoder.mlmodelc   # RGB 224 → L2-normalized embedding multiarray
 #     text_encoder.mlmodelc    # string input → L2-normalized embedding multiarray
 #
@@ -11,10 +11,10 @@
 #   - Text encoder should accept MLFeatureType.string when possible
 #   - Matching embedding dims (e.g. 512)
 #
-# Without these models, AestrixEval uses VNClassifyImageRequest proxy
+# Without these models, ImarelloEval uses VNClassifyImageRequest proxy
 # (backend=vision_proxy) — always available, weaker signal.
 set -euo pipefail
-DEST="${AESTIX_CLIP_DIR:-$HOME/Library/Caches/Aestrix/models/clip-coreml}"
+DEST="${IMARELLO_CLIP_DIR:-$HOME/Library/Caches/Imarello/models/clip-coreml}"
 mkdir -p "$DEST"
 echo "CLIP Core ML directory: $DEST"
 echo ""

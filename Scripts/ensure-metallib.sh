@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a real mlx.metallib from mlx-swift Metal kernels and install it next to
-# SPM-built aestrix / Cmlx bundle so MLX can load RMSNorm, SDPA, RoPE, etc.
+# SPM-built imarello / Cmlx bundle so MLX can load RMSNorm, SDPA, RoPE, etc.
 #
 # Usage: Scripts/ensure-metallib.sh   (run after `swift build` or when metallib is missing)
 set -euo pipefail
@@ -88,7 +88,7 @@ install_metallib() {
       echo "installed metallib → $dir"
     fi
   done
-  # Do NOT overwrite Sources/AestrixCLI/Resources/mlx.metallib — that path holds a
+  # Do NOT overwrite Sources/ImarelloCLI/Resources/mlx.metallib — that path holds a
   # tiny SPM package stub committed to git. Full kernels go next to the binary only.
 }
 

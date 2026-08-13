@@ -1,4 +1,4 @@
-# Aestrix architecture
+# Imarello architecture
 
 ## Goal
 
@@ -7,15 +7,15 @@ Native Swift/MLX runtime for **FLUX.2-klein-4B** on Apple Silicon: low-RAM-first
 ## Layers
 
 ```text
-AestrixCLI / host apps
+ImarelloCLI / host apps
         │
-AestrixRuntime   (Pipeline actor, StageOrchestrator, MemoryPolicy)
+ImarelloRuntime   (Pipeline actor, StageOrchestrator, MemoryPolicy)
         │
    ┌────┴────┬────────────┐
-AestrixText  AestrixDiT   AestrixVAE
+ImarelloText  ImarelloDiT   ImarelloVAE
  (Qwen3 tap) (MMDiT 5+20) (FLUX.2 AE)
         │
-AestrixWeights  (Hub snapshot load, module dirs)
+ImarelloWeights  (Hub snapshot load, module dirs)
         │
 mlx-swift
 ```
@@ -46,15 +46,15 @@ mlx-swift
 
 | Target | Role |
 |--------|------|
-| `AestrixCore` | Types, errors, tier, memory probe, Hub pins (`WeightPreset.pin`), **pure math** (RoPE, timestep emb, modulation layout, scheduler) |
-| `AestrixWeights` | Resolve snapshot paths; read `hf download` metadata SHA |
-| `AestrixText` | Tokenizer + Qwen3 3-layer tap |
-| `AestrixDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` |
-| `AestrixVAE` | Encode / decode-only / tiled cosine blend |
-| `AestrixRuntime` | Orchestrator + public pipeline API |
-| `AestrixBench` | Multi-trial timings, pressure maps, attn knobs |
-| `AestrixEval` | Pixel quality (no Metal) |
-| `AestrixCLI` | Executable |
+| `ImarelloCore` | Types, errors, tier, memory probe, Hub pins (`WeightPreset.pin`), **pure math** (RoPE, timestep emb, modulation layout, scheduler) |
+| `ImarelloWeights` | Resolve snapshot paths; read `hf download` metadata SHA |
+| `ImarelloText` | Tokenizer + Qwen3 3-layer tap |
+| `ImarelloDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` |
+| `ImarelloVAE` | Encode / decode-only / tiled cosine blend |
+| `ImarelloRuntime` | Orchestrator + public pipeline API |
+| `ImarelloBench` | Multi-trial timings, pressure maps, attn knobs |
+| `ImarelloEval` | Pixel quality (no Metal) |
+| `ImarelloCLI` | Executable |
 
 ## Phase 1 pure math (no Metal required)
 
@@ -67,7 +67,7 @@ mlx-swift
 
 Scheduler primary path: `linspace(1, 1/N, N)` → exponential time-shift with μ from linear map (0.5@256 → 1.15@4096) → append 0; step `x + (σ_{t+1}-σ_t)·e`.
 
-## Phase 2 MMDiT (`AestrixDiT`)
+## Phase 2 MMDiT (`ImarelloDiT`)
 
 | Type | Role |
 |------|------|
@@ -84,18 +84,18 @@ Weight keys match mlx-community 4-bit packs (`x_embedder`, `transformer_blocks.N
 
 ## Snapshot wiring
 
-`AestrixPipeline` resolves `ModelPaths.resolveIfPresent(config)` and passes the snapshot into `DiTModule` / `VAEModule` / `TextEncoderModule`.
+`ImarelloPipeline` resolves `ModelPaths.resolveIfPresent(config)` and passes the snapshot into `DiTModule` / `VAEModule` / `TextEncoderModule`.
 
 | CLI | Action |
 |-----|--------|
-| `aestrix info` | Shows `snapshot_ready` + path |
-| `aestrix load-dit` | Staged quant DiT load + param leaf count |
-| `aestrix load-vae` | Staged VAE load + param leaf count |
-| `aestrix load-te` | Staged quant Qwen3 TE load + param leaf count |
-| `aestrix encode-prompt` | Staged TE encode → `[1,512,7680]` embeds |
-| `aestrix mem-selftest` | Dry residency only (forces empty models dir) |
+| `imarello info` | Shows `snapshot_ready` + path |
+| `imarello load-dit` | Staged quant DiT load + param leaf count |
+| `imarello load-vae` | Staged VAE load + param leaf count |
+| `imarello load-te` | Staged quant Qwen3 TE load + param leaf count |
+| `imarello encode-prompt` | Staged TE encode → `[1,512,7680]` embeds |
+| `imarello mem-selftest` | Dry residency only (forces empty models dir) |
 
-## Phase 4 Text encoder (`AestrixText`)
+## Phase 4 Text encoder (`ImarelloText`)
 
 | Type | Role |
 |------|------|
@@ -106,7 +106,7 @@ Weight keys match mlx-community 4-bit packs (`x_embedder`, `transformer_blocks.N
 | `TextEncoderWeights.loadQuantized` | 4-bit affine load; drops unused layers 27–35 + norm + rotary_emb |
 | `TextEncoderModule` | Staged loadable wrapper + `encode(prompt)` |
 
-## Phase 3 VAE (`AestrixVAE`)
+## Phase 3 VAE (`ImarelloVAE`)
 
 | Type | Role |
 |------|------|
@@ -117,15 +117,15 @@ Weight keys match mlx-community 4-bit packs (`x_embedder`, `transformer_blocks.N
 
 Requires Metal metallib for real load (same as DiT).
 
-## Phase 5 Staged T2I (`AestrixRuntime`)
+## Phase 5 Staged T2I (`ImarelloRuntime`)
 
 | Type | Role |
 |------|------|
 | `LatentOps` | Packed noise `[B,H/16·W/16,128]`, pack/unpack, text/img RoPE ids, Euler step |
 | `ImageExport` | NCHW float → PNG via ImageIO |
 | `DiTModule.projectContext` | Hoist `[B,T,7680]→[B,T,3072]` once per generate (not per step) |
-| `AestrixPipeline.generate` | TE → unload → DiT Euler → unload → VAE decode → PNG |
-| `aestrix t2i` | CLI with `--output`, `--seed`, `--steps` |
+| `ImarelloPipeline.generate` | TE → unload → DiT Euler → unload → VAE decode → PNG |
+| `imarello t2i` | CLI with `--output`, `--seed`, `--steps` |
 
 Text RoPE ids: `[0,0,0,token_i]` (diffusers `_prepare_text_ids`). Distilled path: **no CFG**, guidance `nil`.
 
@@ -140,15 +140,15 @@ Text RoPE ids: `[0,0,0,token_i]` (diffusers `_prepare_text_ids`). Distilled path
 | `LatentOps` ref helpers | `referenceImageIds` (`t=10…`), concat denoise+refs, slice pred, clean-pull |
 | `FaceIdentityMask` | Vision face rect → soft packed mask for regional σ + pull |
 | `IdentityPreserveConfig` | Tier-B knobs; `.identityPreset` / `.disabled` |
-| `AestrixPipeline.edit` | VAE encode → TE → DiT (strength + optional ref tokens) → VAE decode |
-| `aestrix i2i` | `--image`, `--strength`, `--identity`, `--ref-latents`, `--face-preserve`, … |
+| `ImarelloPipeline.edit` | VAE encode → TE → DiT (strength + optional ref tokens) → VAE decode |
+| `imarello i2i` | `--image`, `--strength`, `--identity`, `--ref-latents`, `--face-preserve`, … |
 
 **Default path:** strength-only (color curve).  
 **Identity path (`--identity`):** clean reference latents concatenated into DiT (`t=10` RoPE), face-regional start-σ, post-Euler clean-latent pull, milder schedule. Prefer strength **≥ 0.85** for wardrobe/scene changes. Recipes: [`I2I_STRENGTH.md`](I2I_STRENGTH.md). Multi-reference (>1 image) remains out of v1.
 
 Memory order: **VAE encode unload → TE unload → DiT unload → VAE decode unload**.
 
-## Image analysis harness (`AestrixEval`)
+## Image analysis harness (`ImarelloEval`)
 
 No-Metal quality/accuracy feedback for agents and CI.
 
@@ -163,7 +163,7 @@ No-Metal quality/accuracy feedback for agents and CI.
 | `PromptAlignment` | Color-word heuristics, style length, unverifiable keywords |
 | `VisionReview` | Checklist + agent brief + `Assessment` merge |
 | `ImageAnalysisReport` | Codable JSON + findings (`fail`/`warn`/`info`) + optional vision |
-| `aestrix analyze-image` | CLI; exit 2 on hard failures |
+| `imarello analyze-image` | CLI; exit 2 on hard failures |
 | `t2i`/`i2i --analyze --vision-brief` | Generate then write `.eval.json` + `.vision-brief.md` |
 | `Scripts/eval-generation.sh` | Eval existing PNG |
 
