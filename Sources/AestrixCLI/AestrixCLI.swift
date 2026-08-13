@@ -886,7 +886,7 @@ struct Bench: AsyncParsableCommand {
             textTokens: textTokens,
             imagePath: image,
             strength: strength,
-            identity: identity
+            identity: identity || benchMode == .identityI2I
         )
 
         let aestrixConfig = AestrixConfig.autoDetectingTier()

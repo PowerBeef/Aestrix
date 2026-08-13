@@ -71,7 +71,11 @@ public actor BenchRunner {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
 
-        let analytic = PressureAnalytics.canvasStats(width: config.width, height: config.height)
+        let (ph, pw) = PressureAnalytics.packedSpatial(
+            width: config.width, height: config.height)
+        let refSeq = identityEnabled ? ph * pw : nil
+        let analytic = PressureAnalytics.canvasStats(
+            width: config.width, height: config.height, referenceSeqLen: refSeq)
         let timeline = trials.last?.memorySamples ?? []
         let (byActive, byDelta) = PressureAnalytics.rank(
             samples: timeline,

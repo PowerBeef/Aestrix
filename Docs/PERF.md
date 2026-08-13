@@ -203,6 +203,28 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 
 **How to read RAM:** Live peak active is dominated by **DiT weights (~2 GB)** at both sizes. Watermark is higher at 1024² (activations + cosine-tile VAE accumulation) but still well under 8 GB. Prefer 512² for interactive speed.
 
+### Identity I2I 512² (host-contention harness)
+
+**Date:** 2026-08-13 · SHA `420bcdb` · M2 8 GB · release + full metallib · 4-bit  
+**Mode:** `identity-i2i` · 512² · strength 0.9 · seed 7 · warmup 1 + trials 2 · `--with-quality`  
+**Ref:** `outputs/demo/woman_t2i.png` (downscaled to 512)  
+**Joint seq (true):** 2560 = 512 text + 1024 img + **1024 ref**
+
+| Metric | Mean (n=2) |
+|--------|-----------:|
+| e2e | **45.3 s** |
+| denoise / step | **9.45 s** |
+| peak MLX active | **2.04 GiB** |
+| peak MLX watermark | **3.90 GiB** |
+| full-ref SSIM | 0.717 |
+| face-crop SSIM | 0.522 |
+| face-crop fidelity | 75.0 |
+| faces detected | 1 / 1 |
+
+**Host flags:** both counted trials marked **CONTAMINATED** — `WindowServer` ~16–17% CPU and **~566–574 MiB swap** after DiT residency. First trial also saw `MTLCompilerService` ~23%. Do **not** treat these e2e numbers as a clean-window baseline. Identity 512² already pushes this 8 GB mini into swap; **do not stack another Metal job until `vm.swapusage` used is 0.**
+
+T2I 512² fair e2e was ~31 s / ~6.1 s per step; identity I2I is slower mainly because the DiT sequence is longer (ref tokens) (~9.5 s/step).
+
 **vs prior fair A/B (chunked SDPA, hard VAE tiles):** 1024 e2e **96.0 s → 93.9 s** (−2%); denoise/step **21.0 s → 20.2 s** (−4%); watermark **3.29 → 3.75 GiB** (VAE blend path).
 
 ```bash
