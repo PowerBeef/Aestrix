@@ -203,6 +203,17 @@ struct MetricsAggregatorTests {
         #expect(parsed[1].pid == 303)
     }
 
+    @Test("WindowServer and Ghostty are ambient, Cursor Helper is not")
+    func ambientDesktopProcesses() {
+        #expect(HostContention.isAmbientProcess(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"))
+        #expect(HostContention.isAmbientProcess("MTLCompilerService"))
+        #expect(HostContention.isAmbientProcess("/Applications/Ghostty.app/Contents/MacOS/ghostty"))
+        #expect(HostContention.isAmbientProcess("grok"))
+        #expect(!HostContention.isAmbientProcess("/Applications/Cursor Helper"))
+        #expect(!HostContention.isAmbientProcess("swift-package"))
+    }
+
     @Test("rank by active and delta")
     func rankPressure() {
         let samples = [

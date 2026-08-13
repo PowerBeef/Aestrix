@@ -58,7 +58,9 @@ public enum HostContention {
         let thermal = thermalState(processInfo.thermalState)
         let processes = topProcesses(limit: topProcessCount)
         let heavy = processes.contains {
-            $0.pid != processInfo.processIdentifier && $0.cpuPercent >= 15
+            $0.pid != processInfo.processIdentifier
+                && $0.cpuPercent >= 15
+                && !isAmbientProcess($0.name)
         }
         let thermalPressure = thermal != "nominal"
         let contaminated = thermalPressure || heavy || processInfo.isLowPowerModeEnabled
@@ -71,7 +73,9 @@ public enum HostContention {
             notes.append("low_power_mode=true")
         }
         if let process = processes.first(where: {
-            $0.pid != processInfo.processIdentifier && $0.cpuPercent >= 15
+            $0.pid != processInfo.processIdentifier
+                && $0.cpuPercent >= 15
+                && !isAmbientProcess($0.name)
         }) {
             notes.append(
                 String(format: "competing_process=%@ pid=%d cpu=%.1f%%",
@@ -91,6 +95,28 @@ public enum HostContention {
             contaminated: contaminated,
             notes: notes
         )
+    }
+
+    /// Compositor, our terminal/agent, and in-process Metal compile are expected
+    /// on a “only Ghostty + Grok” 8 GB session. They are recorded in `topProcesses`
+    /// but do not mark a trial contaminated.
+    static func isAmbientProcess(_ name: String) -> Bool {
+        let base = (name as NSString).lastPathComponent.lowercased()
+        let ambient = [
+            "windowserver",
+            "windowmanager",
+            "loginwindow",
+            "cursoruiviewservice",
+            "mtlcompilerservice",
+            "grok",
+            "ghostty",
+            "zsh",
+            "bash",
+            "fish",
+        ]
+        return ambient.contains { token in
+            base == token || base.hasPrefix(token + ".") || base.hasPrefix(token + " ")
+        }
     }
 
     static func parsePSOutput(_ output: String, limit: Int) -> [ProcessCPUShare] {

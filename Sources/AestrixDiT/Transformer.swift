@@ -97,6 +97,11 @@ public final class Flux2Transformer: Module {
         )
     }
 
+    /// `[B, T, 7680] → [B, T, innerDim]` — run once per generate/edit, not per step.
+    public func projectContext(_ encoderHiddenStates: MLXArray) -> MLXArray {
+        contextEmbedder(encoderHiddenStates)
+    }
+
     /// Forward pass (fp32 activations recommended for stability).
     ///
     /// - Parameters:
@@ -104,6 +109,8 @@ public final class Flux2Transformer: Module {
     ///     `item()` syncs that were used when accepting either [0,1] or [0,1000].
     ///   - guidance: Optional guidance in **[0, 1000]** when used (klein distilled: nil).
     ///   - imageRotaryEmb: Optional precomputed (cos, sin) from `prepareRotaryEmbeddings`.
+    ///   - contextIsProjected: When true, `encoderHiddenStates` is already
+    ///     `contextEmbedder` output `[B, T, innerDim]` (hoisted once per generate).
     ///   - trace / stepIndex / probeDensity: optional pressure probes (no numerics change when off).
     public func callAsFunction(
         hiddenStates: MLXArray,
@@ -113,6 +120,7 @@ public final class Flux2Transformer: Module {
         txtIds: MLXArray,
         guidance: MLXArray? = nil,
         imageRotaryEmb: (MLXArray, MLXArray)? = nil,
+        contextIsProjected: Bool = false,
         trace: PipelineTrace? = nil,
         stepIndex: Int? = nil
     ) -> MLXArray {
@@ -154,7 +162,10 @@ public final class Flux2Transformer: Module {
         let temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
 
         var h = xEmbedder(hiddenStates)
-        var e = contextEmbedder(encoderHiddenStates)
+        // Prompt→innerDim is invariant across denoise steps; pipeline hoists it.
+        var e = contextIsProjected
+            ? encoderHiddenStates
+            : contextEmbedder(encoderHiddenStates)
 
         let concatRope = imageRotaryEmb ?? prepareRotaryEmbeddings(imgIds: imgIds, txtIds: txtIds)
 

@@ -75,6 +75,16 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
         return rope
     }
 
+    /// Project Qwen 7680-d prompt embeds to DiT inner dim (once per generate).
+    public func projectContext(_ encoderHiddenStates: MLXArray) throws -> MLXArray {
+        guard let model, isLoaded else {
+            throw AestrixError.moduleNotLoaded(moduleName)
+        }
+        let projected = model.projectContext(encoderHiddenStates)
+        eval(projected)
+        return projected
+    }
+
     public func forward(
         hiddenStates: MLXArray,
         encoderHiddenStates: MLXArray,
@@ -83,6 +93,7 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
         txtIds: MLXArray,
         guidance: MLXArray? = nil,
         imageRotaryEmb: (MLXArray, MLXArray)? = nil,
+        contextIsProjected: Bool = false,
         trace: PipelineTrace? = nil,
         stepIndex: Int? = nil
     ) throws -> MLXArray {
@@ -97,6 +108,7 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
             txtIds: txtIds,
             guidance: guidance,
             imageRotaryEmb: imageRotaryEmb,
+            contextIsProjected: contextIsProjected,
             trace: trace,
             stepIndex: stepIndex
         )

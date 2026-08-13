@@ -242,6 +242,7 @@ public actor AestrixPipeline {
             do {
                 // RoPE + ids are constant across steps for fixed canvas + text length.
                 eval(imgIds, txtIds, promptEmbeds)
+                let projectedContext = try orchestrator.dit.projectContext(promptEmbeds)
                 let rope = try orchestrator.dit.prepareRotaryEmbeddings(
                     imgIds: imgIds, txtIds: txtIds)
                 trace?.emit(.memorySample(label: "after_rope"))
@@ -272,12 +273,13 @@ public actor AestrixPipeline {
                         "dit.step\(step).begin", phase: "dit", step: step, minDensity: .denoise)
                     let noisePred = try orchestrator.dit.forward(
                         hiddenStates: latents,
-                        encoderHiddenStates: promptEmbeds,
+                        encoderHiddenStates: projectedContext,
                         timestep: stepTimesteps[step],
                         imgIds: imgIds,
                         txtIds: txtIds,
                         guidance: guidance,
                         imageRotaryEmb: rope,
+                        contextIsProjected: true,
                         trace: trace,
                         stepIndex: step
                     )
@@ -574,6 +576,7 @@ public actor AestrixPipeline {
             trace?.emit(.memorySample(label: "after_load_dit"))
             do {
                 eval(fullImgIds, txtIds, promptEmbeds, refClean, refTokens)
+                let projectedContext = try orchestrator.dit.projectContext(promptEmbeds)
                 let rope = try orchestrator.dit.prepareRotaryEmbeddings(
                     imgIds: fullImgIds, txtIds: txtIds)
                 let stepTimesteps: [MLXArray] = timesteps.map {
@@ -607,12 +610,13 @@ public actor AestrixPipeline {
 
                     let noisePredFull = try orchestrator.dit.forward(
                         hiddenStates: hidden,
-                        encoderHiddenStates: promptEmbeds,
+                        encoderHiddenStates: projectedContext,
                         timestep: stepTimesteps[step],
                         imgIds: fullImgIds,
                         txtIds: txtIds,
                         guidance: guidance,
                         imageRotaryEmb: rope,
+                        contextIsProjected: true,
                         trace: trace,
                         stepIndex: step
                     )

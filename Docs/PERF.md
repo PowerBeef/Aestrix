@@ -221,7 +221,7 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 | face-crop fidelity | 75.0 |
 | faces detected | 1 / 1 |
 
-**Host flags:** both counted trials marked **CONTAMINATED** — `WindowServer` ~16–17% CPU and **~566–574 MiB swap** after DiT residency. First trial also saw `MTLCompilerService` ~23%. Do **not** treat these e2e numbers as a clean-window baseline. Identity 512² already pushes this 8 GB mini into swap; **do not stack another Metal job until `vm.swapusage` used is 0.**
+**Host flags (as recorded):** both trials tagged `CONTAMINATED` because `WindowServer` ~16–17% and `MTLCompilerService` ~23% exceeded a 15% CPU rule. On this mini those processes are **ambient** (compositor + our own kernel compile) when only Ghostty + Grok are running. **Swap ~570 MiB after DiT residency is real** and is why we still wait for `vm.swapusage` used = 0 before another Metal job. Later harness versions ignore WindowServer/Ghostty/Grok/MTLCompilerService for the contaminated bit.
 
 T2I 512² fair e2e was ~31 s / ~6.1 s per step; identity I2I is slower mainly because the DiT sequence is longer (ref tokens) (~9.5 s/step).
 
