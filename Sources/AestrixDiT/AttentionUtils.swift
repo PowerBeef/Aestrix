@@ -33,6 +33,15 @@ enum AttentionUtils {
         query = normQ(query.asType(.float32)).asType(attnDType)
         key = normK(key.asType(.float32)).asType(attnDType)
         value = value.asType(attnDType)
+        if ComputeDTypeProbe.enabled, !ComputeDTypeProbe.didDumpBlock, ComputeDTypeProbe.qkvRecords < 2 {
+            let tag = ComputeDTypeProbe.qkvRecords == 0 ? "img" : "txt"
+            ComputeDTypeProbe.record("qkv.\(tag).proj_q", query)
+            ComputeDTypeProbe.record("qkv.\(tag).proj_k", key)
+            ComputeDTypeProbe.record("qkv.\(tag).proj_v", value)
+            ComputeDTypeProbe.recordNote(
+                "qkv.\(tag)\tattnDType=\(ComputeDTypeProbe.dtypeName(attnDType)) seq=\(seq) f16Thr=\(f16Thr)")
+            ComputeDTypeProbe.qkvRecords += 1
+        }
         return (query, key, value)
     }
 
@@ -65,6 +74,13 @@ enum AttentionUtils {
         }()
 
         if useFusedFA {
+            if ComputeDTypeProbe.enabled, !ComputeDTypeProbe.didDumpAttention {
+                ComputeDTypeProbe.record("attn.steel.in.q", query)
+                ComputeDTypeProbe.record("attn.steel.in.k", key)
+                ComputeDTypeProbe.record("attn.steel.in.v", value)
+                ComputeDTypeProbe.recordNote("attn.backend=steel seq=\(seq) headDim=\(headDim)")
+                ComputeDTypeProbe.didDumpAttention = true
+            }
             // Steel fused FA2 (simdgroup MMA) or hybrid FA2 — single logical forward.
             var hidden = MetalFlashAttention.scaledDotProductAttention(
                 query: query, key: key, value: value, scale: scale

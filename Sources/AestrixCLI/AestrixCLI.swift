@@ -154,6 +154,15 @@ struct LoadDiT: AsyncParsableCommand {
         abstract: "Load quantized DiT weights from the local snapshot (requires Metal)."
     )
 
+    @Flag(name: .long, help: "Run one synthetic DiT step and print activation/weight dtypes (R2 probe).")
+    var dumpDtypes: Bool = false
+
+    @Option(name: .long, help: "Canvas width for --dump-dtypes (default 512).")
+    var width: Int = 512
+
+    @Option(name: .long, help: "Canvas height for --dump-dtypes (default 512).")
+    var height: Int = 512
+
     func run() async throws {
         try ensureMLXReady()
         let config = AestrixConfig.autoDetectingTier()
@@ -164,8 +173,17 @@ struct LoadDiT: AsyncParsableCommand {
         }
         print("loading DiT from \(await pipeline.snapshotPath ?? "?") …")
         do {
-            let leaves = try await pipeline.loadDiT()
-            print("DiT load OK parameter_leaves=\(leaves)")
+            if dumpDtypes {
+                try DimensionValidation.validate(
+                    width: width, height: height, maxSide: config.maxSide, tier: config.tier)
+                print("compute dtype probe canvas=\(width)x\(height)")
+                let report = try await pipeline.probeComputeDtypes(width: width, height: height)
+                print(report)
+                print("DiT dtype probe OK")
+            } else {
+                let leaves = try await pipeline.loadDiT()
+                print("DiT load OK parameter_leaves=\(leaves)")
+            }
         } catch {
             print("error: \(error)")
             throw ExitCode.failure

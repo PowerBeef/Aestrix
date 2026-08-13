@@ -63,7 +63,17 @@ MFA 2.0 vs other Apple stacks (their numbers): up to **20%** FLUX.1/SD3 on M3/M4
 
 MMDiT activations grow with depth. BF16 has range; **M1/M2 BF16 is emulated and ~50% slower than FP16** (DT 2025-04). Their recipe: FP32 residual / last LN; FP16 block body; scale late layers (FLUX.1: ×8 on last double blocks); apply 1/√d **before** FA.
 
-**Aestrix:** Hub 4-bit packs typically use **bf16 activations**. On this **M2 8 GB** host that may be a silent tax. Product lock still forbids user-facing bf16 *weights*.
+**Aestrix (measured 2026-08-13, `aestrix load-dit --dump-dtypes --width 512`):**
+
+| Site | dtype |
+|------|--------|
+| 4-bit packed weights | `uint32` |
+| Quantization **scales** | **`bfloat16`** (tiny: e.g. `[3072, 48]`) |
+| Latents, AdaLN, residual, FFN, Q/K/V, Steel FA @ 512² | **`float32`** |
+
+The M2 “bf16 emu on activations” tax **does not apply**. Scales are bf16 but negligible. At 512², `f16SeqThreshold` is 2048 so QKV stay f32 (image seq=1024). At 1024², image seq=4096 already stores QKV as f16.
+
+Do **not** land a default `--compute-dtype f16` from this probe. An opt-in f16 **body** would be a new quality/speed experiment, not a fix for missing emu.
 
 ---
 
@@ -100,7 +110,7 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 | DiT weight streaming | Parked `stagedAggressive` | iOS / watermark only |
 | 4/6/8-bit palletization | 4-bit default; 3/6/8 exist | 3-bit = honest RAM SKU |
 | 8-bit S + ANE int8 | Not in stack | Park (M3+ / iOS 26) |
-| FP16 body + FP32 residual | Unmeasured | **Measure on M2** |
+| FP16 body + FP32 residual | **Measured:** acts are fp32; 1024 already f16 QKV | No default change; optional 512 QKV f16 later |
 | Full-graph Core ML | Never used | Do not start |
 | Full DiT compile | NO-GO | Stay parked |
 | Rewrite in s4nnc | GPL + years | Do not |
@@ -120,14 +130,14 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 
 | ID | Item | Priority | Why |
 |----|------|----------|-----|
-| **R2** | Log compute dtypes; trial FP16 body + FP32 residual if M2 is on bf16 emu | **First** | Only unmeasured DT-shaped speed win |
+| **R2** | Log compute dtypes; trial FP16 body if hot path is bf16 | **Done (probe)** | Activations are **fp32**; scales only are bf16. No emu-fix to ship |
 | **R3** | DiT weight streaming as `stagedAggressive` | P7 / 8 GB comfort | RAM, not speed |
 | **R6** | Quality-gate 3-bit as optional Tier-L | If RAM SKU wanted | No architecture |
 | **R1** | 4-step modulation batch | Low | ~4% of weights; tiny compute |
 | **R4** | Port MFA / s4nnc | No | Steel FA + MIT |
 | **R5** | ANE / 8-bit S | Park | Wrong SoC and stack |
 
-**Next experiment (when implementing):** one `dit-one-step` with dtype prints (no generate). If activations are bf16, design an opt-in `--compute-dtype f16` and bench 512² first. Do not start streaming or ANE until that measurement exists.
+**Measured:** `load-dit --dump-dtypes` @ 512². Hot path is fp32. Optional later: lower `f16SeqThreshold` so 512² uses the same f16 QKV path 1024² already has — eval-gate first. Streaming / ANE still parked.
 
 ---
 

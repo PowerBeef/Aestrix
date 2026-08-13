@@ -188,7 +188,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `aestrix info` | Tier, policy, snapshot path, pinned Hub revision |
 | `aestrix mem-selftest` | Dry staged residency (no weights) |
 | `aestrix schedule` | Print sigmas/timesteps |
-| `aestrix load-te` / `load-dit` / `load-vae` | Staged weight load smoke |
+| `aestrix load-te` / `load-dit` / `load-vae` | Staged weight load smoke; `load-dit --dump-dtypes` = compute-dtype probe |
 | `aestrix encode-prompt` | TE only → shape/token count |
 | `aestrix t2i … --analyze --vision-brief` | Generate + eval kickoff |
 | `aestrix i2i … --analyze --vision-brief` | Edit + eval kickoff |

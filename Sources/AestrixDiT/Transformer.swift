@@ -127,6 +127,11 @@ public final class Flux2Transformer: Module {
         let density = trace?.density ?? .off
         let step = stepIndex
         let prefix = step.map { "dit.step\($0)" } ?? "dit"
+        if ComputeDTypeProbe.enabled {
+            ComputeDTypeProbe.record("dit.in.hidden", hiddenStates)
+            ComputeDTypeProbe.record("dit.in.encoder", encoderHiddenStates)
+            ComputeDTypeProbe.record("dit.in.timestep", timestep)
+        }
 
         func sample(_ suffix: String, block: Int? = nil, forceEval: Bool = false) {
             guard let trace, density.instrumentsDiTBlocks else { return }
@@ -183,6 +188,11 @@ public final class Flux2Transformer: Module {
         // intermediates until the outer eval — that inflated peak watermark (~8 GB at 768²
         // vs ~2 GB live active) and OOMs 1024² on 8 GB unified memory.
         eval(h, e, temb)
+        if ComputeDTypeProbe.enabled {
+            ComputeDTypeProbe.record("dit.after_embed.h", h)
+            ComputeDTypeProbe.record("dit.after_embed.e", e)
+            ComputeDTypeProbe.record("dit.after_embed.temb", temb)
+        }
         sample("after_embed")
 
         for (bi, block) in transformerBlocks.enumerated() {

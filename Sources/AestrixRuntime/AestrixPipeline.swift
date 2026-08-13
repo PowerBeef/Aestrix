@@ -51,6 +51,45 @@ public actor AestrixPipeline {
         try await orchestrator.loadDiTAndCountParameters()
     }
 
+    /// Load DiT, run one synthetic 512-class forward, print activation/weight dtypes, unload.
+    /// Does not change product numerics (probe is off unless this method enables it).
+    public func probeComputeDtypes(width: Int, height: Int) async throws -> String {
+        ComputeDTypeProbe.reset()
+        ComputeDTypeProbe.enabled = true
+        defer { ComputeDTypeProbe.reset() }
+
+        try await orchestrator.loadDiTExclusive()
+        do {
+            if let model = orchestrator.dit.model {
+                ComputeDTypeProbe.recordWeights(from: model)
+            }
+            let noise = LatentOps.samplePackedNoise(width: width, height: height, seed: 42)
+            let ctx = MLXArray.zeros(
+                [1, ModelConstants.maxSequenceLength, ModelConstants.innerDim],
+                dtype: .float32
+            )
+            let imgIds = LatentOps.imageIds(width: width, height: height)
+            let txtIds = LatentOps.textIds()
+            let t = MLXArray([Float(1000)])
+            eval(noise, ctx, imgIds, txtIds, t)
+            let rope = try orchestrator.dit.prepareRotaryEmbeddings(imgIds: imgIds, txtIds: txtIds)
+            _ = try orchestrator.dit.forward(
+                hiddenStates: noise,
+                encoderHiddenStates: ctx,
+                timestep: t,
+                imgIds: imgIds,
+                txtIds: txtIds,
+                imageRotaryEmb: rope,
+                contextIsProjected: true
+            )
+            try await orchestrator.unloadDiTIfStaged()
+            return ComputeDTypeProbe.report()
+        } catch {
+            try? await orchestrator.unloadDiTIfStaged()
+            throw error
+        }
+    }
+
     /// Load VAE weights from snapshot, return leaf parameter count, unload if staged.
     public func loadVAE() async throws -> Int {
         try await orchestrator.loadVAEAndCountParameters()

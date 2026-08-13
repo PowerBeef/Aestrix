@@ -39,6 +39,7 @@ public final class Flux2TransformerBlock: Module {
 
         var nh = ModulationOps.modApply(norm1(h), scaleMsa, shiftMsa)
         var ne = ModulationOps.modApply(norm1Context(e), cScaleMsa, cShiftMsa)
+        let dump = ComputeDTypeProbe.enabled && !ComputeDTypeProbe.didDumpBlock
 
         let (attnH, attnE) = attn(
             hiddenStates: nh,
@@ -48,11 +49,25 @@ public final class Flux2TransformerBlock: Module {
         h = ModulationOps.gateAdd(h, gateMsa, attnH)
         e = ModulationOps.gateAdd(e, cGateMsa, attnE)
 
+        if dump {
+            ComputeDTypeProbe.record("block0.residual.h", hiddenStates)
+            ComputeDTypeProbe.record("block0.after_adaln.nh", nh)
+            ComputeDTypeProbe.record("block0.attn.out", attnH)
+        }
+
         nh = ModulationOps.modApply(norm2(h), scaleMlp, shiftMlp)
-        h = ModulationOps.gateAdd(h, gateMlp, ff(nh))
+        let ffH = ff(nh)
+        h = ModulationOps.gateAdd(h, gateMlp, ffH)
 
         ne = ModulationOps.modApply(norm2Context(e), cScaleMlp, cShiftMlp)
         e = ModulationOps.gateAdd(e, cGateMlp, ffContext(ne))
+
+        if dump {
+            ComputeDTypeProbe.record("block0.ff.in", nh)
+            ComputeDTypeProbe.record("block0.ff.out", ffH)
+            ComputeDTypeProbe.record("block0.residual.out", h)
+            ComputeDTypeProbe.didDumpBlock = true
+        }
 
         return (e, h)
     }
