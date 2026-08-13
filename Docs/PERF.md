@@ -202,6 +202,20 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 
 **How to read RAM:** Live peak active is dominated by **DiT weights (~2 GB)** at both sizes. Watermark is higher at 1024² (activations + cosine-tile VAE accumulation) but still well under 8 GB. Prefer 512² for interactive speed.
 
+### Current-tree 512² T2I (`hoist-512`, 2026-08-13)
+
+SHA `7c331bb` + context-projection hoist. Protocol: warmup 1 + trials 3, seed 42, `--probe-density stages`, fox prompt. No `CONTAMINATED` tags (WindowServer/MTLCompiler treated as ambient).
+
+| Metric | fair-steel-512 (2026-08-11) | **hoist-512** | Δ |
+|--------|----------------------------:|--------------:|--:|
+| e2e mean | 31.1 s | **27.5 s** | **−11.6%** |
+| denoise / step | 6.06 s | **5.20 s** | **−14.2%** |
+| peak MLX active | 2.04 GiB | **2.04 GiB** | 0 |
+| peak MLX watermark | 2.99 GiB | **2.99 GiB** | 0 |
+| peak RSS | 1.74 GiB | **1.75 GiB** | ~0 |
+
+Trials were tight (e2e 27.44–27.53 s). This is a **cross-window** compare (tree also includes the 2026-08-11 performance pass). The hoist itself is one Linear 7680→3072 per generate instead of per step — expect a small slice of the denoise win, not the whole −14%. No same-day hoist-off A/B was run.
+
 ### Identity I2I 512² (host-contention harness)
 
 **Date:** 2026-08-13 · SHA `420bcdb` · M2 8 GB · release + full metallib · 4-bit  
