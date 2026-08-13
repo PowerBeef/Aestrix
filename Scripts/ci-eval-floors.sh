@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# CI: golden metric floors for AestrixEval (no model weights required).
+# CI: Hub revision pins + golden metric floors (no model weights, no generate).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "== AestrixEval golden floors (P1) =="
-swift test --filter GoldenMetricFloorsTests
-swift test --filter ImageAnalyzerTests
+echo "== Aestrix Hub pins + eval golden floors =="
+# Single invocation so SPM compiles once. Do not drop the filter: Metal FA tests
+# have hung after GPU aborts on constrained hosts.
+swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'
 
-echo "OK — floors satisfied (see Docs/eval-floors.json, Docs/IMAGE_ANALYSIS.md)"
+echo "OK — pins + floors satisfied (Docs/hub-pins.json, Docs/eval-floors.json)"

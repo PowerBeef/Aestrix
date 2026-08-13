@@ -220,11 +220,16 @@ Agents **must not** claim generation quality without:
 ## CI / regression recipe
 
 ```bash
-# Always (no GPU weights)
-swift test --filter AestrixEvalTests
-swift test --filter AestrixCoreTests
+# GitHub Actions (.github/workflows/eval-floors.yml) — no GPU weights
+./Scripts/ci-eval-floors.sh
+# equivalent:
+swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'
 
-# Optional smoke gen + hard pixel gate (needs snapshot + metallib)
+# Broader local (still no generate)
+swift test --filter AestrixEvalTests
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench'
+
+# Optional smoke gen + hard pixel gate (needs snapshot + metallib; not CI)
 ./Scripts/ensure-metallib.sh
 swift build
 .build/debug/aestrix t2i "A red fox in a snowy forest at sunrise, photorealistic." \
@@ -233,7 +238,7 @@ swift build
   --analyze --fail-on-pixel-gate
 ```
 
-Vision review is **agent/human** (not plain CI) unless a VLM job is added later.
+Vision review is **agent/human** (not plain CI) unless a VLM job is added later. Generation floors in `Docs/eval-floors.json` → `optional_generation_floors` stay **local-only**.
 
 Regression prompts: [eval-prompts.md](eval-prompts.md).
 

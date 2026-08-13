@@ -48,7 +48,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
 5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-13 `hoist-*`: 512² e2e ~**27.5 s**, 1024² ~**87.7 s**; peak active ~**2.04–2.05 GiB**, watermark ~**2.99 / 3.76 GiB**. See `Docs/PERF.md`.
 6. **VAE**: T2I / final I2I decode use **decode-only** weights (~97 MB). Large canvases use **tiled decode** (`VAETileConfig`: default overlap + cosine blend).
-7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` (module-split TE/DiT/VAE). See `Docs/WEIGHTS.md`.
+7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (module-split TE/DiT/VAE). Pins: `WeightPreset.pin`, `Docs/hub-pins.json`, `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
 10. **I2I strength**: full N-step strength schedule + mid-range curve; color edits often need **≥ 0.8**.
@@ -65,7 +65,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `aestrix i2i --identity` |
 | **P9 Performance harness** | **Done** | `AestrixBench` (t2i / i2i / identity-i2i + host contention); Steel FA + tiled VAE + **context hoist**; 2026-08-13 `hoist-512` / `hoist-1024` in `Docs/PERF.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
-| **P8 macOS polish** | **Partial** | `Scripts/eval-regression.sh` (512² T2I); Hub pin still parked |
+| **P8 macOS polish** | **Partial** | Hub pin + GitHub eval-floors CI done; I2I strength-curve doc still open |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
 ## Process rule (blocking)
@@ -100,7 +100,7 @@ CLI: `HostPreflight` takes `~/Library/Caches/Aestrix/aestrix.lock` and refuses a
 **Tests:** do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts). Prefer:
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|AestrixBench|HubPin'
 ```
 
 ---
@@ -185,7 +185,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 
 | Command | Role |
 |---------|------|
-| `aestrix info` | Tier, policy, snapshot path |
+| `aestrix info` | Tier, policy, snapshot path, pinned Hub revision |
 | `aestrix mem-selftest` | Dry staged residency (no weights) |
 | `aestrix schedule` | Print sigmas/timesteps |
 | `aestrix load-te` / `load-dit` / `load-vae` | Staged weight load smoke |
@@ -199,6 +199,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `aestrix dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |
 | `Scripts/eval-generation.sh` | Eval existing PNG |
 | `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate |
+| `Scripts/ci-eval-floors.sh` | Hub pins + synthetic golden floors (no weights; GitHub Actions) |
 | `Scripts/ensure-metallib.sh` | Build/install full Metal library |
 
 ## Out of scope (v1)

@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "pinned_on": "2026-08-13",
+  "note": "Hugging Face git revisions Aestrix ships against. Bump WeightPreset.pin in lockstep with this file.",
+  "packs": {
+    "3bit": {
+      "model_id": "mlx-community/FLUX.2-Klein-4B-3bit",
+      "revision": "246946064c7218227b1e99509245392cdcedc9d3",
+      "last_modified": "2026-05-29T12:58:20.000Z"
+    },
+    "4bit": {
+      "model_id": "mlx-community/FLUX.2-Klein-4B-4bit",
+      "revision": "1cebb9b45c21ece14a42615b16bf5fa4de9b56da",
+      "last_modified": "2026-05-29T13:37:12.000Z"
+    },
+    "6bit": {
+      "model_id": "mlx-community/FLUX.2-Klein-4B-6bit",
+      "revision": "76fd8a876cb61126fb1fdce97eb9464eab063ff5",
+      "last_modified": "2026-05-29T14:29:37.000Z"
+    },
+    "8bit": {
+      "model_id": "mlx-community/flux2-klein-4b-8bit",
+      "revision": "9beac1a3ad296d9e5e3f8845674e6577fa8654ec",
+      "last_modified": "2026-05-23T23:11:25.000Z"
+    }
+  }
+}

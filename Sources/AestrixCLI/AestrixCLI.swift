@@ -132,13 +132,18 @@ struct Info: AsyncParsableCommand {
         print("  memory_policy: \(config.memoryPolicy.rawValue)")
         print("  weight_preset: \(config.weightPreset.rawValue)")
         print("  model_id: \(config.modelID)")
+        print("  model_revision: \(config.revision)")
         print("  peak_budget: \(MemoryProbe.formatBytes(config.tier.peakBudgetBytes))")
         if let path = await pipeline.snapshotPath {
             print("  snapshot: \(path)")
             print("  snapshot_ready: true")
+            if let localRev = await pipeline.snapshotRevision {
+                print("  snapshot_revision: \(localRev)")
+                print("  snapshot_revision_match: \(localRev == config.revision)")
+            }
         } else {
             print("  snapshot_ready: false")
-            print("  snapshot_hint: download to ~/Library/Caches/Aestrix/models/<org>--<name>/")
+            print("  snapshot_hint: \(config.downloadCommand)")
         }
     }
 }
@@ -358,13 +363,12 @@ struct T2I: AsyncParsableCommand {
             throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
         }
         var config = AestrixConfig.autoDetectingTier()
-        config.weightPreset = preset
-        config.modelID = preset.defaultModelID
+        config.apply(preset: preset)
 
         let pipeline = AestrixPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
-            print("error: no local snapshot for \(config.modelID)")
-            print("hint: download mlx-community/FLUX.2-Klein-4B-4bit into Aestrix models cache")
+            print("error: no local snapshot for \(config.modelID) @ \(config.revision)")
+            print("hint: \(config.downloadCommand)")
             throw ExitCode.failure
         }
 
@@ -536,12 +540,12 @@ struct I2I: AsyncParsableCommand {
         }
 
         var config = AestrixConfig.autoDetectingTier()
-        config.weightPreset = preset
-        config.modelID = preset.defaultModelID
+        config.apply(preset: preset)
 
         let pipeline = AestrixPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
-            print("error: no local snapshot for \(config.modelID)")
+            print("error: no local snapshot for \(config.modelID) @ \(config.revision)")
+            print("hint: \(config.downloadCommand)")
             throw ExitCode.failure
         }
 
@@ -883,8 +887,8 @@ struct Bench: AsyncParsableCommand {
         let aestrixConfig = AestrixConfig.autoDetectingTier()
         let pipeline = AestrixPipeline(config: aestrixConfig)
         guard await pipeline.hasLocalSnapshot else {
-            print("error: no local snapshot for \(aestrixConfig.modelID)")
-            print("  expected under ~/Library/Caches/Aestrix/models/")
+            print("error: no local snapshot for \(aestrixConfig.modelID) @ \(aestrixConfig.revision)")
+            print("hint: \(aestrixConfig.downloadCommand)")
             throw ExitCode.failure
         }
 

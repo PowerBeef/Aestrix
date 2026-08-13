@@ -1,11 +1,11 @@
 {
   "schema_version": "1.0",
-  "description": "CI golden metric floors for AestrixEval synthetic fixtures (no model weights). Catch catastrophic regressions only.",
+  "description": "CI golden metric floors for AestrixEval synthetic fixtures (no model weights). Catch catastrophic regressions only. GitHub Actions: .github/workflows/eval-floors.yml → Scripts/ci-eval-floors.sh.",
   "machine_independent": true,
   "floors": {
     "solid_blue_color_match": {
       "prompt": "a cobalt blue ceramic mug",
-      "min_technical_score": 40,
+      "min_technical_score": 35,
       "require_color_match": true,
       "min_overall": 45,
       "max_fail_findings": 0

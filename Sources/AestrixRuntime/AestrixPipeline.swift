@@ -38,6 +38,8 @@ public actor AestrixPipeline {
 
     public var hasLocalSnapshot: Bool { snapshot != nil }
     public var snapshotPath: String? { snapshot?.root.path }
+    /// Hugging Face commit recorded by `hf download`, when metadata is present.
+    public var snapshotRevision: String? { snapshot?.detectedRevision }
 
     /// Ensure snapshot exists and directory layout is valid.
     public func loadMetadata() async throws {

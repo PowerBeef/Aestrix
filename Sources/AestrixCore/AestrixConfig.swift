@@ -3,6 +3,8 @@ import Foundation
 public struct AestrixConfig: Sendable {
     /// Hugging Face repo id for a pre-quant package (never bf16).
     public var modelID: String
+    /// Hugging Face git revision (commit SHA) this config expects.
+    public var revision: String
     public var weightPreset: WeightPreset
     public var memoryPolicy: MemoryPolicy
     public var tier: DeviceTier
@@ -16,10 +18,12 @@ public struct AestrixConfig: Sendable {
         memoryPolicy: MemoryPolicy = .staged,
         tier: DeviceTier = .detect(),
         maxSide: Int? = nil,
-        modelsDirectory: URL? = nil
+        modelsDirectory: URL? = nil,
+        revision: String? = nil
     ) {
         self.weightPreset = weightPreset
         self.modelID = modelID ?? weightPreset.defaultModelID
+        self.revision = revision ?? weightPreset.pinnedRevision
         self.memoryPolicy = memoryPolicy
         self.tier = tier
         self.maxSide = maxSide ?? tier.defaultMaxSide
@@ -28,5 +32,18 @@ public struct AestrixConfig: Sendable {
 
     public static func autoDetectingTier() -> AestrixConfig {
         AestrixConfig()
+    }
+
+    /// Point this config at a product weight preset (repo + pinned revision).
+    public mutating func apply(preset: WeightPreset) {
+        weightPreset = preset
+        modelID = preset.defaultModelID
+        revision = preset.pinnedRevision
+    }
+
+    /// `hf download` that fetches the pinned revision into the default Aestrix cache.
+    public var downloadCommand: String {
+        let dest = "~/Library/Caches/Aestrix/models/\(modelID.replacingOccurrences(of: "/", with: "--"))"
+        return "hf download \(modelID) --revision \(revision) --local-dir \(dest)"
     }
 }

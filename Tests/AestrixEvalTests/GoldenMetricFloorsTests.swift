@@ -12,19 +12,32 @@ import AestrixCore
 @Suite("Golden metric floors")
 struct GoldenMetricFloorsTests {
 
+    @Test("Docs/eval-floors.json is present and machine-independent")
+    func floorsDocumentExists() throws {
+        let doc = try loadFloorsDocument()
+        #expect(doc.schemaVersion == "1.0")
+        #expect(doc.machineIndependent)
+        #expect(doc.floors.solidBlueColorMatch.requireColorMatch)
+        #expect(doc.floors.identicalImages.minSsim >= 0.99)
+        #expect(doc.floors.oppositeColors.maxFidelityScore <= 75)
+        #expect(doc.floors.strengthAwareIdenticalColorEdit.expectFindingCode == "strength_too_low_for_edit")
+    }
+
     @Test("solid blue: technical floor + color match")
     func solidBlueFloors() throws {
+        let floor = try loadFloorsDocument().floors.solidBlueColorMatch
         let url = try writeSolid(r: 20, g: 40, b: 200, name: "gold_blue", side: 128)
         defer { try? FileManager.default.removeItem(at: url) }
         let report = try ImageAnalyzer.analyze(
             imageURL: url,
-            options: .init(prompt: "a cobalt blue ceramic mug", skipSemantic: true)
+            options: .init(prompt: floor.prompt, skipSemantic: true)
         )
-        #expect(report.technical.technicalScore >= 35)
+        #expect(report.technical.technicalScore >= Float(floor.minTechnicalScore))
         #expect(report.technical.dominantHue == "blue")
-        #expect(report.promptAlignment.colorMatch == true)
-        #expect(report.overallScore >= 45)
-        #expect(!report.findings.contains { $0.severity == .fail })
+        #expect(report.promptAlignment.colorMatch == floor.requireColorMatch)
+        #expect(report.overallScore >= Float(floor.minOverall))
+        let failCount = report.findings.filter { $0.severity == .fail }.count
+        #expect(failCount <= floor.maxFailFindings)
     }
 
     @Test("identical pair: SSIM and LPIPS-lite floors")
@@ -39,11 +52,12 @@ struct GoldenMetricFloorsTests {
             imageURL: a,
             options: .init(referenceURL: b, skipSemantic: true)
         )
+        let floor = try loadFloorsDocument().floors.identicalImages
         let ref = try #require(report.reference)
-        #expect(ref.ssim >= 0.99)
-        #expect(ref.perceptualDistance <= 0.05)
-        #expect(ref.perceptualScore >= 90)
-        #expect(ref.fidelityScore >= 90)
+        #expect(ref.ssim >= Float(floor.minSsim))
+        #expect(ref.perceptualDistance <= Float(floor.maxPerceptualDistance))
+        #expect(ref.perceptualScore >= Float(floor.minPerceptualScore))
+        #expect(ref.fidelityScore >= Float(floor.minFidelityScore))
     }
 
     @Test("opposite colors: low fidelity floor")
@@ -58,10 +72,11 @@ struct GoldenMetricFloorsTests {
             imageURL: a,
             options: .init(prompt: "red", referenceURL: b, skipSemantic: true)
         )
+        let floor = try loadFloorsDocument().floors.oppositeColors
         let ref = try #require(report.reference)
         #expect(ref.ssim < 0.5 || ref.meanColorDistance > 0.4)
-        #expect(ref.perceptualDistance > 0.15)
-        #expect(ref.fidelityScore < 75)
+        #expect(ref.perceptualDistance > Float(floor.minPerceptualDistance))
+        #expect(ref.fidelityScore < Float(floor.maxFidelityScore))
     }
 
     @Test("high strength + high SSIM + color edit → strength_too_low_for_edit")
@@ -72,17 +87,18 @@ struct GoldenMetricFloorsTests {
             try? FileManager.default.removeItem(at: a)
             try? FileManager.default.removeItem(at: b)
         }
-        // Identical images but strength 0.85 + blue prompt → should warn edit not applied
+        let floor = try loadFloorsDocument().floors.strengthAwareIdenticalColorEdit
+        // Identical images but high strength + color-edit prompt → warn edit not applied
         let report = try ImageAnalyzer.analyze(
             imageURL: a,
             options: .init(
                 prompt: "make the mug solid blue",
                 referenceURL: b,
-                i2iStrength: 0.85,
+                i2iStrength: Float(floor.i2iStrength),
                 skipSemantic: true
             )
         )
-        #expect(report.findings.contains { $0.code == "strength_too_low_for_edit" })
+        #expect(report.findings.contains { $0.code == floor.expectFindingCode })
     }
 
     @Test("schema version is 1.3+")
@@ -94,6 +110,51 @@ struct GoldenMetricFloorsTests {
     }
 
     // MARK: - Helpers
+
+    private struct EvalFloorsFile: Decodable {
+        let schemaVersion: String
+        let machineIndependent: Bool
+        let floors: Floors
+        struct Floors: Decodable {
+            let solidBlueColorMatch: SolidBlue
+            let identicalImages: Identical
+            let oppositeColors: Opposite
+            let strengthAwareIdenticalColorEdit: StrengthAware
+        }
+        struct SolidBlue: Decodable {
+            let prompt: String
+            let minTechnicalScore: Double
+            let requireColorMatch: Bool
+            let minOverall: Double
+            let maxFailFindings: Int
+        }
+        struct Identical: Decodable {
+            let minSsim: Double
+            let maxPerceptualDistance: Double
+            let minPerceptualScore: Double
+            let minFidelityScore: Double
+        }
+        struct Opposite: Decodable {
+            let maxFidelityScore: Double
+            let minPerceptualDistance: Double
+        }
+        struct StrengthAware: Decodable {
+            let i2iStrength: Double
+            let expectFindingCode: String
+        }
+    }
+
+    private func loadFloorsDocument() throws -> EvalFloorsFile {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Docs/eval-floors.json")
+        let data = try Data(contentsOf: url)
+        let dec = JSONDecoder()
+        dec.keyDecodingStrategy = .convertFromSnakeCase
+        return try dec.decode(EvalFloorsFile.self, from: data)
+    }
 
     private func writeSolid(r: UInt8, g: UInt8, b: UInt8, name: String, side: Int = 64) throws -> URL {
         let w = side, h = side

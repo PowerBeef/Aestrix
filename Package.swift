@@ -119,7 +119,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AestrixCoreTests",
-            dependencies: ["AestrixCore", "AestrixRuntime"]
+            dependencies: ["AestrixCore", "AestrixWeights", "AestrixRuntime"]
         ),
         .testTarget(
             name: "AestrixTextTests",

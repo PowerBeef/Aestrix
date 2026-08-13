@@ -46,8 +46,8 @@ mlx-swift
 
 | Target | Role |
 |--------|------|
-| `AestrixCore` | Types, errors, tier, memory probe, **pure math** (RoPE, timestep emb, modulation layout, scheduler) |
-| `AestrixWeights` | Download / resolve snapshot paths |
+| `AestrixCore` | Types, errors, tier, memory probe, Hub pins (`WeightPreset.pin`), **pure math** (RoPE, timestep emb, modulation layout, scheduler) |
+| `AestrixWeights` | Resolve snapshot paths; read `hf download` metadata SHA |
 | `AestrixText` | Tokenizer + Qwen3 3-layer tap |
 | `AestrixDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` |
 | `AestrixVAE` | Encode / decode-only / tiled cosine blend |

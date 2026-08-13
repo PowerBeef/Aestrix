@@ -8,6 +8,7 @@
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#requirements)
 [![MLX](https://img.shields.io/badge/MLX-0.31.6-blue)](https://github.com/ml-explore/mlx-swift)
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
+[![Eval floors](https://github.com/PowerBeef/Aestrix/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Aestrix/actions/workflows/eval-floors.yml)
 
 Low-RAM-first inference: text encoder, DiT, and VAE **never share memory**.
 Pre-quantized **4-bit** weights, **1024²** default canvas, runs on an **8 GB** Mac.
@@ -60,7 +61,7 @@ Big wardrobe + lighting change at strength 0.9 — face shape, eyes, freckles, h
 | **Text-to-image** | Distilled defaults: **1024²**, 4 steps, guidance 1.0 |
 | **Image-to-image** | Strength edits + optional **identity** stack (ref latents, face mask, clean-pull) |
 | **Memory** | Staged TE → DiT → VAE; DiT block checkpointing; **MLX Steel fused FA** (simdgroup MMA); **tiled VAE** (overlap + cosine blend) |
-| **Weights** | Hub 4-bit packs only — no bf16 product path |
+| **Weights** | Hub 4-bit packs only, **pinned revision** — no bf16 product path |
 | **Speed** | Prompt-embed disk cache (default on), warm `session` mode (≥16 GB), opt-in `--text-tokens auto` trim |
 | **Eval** | Pixel quality harness + vision-review workflow for agents |
 | **Bench** | Multi-trial timings, MLX/RSS, pressure-map, **i2i / identity-i2i** + host-contention tags |
@@ -101,10 +102,11 @@ swift build -c release
 
 ```bash
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
+  --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
   --local-dir ~/Library/Caches/Aestrix/models/mlx-community--FLUX.2-Klein-4B-4bit
 ```
 
-Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-4bit) (module-split `text_encoder/` `transformer/` `vae/` `tokenizer/`). Details: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
+Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-4bit) @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (module-split `text_encoder/` `transformer/` `vae/` `tokenizer/`). Pins: [Docs/WEIGHTS.md](Docs/WEIGHTS.md), [Docs/hub-pins.json](Docs/hub-pins.json).
 
 ### 3. Generate
 
@@ -163,7 +165,7 @@ Canonical package: [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co
 ```bash
 # Unit tests (no weights). Avoid a full unfiltered `swift test` if Metal FA
 # tests hang after a GPU abort — filter HostPreflight / GoldenMetric / Flux2Math.
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin'
 .build/release/aestrix mem-selftest
 
 # 512² pixel loop (needs snapshot + release binary)
@@ -174,7 +176,7 @@ AESTRIX=.build/release/aestrix ./Scripts/eval-regression.sh
 
 | Command | Description |
 |---------|-------------|
-| `aestrix info` | Tier, memory policy, snapshot path |
+| `aestrix info` | Tier, memory policy, snapshot path, pinned Hub revision |
 | `aestrix t2i <prompt>` | Text-to-image (default **1024²**) |
 | `aestrix i2i <prompt> --image PATH` | Strength I2I; `--identity` for ref latents + face preserve |
 | `aestrix session` | Warm multi-prompt loop, modules resident (≥16 GB gate) |
@@ -246,7 +248,8 @@ Full procedure: [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) · metrics: [Docs
 | [Docs/ROADMAP.md](Docs/ROADMAP.md) | Done vs parked backlog |
 | [Docs/PERF.md](Docs/PERF.md) | Benchmarks, pressure probes, 1024 path |
 | [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) | Module map |
-| [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs & cache layout |
+| [Docs/WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs, **pinned revisions**, cache layout |
+| [Docs/hub-pins.json](Docs/hub-pins.json) | Machine-readable Hub commit SHAs |
 | [Docs/MEMORY.md](Docs/MEMORY.md) | Staged residency & tiers |
 | [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Generation quality gates |
 | [Docs/HOST_SAFETY.md](Docs/HOST_SAFETY.md) | 8 GB / one-Metal-owner rules (watchdog) |

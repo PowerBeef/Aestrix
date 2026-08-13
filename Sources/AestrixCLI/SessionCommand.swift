@@ -43,8 +43,7 @@ struct Session: AsyncParsableCommand {
         let physGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
         let resident = forceResident || physGB >= 15.0
         var config = AestrixConfig.autoDetectingTier()
-        config.weightPreset = preset
-        config.modelID = preset.defaultModelID
+        config.apply(preset: preset)
         config.memoryPolicy = resident ? .resident : .staged
 
         let pipeline = AestrixPipeline(config: config)

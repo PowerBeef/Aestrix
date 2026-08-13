@@ -177,7 +177,7 @@ Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objecti
 |---|------|--------|
 | P0 | Tile-seam metric + VAE-tile findings | **Done** (1.2) |
 | P1 | CLIPScore optional + Vision proxy | **Done** (1.3) |
-| P1 | Golden metric floors in CI | **Done** (`GoldenMetricFloorsTests`, `Scripts/ci-eval-floors.sh`) |
+| P1 | Golden metric floors in CI | **Done** (`GoldenMetricFloorsTests`, `Scripts/ci-eval-floors.sh`, `.github/workflows/eval-floors.yml`) |
 | P2 | LPIPS-lite for I2I | **Done** (MS-SSIM multi-scale) |
 | P2 | Strength-aware I2I gates | **Done** |
 | P3 | ImageReward / HPS offline batch | Parked |
