@@ -346,6 +346,10 @@ public enum TechnicalQuality {
         // Mild penalty when midlines look like tile boundaries (cosine blend should keep this low).
         let seamPenalty = smoothstep(2.0, 4.5, tileSeam)
 
+        // A perfectly flat, unclipped, non-tiled field zeros sharp/contrast/entropy.
+        // Remaining mass is 0.14+0.18+0.08. In Float32 that left-fold is 1 ULP
+        // below 0.4, so the score is Float(40).nextDown (39.999996) — never 40.0.
+        // Do not set a solid-color fixture floor at 40.
         var s = 100 * (
             0.28 * sharpS
                 + 0.18 * contrastS

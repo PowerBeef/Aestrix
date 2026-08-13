@@ -18,6 +18,8 @@ struct GoldenMetricFloorsTests {
         #expect(doc.schemaVersion == "1.0")
         #expect(doc.machineIndependent)
         #expect(doc.floors.solidBlueColorMatch.requireColorMatch)
+        // Flat fixture ceiling is Float(40).nextDown — a 40 floor can never pass.
+        #expect(doc.floors.solidBlueColorMatch.minTechnicalScore < 40)
         #expect(doc.floors.identicalImages.minSsim >= 0.99)
         #expect(doc.floors.oppositeColors.maxFidelityScore <= 75)
         #expect(doc.floors.strengthAwareIdenticalColorEdit.expectFindingCode == "strength_too_low_for_edit")
@@ -99,6 +101,46 @@ struct GoldenMetricFloorsTests {
             )
         )
         #expect(report.findings.contains { $0.code == floor.expectFindingCode })
+    }
+
+    @Test("solid field occupies the vacuous ~40 technical bucket")
+    func solidFieldVacuousTechnicalBucket() throws {
+        let url = try writeSolid(r: 20, g: 40, b: 200, name: "vacuous_blue", side: 128)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let pixels = try PixelBuffer.load(url: url, maxSide: 1024)
+        var rMin = Float.greatestFiniteMagnitude, rMax: Float = -.greatestFiniteMagnitude
+        var gMin = Float.greatestFiniteMagnitude, gMax: Float = -.greatestFiniteMagnitude
+        var bMin = Float.greatestFiniteMagnitude, bMax: Float = -.greatestFiniteMagnitude
+        for i in 0 ..< pixels.pixelCount {
+            let r = pixels.rgb[i * 3], g = pixels.rgb[i * 3 + 1], b = pixels.rgb[i * 3 + 2]
+            rMin = min(rMin, r); rMax = max(rMax, r)
+            gMin = min(gMin, g); gMax = max(gMax, g)
+            bMin = min(bMin, b); bMax = max(bMax, b)
+        }
+        let report = try ImageAnalyzer.analyze(
+            imageURL: url,
+            options: .init(prompt: "a cobalt blue ceramic mug", skipSemantic: true)
+        )
+        let t = report.technical
+        // RGB is bit-identical after PNG; contrast/noise dust is Float32 reduction, not spatial variation.
+        #expect(rMax - rMin < 1e-3)
+        #expect(gMax - gMin < 1e-3)
+        #expect(bMax - bMin < 1e-3)
+        #expect(t.sharpnessLaplacianVar == 0)
+        #expect(t.meanGradient == 0)
+        #expect(t.stdLuminance < 1e-4)
+        #expect(t.contrastRMS < 1e-4)
+        #expect(t.clipBlackFraction == 0)
+        #expect(t.clipWhiteFraction == 0)
+        #expect(t.noiseProxy < 1e-6)
+        #expect(t.luminanceEntropy == 0)
+        #expect(t.expectsVAETiling == false)
+        // compositeScore keeps only noise+clip+seam weights: 0.14+0.18+0.08.
+        // That sum is 1 ULP below 0.4 in Float32, so 100*sum == Float(40).nextDown.
+        #expect(t.technicalScore == Float(40).nextDown)
+        #expect(t.technicalScore < 40)
+        #expect(report.overallScore >= 45)
+        #expect(report.promptAlignment.alignmentScore > 50)
     }
 
     @Test("schema version is 1.3+")

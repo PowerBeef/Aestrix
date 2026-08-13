@@ -57,7 +57,7 @@ Exit codes:
 | `luminance_entropy` | Histogram richness |
 | `expects_vae_tiling` | `true` when max(side) ≥ 768 (Aestrix auto-tiles decode) |
 | `tile_seam_score` / `_vertical` / `_horizontal` | Midline discontinuity / mean gradient (clean often &lt;2.5) |
-| `technical_score` | 0–100 composite (includes mild seam penalty when tiling expected) |
+| `technical_score` | 0–100 composite (includes mild seam penalty when tiling expected). A flat unclipped field scores **~40** (vacuous noise+clip+seam terms); in `Float` that value is `40.nextDown`, so a `>= 40` floor can never pass a solid-color fixture. |
 
 ### Reference (I2I / gold)
 
