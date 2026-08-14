@@ -400,6 +400,19 @@ JSON: `/tmp/imarello-vae-mlxfast-512.json` / `…-chunk64-512.json` / `…-1024.
 Numeric: `IMARELLO_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.  
 **Ship chunked as default** — decode time is within noise; the bound is the score matrix (never S×S). Untiled 1024² encode is S=16384 (~1.1 GiB scores); chunk 64 keeps scores at `[Tq, S]`. Did **not** run T2I pixel/vision on this pass (host dirty; math is the same softmax). `--eval-cache mid` was **not** measured on this 8 GB host (refused without `--force`).
 
+#### BFL Small Decoder (opt-in, 2026-08-14)
+
+`--vae-variant small-decoder`. New module (`[96,192,384,384]`), CompVis→MLX remap, klein BN. **Default stays full AE.**
+
+Same-day release, 512² `bench --mode vae-decode` W1/T3:
+
+| Label | decode mean | vs full | peak RSS |
+|-------|------------:|--------:|---------:|
+| `vae-full-512` | 1.68 s | — | 57 MB |
+| **`vae-small-512`** | **1.06 s** | **−37.3%** | 147 MB |
+
+JSON: `/tmp/imarello-vae-full-512.json` / `/tmp/imarello-vae-small-512.json`. RSS is higher because the BFL file is F32 (~112 MB) vs the 4-bit-attn klein decode pack. Quality: fox + mug seed 42, pixel PASS (tech 96.4 / 85.3), vision near-identical to full AE. **Did not flip the default** (no 1024 A/B, no full eval-regression).
+
 ### Historical snapshots (not for cross-size RAM A/B)
 
 | Label | e2e mean | denoise/step | peak RSS | peak MLX active | peak MLX watermark | Notes |

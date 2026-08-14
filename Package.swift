@@ -105,6 +105,7 @@ let package = Package(
             name: "ImarelloCLI",
             dependencies: [
                 "ImarelloCore",
+                "ImarelloWeights",
                 "ImarelloRuntime",
                 "ImarelloDiT",
                 "ImarelloVAE",

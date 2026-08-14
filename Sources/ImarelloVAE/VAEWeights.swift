@@ -67,6 +67,32 @@ public enum VAEWeights {
         return model
     }
 
+    /// Load BFL Small Decoder + klein-pack BN stats.
+    ///
+    /// `smallDecoderDirectory` holds CompVis-named `small_decoder.safetensors`.
+    /// `bnFrom` is the klein `vae/` directory (`bn.running_mean` / `bn.running_var`).
+    public static func loadSmallDecodeOnly(
+        from smallDecoderDirectory: URL,
+        bnFrom kleinVAEDirectory: URL
+    ) throws -> Flux2VAEDecoderOnly {
+        let model = Flux2VAEDecoderOnly(variant: .smallDecoder)
+        // BFL file is F32 Linear/Conv — quantize *after* update (klein pack is pre-quant).
+        let raw = try SafetensorsLoader.loadMergedArrays(in: smallDecoderDirectory)
+        var remapped = try CompVisVAEMapper.remap(raw)
+        let klein = try SafetensorsLoader.loadMergedArrays(in: kleinVAEDirectory)
+        guard let mean = klein["bn.running_mean"], let variance = klein["bn.running_var"] else {
+            throw ImarelloError.unsupportedWeightFormat(
+                "klein VAE pack is missing bn.running_mean / bn.running_var at \(kleinVAEDirectory.path)")
+        }
+        remapped["bn.running_mean"] = mean.asType(.float32)
+        remapped["bn.running_var"] = variance.asType(.float32)
+        let nested = NestedDictionary<String, MLXArray>.unflattened(remapped)
+        try model.update(parameters: nested, verify: [.shapeMismatch, .allModelKeysSet])
+        quantizeAttentionLinears(model)
+        eval(model)
+        return model
+    }
+
     private static func quantizeAttentionLinears(_ model: Module) {
         quantize(model: model, groupSize: defaultGroupSize, bits: defaultBits) { path, module in
             guard module is Linear else { return false }

@@ -11,6 +11,8 @@ public struct ImarelloConfig: Sendable {
     /// Hard clamp for max(width, height).
     public var maxSide: Int
     public var modelsDirectory: URL?
+    /// T2I / I2I decode graph. Encoder (I2I) is always the full klein AE.
+    public var vaeDecoderVariant: VAEDecoderVariant
 
     public init(
         modelID: String? = nil,
@@ -19,7 +21,8 @@ public struct ImarelloConfig: Sendable {
         tier: DeviceTier = .detect(),
         maxSide: Int? = nil,
         modelsDirectory: URL? = nil,
-        revision: String? = nil
+        revision: String? = nil,
+        vaeDecoderVariant: VAEDecoderVariant = .full
     ) {
         self.weightPreset = weightPreset
         self.modelID = modelID ?? weightPreset.defaultModelID
@@ -28,6 +31,7 @@ public struct ImarelloConfig: Sendable {
         self.tier = tier
         self.maxSide = maxSide ?? tier.defaultMaxSide
         self.modelsDirectory = modelsDirectory
+        self.vaeDecoderVariant = vaeDecoderVariant
     }
 
     public static func autoDetectingTier() -> ImarelloConfig {

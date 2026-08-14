@@ -19,6 +19,26 @@
 
 Machine-readable pins: [`hub-pins.json`](hub-pins.json) (must match `WeightPreset`). A 5-bit community pack exists but is **not** a product preset.
 
+### Optional: BFL Small Decoder (decode only)
+
+Not a swap into the klein `vae/` pack. Narrower channels `[96, 192, 384, 384]` vs `[128, 256, 512, 512]`. Encoder (I2I) stays the klein AE. Product default remains **full**.
+
+| Role | Hugging Face ID | Pinned revision | File |
+|------|-----------------|-----------------|------|
+| Opt-in decode | [`black-forest-labs/FLUX.2-small-decoder`](https://huggingface.co/black-forest-labs/FLUX.2-small-decoder) | `a3efc24f613ef42d9428af62fdbd6f5fd8856c4a` | `small_decoder.safetensors` (~112 MB, Apache-2.0) |
+
+```bash
+hf download black-forest-labs/FLUX.2-small-decoder \
+  --revision a3efc24f613ef42d9428af62fdbd6f5fd8856c4a \
+  --include small_decoder.safetensors --include config.json \
+  --local-dir ~/Library/Caches/Imarello/models/black-forest-labs--FLUX.2-small-decoder
+
+.build/release/imarello t2i "…" --width 512 --height 512 --vae-variant small-decoder \
+  --output /tmp/small.png --analyze --vision-brief
+```
+
+Packed-latent BN stats still come from the klein pack. Flip the default only after a 512 + 1024 pixel/vision A/B.
+
 ### On-disk layout (already staged-friendly)
 
 Measured on Hub API (2026-08-10):

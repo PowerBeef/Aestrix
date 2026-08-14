@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import ImarelloCore
+import ImarelloWeights
 import ImarelloRuntime
 
 /// Warm interactive session: read prompts from stdin, keep modules resident across
@@ -25,6 +26,9 @@ struct Session: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
+    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder.")
+    var vaeVariant: String = "full"
+
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk (default on; keeps TE out of the resident set on repeats).")
     var embedCache: Bool = true
 
@@ -45,6 +49,14 @@ struct Session: AsyncParsableCommand {
         var config = ImarelloConfig.autoDetectingTier()
         config.apply(preset: preset)
         config.memoryPolicy = resident ? .resident : .staged
+        try applyVAEVariant(vaeVariant, to: &config)
+        if config.vaeDecoderVariant == .smallDecoder,
+           ModelPaths.resolveSmallDecoderIfPresent(config: config) == nil
+        {
+            print("error: Small Decoder snapshot missing")
+            print("hint: \(VAEDecoderVariant.smallDecoder.downloadCommand)")
+            throw ExitCode.failure
+        }
 
         let pipeline = ImarelloPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {

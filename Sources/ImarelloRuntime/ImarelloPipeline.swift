@@ -19,10 +19,14 @@ public actor ImarelloPipeline {
         let snap = ModelPaths.resolveIfPresent(config: config)
         self.snapshot = snap
         let bits = Self.bits(for: config.weightPreset)
+        let smallDir = ModelPaths.resolveSmallDecoderIfPresent(config: config)
         self.orchestrator = StageOrchestrator(
             textEncoder: TextEncoderModule(snapshot: snap),
             dit: DiTModule(snapshot: snap, bits: bits),
-            vae: VAEModule(snapshot: snap),
+            vae: VAEModule(
+                snapshot: snap,
+                decoderVariant: config.vaeDecoderVariant,
+                smallDecoderDirectory: smallDir),
             memoryPolicy: config.memoryPolicy
         )
     }
@@ -104,8 +108,13 @@ public actor ImarelloPipeline {
     }
 
     /// Load VAE weights from snapshot, return leaf parameter count, unload if staged.
+    /// Small Decoder is decode-only (full AE graph is the klein pack).
     public func loadVAE() async throws -> Int {
-        try await orchestrator.loadVAEAndCountParameters()
+        let mode: VAELoadMode = config.vaeDecoderVariant == .smallDecoder ? .decodeOnly : .full
+        try await orchestrator.loadVAEExclusive(mode: mode)
+        let count = orchestrator.vae.parameterLeafCount
+        try await orchestrator.unloadVAEIfStaged()
+        return count
     }
 
     /// Decode-only packed noise at `width`×`height` (bench `vae-decode`).

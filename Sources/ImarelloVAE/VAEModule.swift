@@ -24,10 +24,18 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
     public private(set) var decodeOnlyModel: Flux2VAEDecoderOnly?
     public private(set) var encodeOnlyModel: Flux2VAEEncoderOnly?
 
+    public let decoderVariant: VAEDecoderVariant
     private let snapshot: ModelSnapshot?
+    private let smallDecoderDirectory: URL?
 
-    public init(snapshot: ModelSnapshot? = nil) {
+    public init(
+        snapshot: ModelSnapshot? = nil,
+        decoderVariant: VAEDecoderVariant = .full,
+        smallDecoderDirectory: URL? = nil
+    ) {
         self.snapshot = snapshot
+        self.decoderVariant = decoderVariant
+        self.smallDecoderDirectory = smallDecoderDirectory
     }
 
     public func load() async throws {
@@ -47,7 +55,7 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
                 decodeOnlyModel = nil
                 encodeOnlyModel = nil
             case .decodeOnly:
-                decodeOnlyModel = try VAEWeights.loadDecodeOnly(from: snapshot.vaeDirectory)
+                decodeOnlyModel = try loadDecodeOnly(from: snapshot)
                 model = nil
                 encodeOnlyModel = nil
             case .encodeOnly:
@@ -62,6 +70,21 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
         }
         loadMode = mode
         isLoaded = true
+    }
+
+    private func loadDecodeOnly(from snapshot: ModelSnapshot) throws -> Flux2VAEDecoderOnly {
+        switch decoderVariant {
+        case .full:
+            return try VAEWeights.loadDecodeOnly(from: snapshot.vaeDirectory)
+        case .smallDecoder:
+            guard let smallDir = smallDecoderDirectory else {
+                throw ImarelloError.weightsNotFound(
+                    modelID: VAEDecoderVariant.smallDecoderPin.modelID,
+                    path: ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: nil).path)
+            }
+            return try VAEWeights.loadSmallDecodeOnly(
+                from: smallDir, bnFrom: snapshot.vaeDirectory)
+        }
     }
 
     public func unload() async {

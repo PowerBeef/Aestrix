@@ -101,4 +101,17 @@ public enum ModelPaths {
         let expected = snapshotRoot(modelID: config.modelID, modelsDirectory: config.modelsDirectory)
         throw ImarelloError.weightsNotFound(modelID: config.modelID, path: expected.path)
     }
+
+    public static func smallDecoderSnapshotRoot(modelsDirectory: URL?) -> URL {
+        snapshotRoot(
+            modelID: VAEDecoderVariant.smallDecoderPin.modelID,
+            modelsDirectory: modelsDirectory)
+    }
+
+    /// Directory that contains `small_decoder.safetensors`, if present.
+    public static func resolveSmallDecoderIfPresent(config: ImarelloConfig) -> URL? {
+        let root = smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+        let file = root.appendingPathComponent(VAEDecoderVariant.smallDecoderFileName)
+        return FileManager.default.fileExists(atPath: file.path) ? root : nil
+    }
 }

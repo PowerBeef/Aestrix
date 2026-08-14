@@ -47,6 +47,19 @@ struct HubPinTests {
         }
     }
 
+    @Test("Small Decoder pin matches Docs/hub-pins.json")
+    func smallDecoderPinMatchesDoc() throws {
+        let pin = VAEDecoderVariant.smallDecoderPin
+        #expect(pin.isCommitSHA)
+        #expect(VAEDecoderVariant.smallDecoder.blockOutChannels == [96, 192, 384, 384])
+        #expect(VAEDecoderVariant.full.blockOutChannels == [128, 256, 512, 512])
+        let doc = try loadHubPins()
+        let pack = try #require(doc.vaeDecoders?["small-decoder"])
+        #expect(pack.modelId == pin.modelID)
+        #expect(pack.revision == pin.revision)
+        #expect(pack.file == VAEDecoderVariant.smallDecoderFileName)
+    }
+
     @Test("WEIGHTS.md and README document the 4-bit pin")
     func docsMentionDefaultPin() throws {
         let root = repoRoot()
@@ -75,9 +88,15 @@ struct HubPinTests {
     private struct HubPinsFile: Decodable {
         let schemaVersion: String
         let packs: [String: Pack]
+        let vaeDecoders: [String: VAEDecoderPack]?
         struct Pack: Decodable {
             let modelId: String
             let revision: String
+        }
+        struct VAEDecoderPack: Decodable {
+            let modelId: String
+            let revision: String
+            let file: String?
         }
     }
 

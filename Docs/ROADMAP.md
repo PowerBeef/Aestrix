@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-14 (P9 Slice A: `--text-tokens auto` quality close-out)  
+**Last updated:** 2026-08-14 (P9 Slice B: BFL Small Decoder as opt-in decode)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
@@ -135,13 +135,14 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  
 - [x] Research: M2 compute dtype — **activations fp32**, only quant scales are bf16 (`load-dit --dump-dtypes`, 2026-08-13)  
 - [x] Research: Klein AdaLN/modulation size vs DT split — **~4% of DiT**, shared (not per-block); unload not worth it  
+- [x] **P9 Slice B (2026-08-14):** BFL Small Decoder opt-in (`--vae-variant small-decoder`) — 512² decode **−37%**; fox/mug vision ≈ full AE; default stays full  
 
 **P9 leftover slices** (2026-08-14 research re-rank; 3-bit **out**; do not start without an explicit ask). Next speed work after Slice A:
 
 | Slice | Status | Item | Notes |
 |-------|--------|------|-------|
 | **A** | **done** | `--text-tokens auto` quality close-out | [`TEXT_TOKENS.md`](TEXT_TOKENS.md). Default stays pad-512. |
-| **B** | `parked` | BFL **FLUX.2 Small Decoder** as optional decode | New module (~28M, Apache, same 32-ch latent). Not a weight swap. Flip default only after 512 + 1024 eval + vision. |
+| **B** | **done** (opt-in) | BFL **FLUX.2 Small Decoder** as optional decode | `--vae-variant small-decoder`. 512² decode **−37%**. Fox/mug vision ≈ full AE. **Default stays full** until 1024 + eval-regression. |
 | **C** | `parked` | Profile one 512 step: Steel FA vs FFN vs `processQKV` glue | Gates whether fused QK-Norm+RoPE / compile-glue-only is worth a week. |
 | — | `parked` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
 | — | `parked` | Training-free **ref-KV** on 4B I2I | 9B-KV *schedule* on 4B; identity 512 first; kill if face-crop SSIM drops or watermark > ~4.2 GiB. |
@@ -200,3 +201,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-13 | P8 I2I strength-curve recipes (`Docs/I2I_STRENGTH.md`); macOS polish backlog complete |
 | 2026-08-13 | Port quarantine leftovers on main: Steel metallib check, VAE D=512 chunked SDPA (`evalEachChunk` off), `EvalCachePolicy.mid` bench-only |
 | 2026-08-14 | P9 Slice A: `--text-tokens auto` is first-class opt-in; **pad-512 stays the product default**. Quality A/B 15/15 pixel PASS + vision. [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) |
+| 2026-08-14 | P9 Slice B: BFL Small Decoder as `--vae-variant small-decoder`. 512² decode −37%. **Full AE stays default.** |

@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import ImarelloCore
+import ImarelloWeights
 import ImarelloRuntime
 import ImarelloDiT
 import ImarelloVAE
@@ -27,6 +28,13 @@ func applyAttnF16Threshold(_ value: Int?) {
     var t = AttentionTuning.current
     t.f16SeqThreshold = value
     AttentionTuning.current = t
+}
+
+func applyVAEVariant(_ raw: String, to config: inout ImarelloConfig) throws {
+    guard let variant = VAEDecoderVariant(rawValue: raw) else {
+        throw ValidationError("Unknown --vae-variant '\(raw)'; use full | small-decoder")
+    }
+    config.vaeDecoderVariant = variant
 }
 
 /// Call at the start of any command that may touch MLX.
@@ -142,6 +150,8 @@ struct Info: AsyncParsableCommand {
         print("  eval_cache: \(EvalCachePolicy.current.profileName)")
         print("  text_tokens: 512 (default)")
         print("  text_tokens_auto: opt-in trim; Docs/TEXT_TOKENS.md")
+        print("  vae_decoder: \(config.vaeDecoderVariant.rawValue) (default full)")
+        print("  small_decoder_ready: \(ModelPaths.resolveSmallDecoderIfPresent(config: config) != nil)")
         print("  weight_preset: \(config.weightPreset.rawValue)")
         print("  model_id: \(config.modelID)")
         print("  model_revision: \(config.revision)")
@@ -225,18 +235,31 @@ struct LoadVAE: AsyncParsableCommand {
         abstract: "Load VAE weights from the local snapshot (requires Metal)."
     )
 
+    @Option(name: .long, help: "Decode graph: full (default, klein pack) | small-decoder (BFL distilled).")
+    var vaeVariant: String = "full"
+
     func run() async throws {
         try ensureMLXReady()
-        let config = ImarelloConfig.autoDetectingTier()
+        var config = ImarelloConfig.autoDetectingTier()
+        try applyVAEVariant(vaeVariant, to: &config)
+        if config.vaeDecoderVariant == .smallDecoder,
+           ModelPaths.resolveSmallDecoderIfPresent(config: config) == nil
+        {
+            print("error: Small Decoder snapshot missing")
+            print("hint: \(VAEDecoderVariant.smallDecoder.downloadCommand)")
+            throw ExitCode.failure
+        }
         let pipeline = ImarelloPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
             print("error: no local snapshot for \(config.modelID)")
             throw ExitCode.failure
         }
-        print("loading VAE from \(await pipeline.snapshotPath ?? "?") …")
+        print(
+            "loading VAE variant=\(config.vaeDecoderVariant.rawValue) from \(await pipeline.snapshotPath ?? "?") …"
+        )
         do {
             let leaves = try await pipeline.loadVAE()
-            print("VAE load OK parameter_leaves=\(leaves)")
+            print("VAE load OK parameter_leaves=\(leaves) variant=\(config.vaeDecoderVariant.rawValue)")
         } catch {
             print("error: \(error)")
             throw ExitCode.failure
@@ -397,6 +420,9 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; faster; numerics differ — Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
+    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder (BFL distilled; Docs/WEIGHTS.md).")
+    var vaeVariant: String = "full"
+
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
     var attnF16Threshold: Int?
 
@@ -414,6 +440,14 @@ struct T2I: AsyncParsableCommand {
         }
         var config = ImarelloConfig.autoDetectingTier()
         config.apply(preset: preset)
+        try applyVAEVariant(vaeVariant, to: &config)
+        if config.vaeDecoderVariant == .smallDecoder,
+           ModelPaths.resolveSmallDecoderIfPresent(config: config) == nil
+        {
+            print("error: Small Decoder snapshot missing")
+            print("hint: \(VAEDecoderVariant.smallDecoder.downloadCommand)")
+            throw ExitCode.failure
+        }
 
         let pipeline = ImarelloPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
@@ -435,7 +469,7 @@ struct T2I: AsyncParsableCommand {
             embedCache: embedCache
         )
         print(
-            "t2i width=\(width) height=\(height) steps=\(steps) weights=\(preset.rawValue) seed=\(seed.map(String.init) ?? "random") snapshot=\(await pipeline.snapshotPath ?? "?")"
+            "t2i width=\(width) height=\(height) steps=\(steps) weights=\(preset.rawValue) vae=\(config.vaeDecoderVariant.rawValue) seed=\(seed.map(String.init) ?? "random") snapshot=\(await pipeline.snapshotPath ?? "?")"
         )
         let physGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
         if max(width, height) >= 1024, physGB < 10 {
@@ -544,6 +578,9 @@ struct I2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; faster; numerics differ — Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
+    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder (BFL distilled). Encoder stays the klein AE.")
+    var vaeVariant: String = "full"
+
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
     var attnF16Threshold: Int?
 
@@ -595,6 +632,14 @@ struct I2I: AsyncParsableCommand {
 
         var config = ImarelloConfig.autoDetectingTier()
         config.apply(preset: preset)
+        try applyVAEVariant(vaeVariant, to: &config)
+        if config.vaeDecoderVariant == .smallDecoder,
+           ModelPaths.resolveSmallDecoderIfPresent(config: config) == nil
+        {
+            print("error: Small Decoder snapshot missing")
+            print("hint: \(VAEDecoderVariant.smallDecoder.downloadCommand)")
+            throw ExitCode.failure
+        }
 
         let pipeline = ImarelloPipeline(config: config)
         guard await pipeline.hasLocalSnapshot else {
@@ -853,6 +898,9 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default) | auto (trim; Docs/TEXT_TOKENS.md).")
     var textTokens: String?
 
+    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder.")
+    var vaeVariant: String = "full"
+
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"
 
@@ -956,7 +1004,15 @@ struct Bench: AsyncParsableCommand {
             }
         }
 
-        let imarelloConfig = ImarelloConfig.autoDetectingTier()
+        var imarelloConfig = ImarelloConfig.autoDetectingTier()
+        try applyVAEVariant(vaeVariant, to: &imarelloConfig)
+        if imarelloConfig.vaeDecoderVariant == .smallDecoder,
+           ModelPaths.resolveSmallDecoderIfPresent(config: imarelloConfig) == nil
+        {
+            print("error: Small Decoder snapshot missing")
+            print("hint: \(VAEDecoderVariant.smallDecoder.downloadCommand)")
+            throw ExitCode.failure
+        }
         if let raw = evalCache {
             guard let policy = EvalCachePolicy.named(raw) else {
                 print("error: unknown --eval-cache '\(raw)'. Use: product | mid")

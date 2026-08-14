@@ -23,5 +23,14 @@
       "revision": "9beac1a3ad296d9e5e3f8845674e6577fa8654ec",
       "last_modified": "2026-05-23T23:11:25.000Z"
     }
+  },
+  "vae_decoders": {
+    "small-decoder": {
+      "model_id": "black-forest-labs/FLUX.2-small-decoder",
+      "revision": "a3efc24f613ef42d9428af62fdbd6f5fd8856c4a",
+      "file": "small_decoder.safetensors",
+      "last_modified": "2026-04-07T20:42:04.000Z",
+      "note": "Distilled decode-only. Not a klein-pack swap. Product default stays full AE."
+    }
   }
 }

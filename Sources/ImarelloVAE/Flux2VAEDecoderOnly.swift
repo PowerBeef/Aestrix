@@ -6,16 +6,21 @@ import ImarelloCore
 /// Decode-only VAE for T2I: omits encoder + quant_conv (~67 MB) to cut VAE-stage RAM on Tier L.
 ///
 /// Weight keys match the hub pack prefixes: `decoder.*`, `post_quant_conv.*`, `bn.*`.
+/// Pass `variant: .smallDecoder` for the BFL distilled graph (narrower channels).
 public final class Flux2VAEDecoderOnly: Module {
     public static let latentChannels = Flux2VAE.latentChannels
+
+    public let variant: VAEDecoderVariant
 
     @ModuleInfo(key: "decoder") var decoder: Flux2Decoder
     @ModuleInfo(key: "post_quant_conv") var postQuantConv: Conv2d
     @ModuleInfo(key: "bn") var bn: Flux2BatchNormStats
 
-    public override init() {
+    public init(variant: VAEDecoderVariant = .full) {
+        self.variant = variant
         let lc = Self.latentChannels
-        self._decoder.wrappedValue = Flux2Decoder(inChannels: lc)
+        self._decoder.wrappedValue = Flux2Decoder(
+            inChannels: lc, blockOutChannels: variant.blockOutChannels)
         self._postQuantConv.wrappedValue = Conv2d(
             inputChannels: lc, outputChannels: lc, kernelSize: 1, stride: 1, padding: 0)
         self._bn.wrappedValue = Flux2BatchNormStats(numFeatures: 4 * lc, eps: 1e-4)
