@@ -22,7 +22,7 @@ struct Session: AsyncParsableCommand {
     @Option(name: .long, help: "Output directory (default: ~/Library/Caches/Imarello/outputs)")
     var outputDir: String?
 
-    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim; experimental).")
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk (default on; keeps TE out of the resident set on repeats).")

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Sequential 512² T2I pixel regression from Docs/eval-prompts.md (seeds 42, 0, 7).
 # Does not commit PNGs. Requires a built imarello + local snapshot + metallib.
+# Extra t2i flags: T2I_EXTRA='--text-tokens auto'  (see Docs/TEXT_TOKENS.md; default is pad-512).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

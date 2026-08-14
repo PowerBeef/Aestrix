@@ -16,6 +16,7 @@ Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers sema
 | **This file** | End-to-end procedure (when / how / gates) |
 | [IMAGE_ANALYSIS.md](IMAGE_ANALYSIS.md) | Metrics schema & library API |
 | [eval-prompts.md](eval-prompts.md) | BFL-style regression prompts |
+| [TEXT_TOKENS.md](TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 quality A/B |
 | [AGENTS.md](../AGENTS.md) | Agent contract (must follow) |
 
 ---
@@ -87,7 +88,8 @@ swift build && ./Scripts/ensure-metallib.sh
 
 Match canvas to the reference (omit `--width`/`--height` or set native size) so 1024 sources are not downscaled to 512.
 
-**512² pixel loop:** `Scripts/eval-regression.sh` (T2I eval-prompts 1–5 × seeds 42/0/7).
+**512² pixel loop:** `Scripts/eval-regression.sh` (T2I eval-prompts 1–5 × seeds 42/0/7).  
+Optional trim path: `T2I_EXTRA='--text-tokens auto'` — see [`TEXT_TOKENS.md`](TEXT_TOKENS.md) (default stays pad-512).
 
 ### Sidecar files (next to the PNG)
 

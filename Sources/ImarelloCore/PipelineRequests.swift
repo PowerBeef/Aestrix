@@ -4,11 +4,12 @@ import Foundation
 ///
 /// FLUX.2 joint attention has no text mask, so padding tokens participate in attention.
 /// `.auto` trims the padded 512-token sequence to the real prompt length (rounded up to
-/// a multiple of 8) — a numerics-changing **experiment** that cuts joint sequence length.
+/// a multiple of 8). First-class opt-in; product default remains `.full512`.
+/// See `Docs/TEXT_TOKENS.md`.
 public enum TextTokenMode: String, Sendable, Codable {
     /// Full 512 padded tokens (documented product default).
     case full512 = "512"
-    /// Trim to real prompt length rounded up to a multiple of 8 (experimental).
+    /// Trim to real prompt length rounded up to a multiple of 8 (opt-in; numerics differ).
     case auto
 }
 

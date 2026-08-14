@@ -140,6 +140,8 @@ struct Info: AsyncParsableCommand {
         print("  max_side: \(config.maxSide)")
         print("  memory_policy: \(config.memoryPolicy.rawValue)")
         print("  eval_cache: \(EvalCachePolicy.current.profileName)")
+        print("  text_tokens: 512 (default)")
+        print("  text_tokens_auto: opt-in trim; Docs/TEXT_TOKENS.md")
         print("  weight_preset: \(config.weightPreset.rawValue)")
         print("  model_id: \(config.modelID)")
         print("  model_revision: \(config.revision)")
@@ -392,7 +394,7 @@ struct T2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Exit 2 if pixel quality gate fails (use with --analyze).")
     var failOnPixelGate: Bool = false
 
-    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim to prompt length; experimental).")
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; faster; numerics differ — Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
@@ -539,7 +541,7 @@ struct I2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Exit 2 if pixel quality gate fails (use with --analyze).")
     var failOnPixelGate: Bool = false
 
-    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded) | auto (trim to prompt length; experimental).")
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; faster; numerics differ — Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
@@ -848,7 +850,7 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Clear cache every N blocks when per-block clears are active (default 1).")
     var attnBlockClearInterval: Int?
 
-    @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default) | auto (trim experiment).")
+    @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default) | auto (trim; Docs/TEXT_TOKENS.md).")
     var textTokens: String?
 
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")

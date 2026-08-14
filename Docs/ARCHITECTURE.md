@@ -29,7 +29,7 @@ mlx-swift
 | Attention heads | 24 |
 | Head dim | 128 → inner **3072** |
 | Joint attention dim | **7680** (3×2560 Qwen layers 9/18/27) |
-| Max text length | **512** (full pad) |
+| Max text length | **512** (full pad default; `--text-tokens auto` trims — [`TEXT_TOKENS.md`](TEXT_TOKENS.md)) |
 | Latent channels (VAE) | 32 → 128 after unshuffle |
 | RoPE axes | (32,32,32,32), θ=**2000** |
 | Default steps / guidance | **4** / **1.0** |
@@ -37,7 +37,7 @@ mlx-swift
 ## Correctness footguns
 
 1. Qwen chat template (empty think block with `enable_thinking=False`)  
-2. Full 512 pad to DiT (not trimmed tokens)  
+2. Full 512 pad to DiT is the product default (padding participates in joint attn). `--text-tokens auto` is a documented opt-in that **changes numerics** — [`TEXT_TOKENS.md`](TEXT_TOKENS.md)  
 3. Timestep ×1000 when max(t) ≤ 1  
 4. Exact scheduler sigmas vs mflux/diffusers  
 5. TE unload before DiT load  

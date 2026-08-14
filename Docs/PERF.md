@@ -320,11 +320,13 @@ same-day baseline: 512² e2e −11.8% (35.9 → 31.7 s), denoise/step −14.5%
 Quality gate: seed-42 512² smoke, pixel PASS + vision checklist clean (typical klein
 two-handle quirk only). Reports: `/tmp/p45-512.json`, `/tmp/p45-1024.json`.
 
-#### P2 `--text-tokens auto` (opt-in, experimental)
+#### P2 `--text-tokens auto` (first-class opt-in; default stays 512)
 
 Trims TE output + `txtIds` to the real (unpadded) token count instead of the full 512
 padded window. Changes numerics vs the reference full-512 path (padding tokens
-participate in attention in FLUX.2), hence opt-in and off by default.
+participate in attention in FLUX.2). Product default remains pad-512.
+
+Quality close-out + recipes: [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) (2026-08-14).
 
 - 512² bench (`p2-auto-512` vs `p45-512`, 12-word prompt → joint 1536 → ~1060):
   e2e **−32.4%** (31.7 → 21.4 s), denoise/step **−39.8%** (6.06 → 3.64 s),
@@ -333,9 +335,11 @@ participate in attention in FLUX.2), hence opt-in and off by default.
   +27% on identical work after ~40 min sustained GPU load — treat back-to-back
   same-day runs with suspicion). Interleaved cold one-step A/B: auto **17.1–17.3 s/step**
   vs full512 **19.1 s/step** ≈ **−10%**, matching the seq-length ratio (4136/4608).
-- Eval gate: seeds 42/0/7 at 512², pixel scores 82–84, no hard failures; seed-42
-  visual parity vs full512 = same subject/composition/quality, minor texture drift
-  (expected numerics change).
+- **2026-08-14 quality A/B:** `T2I_EXTRA='--text-tokens auto' ./Scripts/eval-regression.sh`
+  — **15/15 pixel PASS**. Vision (mug / fox / OPEN STUDIO + shop / fisherman): same
+  subject and quality, texture/pose drift. Seed-7 “OPEN STUDIO” drops “OPEN” on
+  **both** auto and pad-512 (Klein flake, not a trim regression). **Did not flip
+  the default.**
 
 #### P3a prompt-embed disk cache (default on)
 
@@ -428,7 +432,7 @@ Numeric: `IMARELLO_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.
 | S5 P5 | Compiled RoPE pair-mix (`compiledRopeMix`, 50×/step) + compiled AdaLN `modApply`/`gateAdd` | e2e **−7.0%** @ 512² on top of P1 (with P4); flat @ 1024² (see “P4 + P5” subsection) |
 | M5 P4 | VAE encode-only load for I2I stage-0 (`VAELoadMode.encodeOnly`, ~67 MB) | Decoder never resident during reference encode |
 | M5 P4 | Tiled VAE stitch: slice-local accumulate + cached cosine masks (was full-canvas pad+add ×2 per tile) | decode −8.9% @ 512²; 1024² within noise (see “P4 + P5” subsection) |
-| S6 P2 | `--text-tokens auto` trim (opt-in; numerics differ from full-512 reference) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; watermark 3.21 → 2.99 GB @ 512² |
+| S6 P2 | `--text-tokens auto` trim (first-class opt-in; default stays 512; [`TEXT_TOKENS.md`](TEXT_TOKENS.md)) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; watermark 3.21 → 2.99 GB @ 512²; 2026-08-14 eval 15/15 PASS |
 | S7 P3a | Prompt-embed disk cache (default on; `--no-embed-cache`) | Hit skips TE stage: **−4 s** @ 512², byte-identical output |
 | — P3b | `imarello session` warm mode (resident policy, ≥16 GB gate, `--force-resident`) | No win on 8 GB (gate validated); resident reuse byte-identical |
 

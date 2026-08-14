@@ -1,6 +1,6 @@
 <div align="center">
 
-# Imarello
+<img src="Docs/assets/readme/imarello-lockup-wide.png" width="560" alt="Imarello">
 
 **Native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)**
 
@@ -132,7 +132,7 @@ Apple M2 **8 GB** Mac mini · release · 4-bit · W1/T3 · seed 42. Live peak is
 | **512²** | **~27 s** | ~5.1 s | 2.04 GiB | 2.99 GiB |
 | **1024²** | **~88 s** | ~18.6 s | 2.05 GiB | 3.76 GiB |
 
-`--text-tokens auto` (experimental) can cut 512² to ~21 s by trimming pad tokens — numerics differ from the full-512 reference.
+`--text-tokens auto` (documented opt-in; default stays 512) can cut 512² to ~21 s by trimming pad tokens — numerics differ from the full-512 reference. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
 Same-day A/Bs only. Tables: [Docs/PERF.md](Docs/PERF.md).
 
@@ -212,6 +212,7 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md)
 | [PERF.md](Docs/PERF.md) | Benchmarks and pressure probes |
 | [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Pixel + vision quality gate |
 | [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | Color vs identity strength |
+| [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 |
 
 ---
 

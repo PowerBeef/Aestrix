@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-13 (quarantine leftovers ported on main)  
+**Last updated:** 2026-08-14 (P9 Slice A: `--text-tokens auto` quality close-out)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
@@ -124,16 +124,30 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] Block-level compile spike under **resident DiT** (`imarello dit-compile-spike`) — **NO-GO**: −3.1% single / −1.1% double block; full compile stays parked  
 - [x] 2026-08-11 pass P1: size-gated per-block `clearCache` + collapsed QKV evals + single-eval chunked Linear — denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²  
 - [x] 2026-08-11 pass P4+P5: slice-local tiled-VAE stitch + cached masks, `VAELoadMode.encodeOnly` (I2I stage-0), identity `--ref-downsample`, compiled RoPE/AdaLN — cumulative **−11.8% e2e @ 512²**, **−3.7% @ 1024²**, watermark flat  
-- [x] `--text-tokens auto` trim (opt-in, experimental; numerics differ from full-512) — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²; eval gate seeds 42/0/7 pass  
+- [x] `--text-tokens auto` trim — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²  
+- [x] **P9 Slice A (2026-08-14):** auto vs pad-512 quality A/B — eval-regression **15/15 pixel PASS**; vision comparable (texture/pose drift; seed-7 “OPEN STUDIO” flakes on **both** paths). **Default stays 512.** Doc: [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md)  
 - [x] Prompt-embed disk cache (default on) — TE stage skipped on hit (**−4 s** @ 512², byte-identical)  
 - [x] `imarello session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
 - [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks  
-- [x] f16 Q/K/V @ 512² (`f16SeqThreshold` **2048 → 512**) — denoise/step **−4.3%**, e2e **−3.3%**, watermark flat; eval-regression 15/15 pixel PASS |  
+- [x] f16 Q/K/V @ 512² (`f16SeqThreshold` **2048 → 512**) — denoise/step **−4.3%**, e2e **−3.3%**, watermark flat; eval-regression 15/15 pixel PASS  
 - [ ] DiT **weight** streaming for iOS jetsam (`stagedAggressive`)  
 - [ ] Cold vs warm metallib / first-step cost (S3) documented separately  
 - [ ] Document accepted quality trade for 2–3 steps if used (S10)  
 - [x] Research: M2 compute dtype — **activations fp32**, only quant scales are bf16 (`load-dit --dump-dtypes`, 2026-08-13)  
-- [x] Research: Klein AdaLN/modulation size vs DT split — **~4% of DiT**, shared (not per-block); unload not worth it |  
+- [x] Research: Klein AdaLN/modulation size vs DT split — **~4% of DiT**, shared (not per-block); unload not worth it  
+
+**P9 leftover slices** (2026-08-14 research re-rank; 3-bit **out**; do not start without an explicit ask). Next speed work after Slice A:
+
+| Slice | Status | Item | Notes |
+|-------|--------|------|-------|
+| **A** | **done** | `--text-tokens auto` quality close-out | [`TEXT_TOKENS.md`](TEXT_TOKENS.md). Default stays pad-512. |
+| **B** | `parked` | BFL **FLUX.2 Small Decoder** as optional decode | New module (~28M, Apache, same 32-ch latent). Not a weight swap. Flip default only after 512 + 1024 eval + vision. |
+| **C** | `parked` | Profile one 512 step: Steel FA vs FFN vs `processQKV` glue | Gates whether fused QK-Norm+RoPE / compile-glue-only is worth a week. |
+| — | `parked` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
+| — | `parked` | Training-free **ref-KV** on 4B I2I | 9B-KV *schedule* on 4B; identity 512 first; kill if face-crop SSIM drops or watermark > ~4.2 GiB. |
+| — | `parked` | **Δ-DiT** skip a subset of single blocks on **step 2 only** | High risk; kill on any vision-brief / pixel fail. |
+| — | `parked` | `stagedAggressive` weight **drop** (not mmap) | iOS jetsam, not M2 speed. Expect slower e2e. |
+| — | **out** | 3-bit DiT SKU | Product lock; do not resume. |
 
 **Latest default-path A/B (8 GB Mac mini, release, W1T3, 2026-08-13 `hoist-*`):** 512² e2e **~27.5 s** / 1024² e2e **~87.7 s**; denoise/step **~5.20 s** / **~18.6 s**; peak active **~2.04 / 2.05 GiB**; watermark **~2.99 / 3.76 GiB**. Full tables: `Docs/PERF.md`.
 
@@ -162,7 +176,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 ## How to resume (agents)
 
 1. Read this file + `AGENTS.md` product locks.  
-2. Pick the highest-priority `parked` ID (default **P7**).  
+2. Pick the highest-priority `parked` ID (default **P7** for product; P9 leftover **Slice B** for speed).  
 3. Confirm macOS smoke still works (`t2i` + `EVAL_WORKFLOW.md`).  
 4. Open a focused branch; do not expand into “Out of v1” without an explicit ask.  
 5. Update this roadmap (checkboxes + “Last updated”) when an item lands or is cancelled.
@@ -185,3 +199,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-13 | Pin mlx-community Klein 4-bit Hub revision `1cebb9b45c21ece14a42615b16bf5fa4de9b56da`; CI eval floors on GitHub Actions |
 | 2026-08-13 | P8 I2I strength-curve recipes (`Docs/I2I_STRENGTH.md`); macOS polish backlog complete |
 | 2026-08-13 | Port quarantine leftovers on main: Steel metallib check, VAE D=512 chunked SDPA (`evalEachChunk` off), `EvalCachePolicy.mid` bench-only |
+| 2026-08-14 | P9 Slice A: `--text-tokens auto` is first-class opt-in; **pad-512 stays the product default**. Quality A/B 15/15 pixel PASS + vision. [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) |

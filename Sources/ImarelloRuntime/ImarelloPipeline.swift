@@ -289,7 +289,7 @@ public actor ImarelloPipeline {
                 }
             }
 
-            // Experiment: trim padded text tokens before the DiT (--text-tokens auto).
+            // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)
@@ -584,7 +584,7 @@ public actor ImarelloPipeline {
                 }
             }
 
-            // Experiment: trim padded text tokens before the DiT (--text-tokens auto).
+            // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)
@@ -781,7 +781,8 @@ public actor ImarelloPipeline {
     ///
     /// Padding sits at the end and Qwen attention is causal, so real-token embeddings are
     /// identical trimmed or not — only the DiT joint attention (which has no text mask)
-    /// sees fewer tokens. Numerics-changing experiment; gated by `TextTokenMode.auto`.
+    /// sees fewer tokens. Numerics-changing; gated by `TextTokenMode.auto`.
+    /// See `Docs/TEXT_TOKENS.md`.
     private static func trimTextTokens(
         _ embeds: MLXArray, realTokens: Int, trace: PipelineTrace?
     ) -> MLXArray {

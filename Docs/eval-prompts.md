@@ -3,7 +3,8 @@
 Use for smoke tests and visual quality gates. Klein prefers **narrative prose**, **front-loaded subject**, **strong lighting**, moderate length (~40–70 words). **No negative prompts.**
 
 **After generating any sample, run the full eval procedure:**  
-[`Docs/EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) (`--analyze --vision-brief`, then vision checklist).
+[`Docs/EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) (`--analyze --vision-brief`, then vision checklist).  
+`--text-tokens auto` vs pad-512: [`TEXT_TOKENS.md`](TEXT_TOKENS.md) (default stays 512).
 
 ## T2I (distilled 4-step)
 

@@ -53,7 +53,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
 10. **I2I strength**: full N-step schedule; color curve default. Color/object **≥ 0.8**. Recipes: [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md).
 11. **I2I identity (Tier B)**: `--identity` = ref latents (`t=10`) + face mask + clean-pull + milder `identity` curve. People + scene **0.85–0.9**. Say **recolor same cut** vs **replace outfit**. Default I2I stays strength-only.
-12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Imarello/embeds`; leftover `~/Library/Caches/Aestrix/` is still read). Keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical. `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **opt-in / experimental**; big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
+12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Imarello/embeds`; leftover `~/Library/Caches/Aestrix/` is still read). Keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical. `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **first-class opt-in**, default stays **512**; see [`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md); big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
 
 ## Phase status
 
@@ -63,7 +63,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
-| **P9 Performance harness** | **Done** | `ImarelloBench` (t2i / i2i / identity-i2i + host contention); Steel FA + tiled VAE + **context hoist**; 2026-08-13 `hoist-512` / `hoist-1024` in `Docs/PERF.md` |
+| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Slice A** `--text-tokens auto` quality close-out 2026-08-14 ([`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md)). Next speed: Small Decoder / FA-vs-FFN profile — `Docs/ROADMAP.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
@@ -198,7 +198,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `imarello session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
 | `imarello dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |
 | `Scripts/eval-generation.sh` | Eval existing PNG |
-| `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate |
+| `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate (`T2I_EXTRA='--text-tokens auto'` for the trim path) |
 | `Scripts/ci-eval-floors.sh` | Hub pins + synthetic golden floors (no weights; GitHub Actions) |
 | `Scripts/ensure-metallib.sh` | Build/install full Metal library |
 
