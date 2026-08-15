@@ -205,3 +205,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-15 | I2I encoder lock: always klein `encodeOnly`. Do not load `full_encoder_small_decoder.safetensors`. 512² mug + identity smokes with Small Decoder decode PASS. |
 | 2026-08-15 | Small Decoder 1024² T2I quality pass: 6/6 pixel PASS, vision match vs full AE, decode −37%. |
 | 2026-08-15 | **Promote Small Decoder to product default.** `--vae-variant full` is the klein-pack escape hatch. Missing snapshot fails with `hf download` hint. |
+| 2026-08-15 | `--text-tokens auto` identity I2I A/B (512², seed 7): face lock holds on recolor + replace; outfit *cut* can drift vs pad-512. Default stays **512**. [`TEXT_TOKENS.md`](TEXT_TOKENS.md) |

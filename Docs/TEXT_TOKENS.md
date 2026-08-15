@@ -90,6 +90,25 @@ Pad seed-42 spots (same prompts): mug tech **85.3**, poster **63.3**, fox **96.1
 
 Expected under auto: **texture / pose / type-treatment drift**, not a different subject. Klein 4-step typography is already seed-fragile on **both** paths.
 
+### Identity I2I (2026-08-15)
+
+Character-consistency is the harder test: ref latents (`t=10`) share joint attention with the prompt. Auto changes text length next to those tokens; it does not change klein encode, face mask, or clean-pull.
+
+512² · `--identity` · strength **0.9** · seed **7** · Small Decoder · ref `Docs/assets/readme/identity-ref.jpg`.
+
+| Intent | tokens | pixel | SSIM vs ref | Vision |
+|--------|--------|-------|------------:|--------|
+| Recolor same cut `#0B5F4B` | 512 | PASS | 0.743 | Same woman; same collar/sleeves; ivory → emerald. |
+| Recolor same cut | **auto** | PASS | 0.751 | Same face/hair/pose; emerald; cut still a collared blouse (collar a bit more open). |
+| Replace wrap top + balcony | 512 | PASS* | 0.727 | Face lock. Emerald long-sleeve blouse (lapel-ish). **No balcony.** Cut change mild. |
+| Replace wrap top + balcony | **auto** | PASS* | 0.748 | Face lock. Emerald **sleeveless** silk (stronger cut change). **No balcony.** |
+
+\* `color_mismatch` warn waived: blouse is green; hair/skin dominate the hue bucket.
+
+Paths: `/tmp/imarello-auto-id-i2i/recolor-{512,auto}.png`, `replace-{512,auto}.png`.
+
+**Read-out:** auto does **not** drop the person. Recolor quality matches pad-512. On “replace outfit,” auto changed sleeves more than pad-512; neither delivered the outdoor balcony (identity-stack limit, both paths). Auto can change *how* a wardrobe edit lands, not just texture.
+
 ## Decision (do not flip the default)
 
 Keep **`--text-tokens 512`** as the product default.
@@ -99,7 +118,8 @@ Reasons:
 1. `AGENTS.md` / `ARCHITECTURE.md` lock: full 512 pad to DiT.  
 2. Padding participates in attention — auto is a different sampler, not a free lunch.  
 3. Vision is comparable, but PNGs are not byte-identical; gallery / eval must stay on one path.  
-4. Seed-7 “OPEN STUDIO” already flakes on pad-512. Flipping the default would not fix typography and would invalidate every stored pad-512 seed.
+4. Seed-7 “OPEN STUDIO” already flakes on pad-512. Flipping the default would not fix typography and would invalidate every stored pad-512 seed.  
+5. Identity I2I (2026-08-15): face lock holds, but outfit-edit *shape* can drift vs pad-512. Gallery/identity recipes stay on 512.
 
 `auto` is **first-class**: documented here, listed in `imarello info` / `--help`, safe for interactive 512². Changing the default needs a new product decision plus a pad-512 → auto eval-floor migration.
 
@@ -116,6 +136,11 @@ T2I_EXTRA='--text-tokens auto' \
 OUT_DIR=/tmp/imarello-eval-regression-pad \
   IMARELLO=.build/release/imarello \
   ./Scripts/eval-regression.sh
+
+# Identity A/B (512² only)
+.build/release/imarello i2i "$PROMPT" --image Docs/assets/readme/identity-ref.jpg \
+  --strength 0.9 --identity --seed 7 --width 512 --height 512 \
+  --text-tokens auto --output /tmp/id-auto.png --analyze --vision-brief
 
 # Token count for any prompt
 .build/release/imarello encode-prompt "YOUR PROMPT"
