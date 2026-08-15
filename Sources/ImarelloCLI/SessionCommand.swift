@@ -26,8 +26,8 @@ struct Session: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
-    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder.")
-    var vaeVariant: String = "full"
+    @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
+    var vaeVariant: String = "small-decoder"
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk (default on; keeps TE out of the resident set on repeats).")
     var embedCache: Bool = true

@@ -22,7 +22,7 @@ public struct ImarelloConfig: Sendable {
         maxSide: Int? = nil,
         modelsDirectory: URL? = nil,
         revision: String? = nil,
-        vaeDecoderVariant: VAEDecoderVariant = .full
+        vaeDecoderVariant: VAEDecoderVariant = .smallDecoder
     ) {
         self.weightPreset = weightPreset
         self.modelID = modelID ?? weightPreset.defaultModelID

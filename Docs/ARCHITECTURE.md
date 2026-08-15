@@ -146,7 +146,7 @@ Text RoPE ids: `[0,0,0,token_i]` (diffusers `_prepare_text_ids`). Distilled path
 **Default path:** strength-only (color curve).  
 **Identity path (`--identity`):** clean reference latents concatenated into DiT (`t=10` RoPE), face-regional start-σ, post-Euler clean-latent pull, milder schedule. Prefer strength **≥ 0.85** for wardrobe/scene changes. Recipes: [`I2I_STRENGTH.md`](I2I_STRENGTH.md). Multi-reference (>1 image) remains out of v1.
 
-**I2I + Small Decoder:** encode is always klein `encodeOnly`. `--vae-variant small-decoder` applies to **final decode only**. Do not load BFL `full_encoder_small_decoder.safetensors`. [`WEIGHTS.md`](WEIGHTS.md).
+**I2I + Small Decoder:** encode is always klein `encodeOnly`. Default **final decode** is Small Decoder; `--vae-variant full` is the klein decoder. Do not load BFL `full_encoder_small_decoder.safetensors`. [`WEIGHTS.md`](WEIGHTS.md).
 
 Memory order: **VAE encode unload → TE unload → DiT unload → VAE decode unload**.
 

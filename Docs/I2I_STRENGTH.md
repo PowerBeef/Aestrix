@@ -82,6 +82,6 @@ High SSIM is **not** a failed identity edit. For a recolor, high SSIM + color ma
 - Full N-step Euler from `startT` → \(1/N\), then μ-shift (same as T2I). Not `startStep` slicing.
 - Identity extras: clean ref tokens at RoPE \(t=10\); Vision face mask; clean-pull α 0.2 decaying over steps (`IdentityPreserveConfig.identityPreset`).
 - `--ref-downsample N` shrinks ref tokens (faster, weaker identity). Experimental.
-- **Encoder lock:** I2I stage-0 is always klein `encodeOnly`. `--vae-variant small-decoder` changes **final decode only**. Do not load BFL `full_encoder_small_decoder.safetensors`. See [`WEIGHTS.md`](WEIGHTS.md).
+- **Encoder lock:** I2I stage-0 is always klein `encodeOnly`. Default **final decode** is Small Decoder; `--vae-variant full` restores the klein decoder. Do not load BFL `full_encoder_small_decoder.safetensors`. See [`WEIGHTS.md`](WEIGHTS.md).
 
 Unit lock for the table: `Flux2MathTests.strengthCurveStartTMatchesDocs`.

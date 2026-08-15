@@ -150,8 +150,12 @@ struct Info: AsyncParsableCommand {
         print("  eval_cache: \(EvalCachePolicy.current.profileName)")
         print("  text_tokens: 512 (default)")
         print("  text_tokens_auto: opt-in trim; Docs/TEXT_TOKENS.md")
-        print("  vae_decoder: \(config.vaeDecoderVariant.rawValue) (default full)")
-        print("  small_decoder_ready: \(ModelPaths.resolveSmallDecoderIfPresent(config: config) != nil)")
+        let smallReady = ModelPaths.resolveSmallDecoderIfPresent(config: config) != nil
+        print("  vae_decoder: \(config.vaeDecoderVariant.rawValue) (default)")
+        print("  small_decoder_ready: \(smallReady)")
+        if !smallReady {
+            print("  small_decoder_hint: \(VAEDecoderVariant.smallDecoder.downloadCommand)")
+        }
         print("  weight_preset: \(config.weightPreset.rawValue)")
         print("  model_id: \(config.modelID)")
         print("  model_revision: \(config.revision)")
@@ -235,8 +239,8 @@ struct LoadVAE: AsyncParsableCommand {
         abstract: "Load VAE weights from the local snapshot (requires Metal)."
     )
 
-    @Option(name: .long, help: "Decode graph: full (default, klein pack) | small-decoder (BFL distilled).")
-    var vaeVariant: String = "full"
+    @Option(name: .long, help: "Decode graph: small-decoder (default, BFL distilled) | full (klein pack).")
+    var vaeVariant: String = "small-decoder"
 
     func run() async throws {
         try ensureMLXReady()
@@ -420,8 +424,8 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; faster; numerics differ — Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
-    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder (BFL distilled; Docs/WEIGHTS.md).")
-    var vaeVariant: String = "full"
+    @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
+    var vaeVariant: String = "small-decoder"
 
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
     var attnF16Threshold: Int?
@@ -578,8 +582,8 @@ struct I2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded reference) | auto (trim pad; faster; numerics differ — Docs/TEXT_TOKENS.md).")
     var textTokens: String = "512"
 
-    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder (BFL distilled). Encoder stays the klein AE.")
-    var vaeVariant: String = "full"
+    @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack). Encoder stays the klein AE.")
+    var vaeVariant: String = "small-decoder"
 
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
     var attnF16Threshold: Int?
@@ -898,8 +902,8 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default) | auto (trim; Docs/TEXT_TOKENS.md).")
     var textTokens: String?
 
-    @Option(name: .long, help: "VAE decode graph: full (default) | small-decoder.")
-    var vaeVariant: String = "full"
+    @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
+    var vaeVariant: String = "small-decoder"
 
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"

@@ -74,7 +74,7 @@ Unedited release outputs, 4-bit, 4 steps, fixed seeds.
 
 ## Quick start
 
-**Needs:** Apple Silicon, macOS 15+, Xcode 16 / Swift 6, ~5 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
+**Needs:** Apple Silicon, macOS 15+, Xcode 16 / Swift 6, ~5.1 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
 
 ```bash
 git clone https://github.com/PowerBeef/Imarello.git && cd Imarello
@@ -86,7 +86,12 @@ hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
   --local-dir ~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit
 
-.build/release/imarello info           # tier, pin, snapshot, Steel metallib
+hf download black-forest-labs/FLUX.2-small-decoder \
+  --revision a3efc24f613ef42d9428af62fdbd6f5fd8856c4a \
+  --include small_decoder.safetensors --include config.json \
+  --local-dir ~/Library/Caches/Imarello/models/black-forest-labs--FLUX.2-small-decoder
+
+.build/release/imarello info           # tier, pin, snapshot, Steel metallib, Small Decoder
 
 .build/release/imarello t2i \
   "A weathered fisherman at the helm of a wooden boat, golden hour rim light, shallow depth of field." \
@@ -134,7 +139,7 @@ Apple M2 **8 GB** Mac mini · release · 4-bit · W1/T3 · seed 42. Live peak is
 
 `--text-tokens auto` (documented opt-in; default stays 512) can cut 512² to ~21 s by trimming pad tokens — numerics differ from the full-512 reference. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
-`--vae-variant small-decoder` (BFL distilled VAE, Apache-2.0) is **−37%** decode at 512² and 1024²; 1024 T2I quality matches the full AE. Default stays the klein decoder so a klein-only snapshot still generates. Download pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
+Default decode is BFL **Small Decoder** (−37% decode at 512² and 1024²; quality matches the klein AE). `--vae-variant full` restores the klein decoder. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 
 Same-day A/Bs only. Tables: [Docs/PERF.md](Docs/PERF.md).
 

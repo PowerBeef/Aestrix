@@ -23,6 +23,7 @@ struct HubPinTests {
         #expect(config.modelID == WeightPreset.bits4.defaultModelID)
         #expect(config.revision == WeightPreset.bits4.pinnedRevision)
         #expect(config.downloadCommand.contains("--revision \(config.revision)"))
+        #expect(config.vaeDecoderVariant == .smallDecoder)
     }
 
     @Test("apply(preset:) updates model id and revision together")
@@ -69,6 +70,8 @@ struct HubPinTests {
         #expect(weights.contains(sha))
         #expect(readme.contains(sha))
         #expect(readme.contains("--revision"))
+        #expect(readme.contains(VAEDecoderVariant.smallDecoderPin.revision))
+        #expect(weights.contains(VAEDecoderVariant.smallDecoderPin.revision))
     }
 
     @Test("parses hf download metadata first line as revision")

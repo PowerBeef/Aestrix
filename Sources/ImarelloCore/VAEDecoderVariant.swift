@@ -6,11 +6,12 @@ import Foundation
 /// Do not load BFL `full_encoder_small_decoder.safetensors` as a second encoder.
 /// Small Decoder is a **separate** distilled module (`[96, 192, 384, 384]` vs
 /// `[128, 256, 512, 512]`) — not a weight swap into `Flux2Decoder`.
-/// Product default stays `.full` until a quality A/B flips it.
+/// Product default is `.smallDecoder` (2026-08-15 512 + 1024 quality pass).
+/// `--vae-variant full` restores the klein-pack decoder.
 public enum VAEDecoderVariant: String, Sendable, Codable, CaseIterable {
     /// Full klein-pack decoder (`block_out_channels` 128/256/512/512).
     case full = "full"
-    /// BFL FLUX.2 Small Decoder (Apache-2.0, narrower channels).
+    /// BFL FLUX.2 Small Decoder (Apache-2.0, narrower channels). Product default.
     case smallDecoder = "small-decoder"
 
     /// Hub pin for `small_decoder.safetensors`. Keep in lockstep with `Docs/hub-pins.json`.

@@ -30,7 +30,7 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
 
     public init(
         snapshot: ModelSnapshot? = nil,
-        decoderVariant: VAEDecoderVariant = .full,
+        decoderVariant: VAEDecoderVariant = .smallDecoder,
         smallDecoderDirectory: URL? = nil
     ) {
         self.snapshot = snapshot

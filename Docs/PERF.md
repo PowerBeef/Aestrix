@@ -402,7 +402,7 @@ Numeric: `IMARELLO_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.
 
 #### BFL Small Decoder (opt-in, 2026-08-14)
 
-`--vae-variant small-decoder`. New module (`[96,192,384,384]`), CompVis→MLX remap, klein BN. **Default stays full AE.**
+`--vae-variant small-decoder` (product default as of 2026-08-15). New module (`[96,192,384,384]`), CompVis→MLX remap, klein BN. `--vae-variant full` restores the klein-pack decoder.
 
 Same-day release, 512² `bench --mode vae-decode` W1/T3:
 
@@ -430,7 +430,7 @@ JSON: `/tmp/imarello-sd-1024/vae-full-1024.json` / `vae-small-1024.json`.
 | OPEN STUDIO | 73.8 / 2.16 | 73.8 / 1.68 | Headline correct on both; indigo; white-type clip warn |
 | fox | 98.4 / 1.68 | 98.7 / 1.69 | Same sitting fox, snow, sunrise |
 
-All **6/6 pixel PASS**. No `possible_tile_seam`. Composition matches (same latents). **Default stays full AE** — Small Decoder is a second Hub download; `t2i` must work from the klein pack alone. Paths: `/tmp/imarello-sd-1024/`.
+All **6/6 pixel PASS**. No `possible_tile_seam`. Composition matches (same latents). **Promoted to product default** 2026-08-15. Paths: `/tmp/imarello-sd-1024/`.
 
 ### Historical snapshots (not for cross-size RAM A/B)
 
