@@ -3,7 +3,9 @@
 ## Product policy
 
 - Users download **pre-quantized MLX packages only**.
-- **Default: 4-bit.** Optional: 3-bit (Tier L), 6/8-bit (quality).
+- **4-bit is locked.** That is the only shipping SKU.
+- 6/8-bit pins exist in `hub-pins.json` but are **not** the product path.
+- **No 3-bit product path.** Do not document or resume 3-bit as a Tier L option.
 - **No bf16** in runtime defaults or App Store flows.
 - Cache: `~/Library/Caches/Imarello/models/` (macOS); app container on iOS. Existing `~/Library/Caches/Aestrix/models/` snapshots are still resolved.
 - **Pinned revision:** each product preset ships against a Hugging Face **commit SHA** (`WeightPreset.pin`, [`hub-pins.json`](hub-pins.json)). `imarello info` prints `model_revision` and compares it to local `hf download` metadata when present.
@@ -14,8 +16,7 @@
 |------|-----------------|-----------------|-------|
 | **Primary (default)** | [`mlx-community/FLUX.2-Klein-4B-4bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-4bit) | `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (2026-05-29) | Module-split; Apache-2.0 base |
 | Equivalent layout | [`Runpod/FLUX.2-klein-4B-mflux-4bit`](https://huggingface.co/Runpod/FLUX.2-klein-4B-mflux-4bit) | — | Same tree sizes (~mflux q4); alternate source, **not** the product pin |
-| Tier L optional | [`mlx-community/FLUX.2-Klein-4B-3bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-3bit) | `246946064c7218227b1e99509245392cdcedc9d3` (2026-05-29) | Same layout family |
-| Quality optional | [`mlx-community/FLUX.2-Klein-4B-6bit`](https://huggingface.co/mlx-community/FLUX.2-Klein-4B-6bit) / [`flux2-klein-4b-8bit`](https://huggingface.co/mlx-community/flux2-klein-4b-8bit) | `76fd8a876cb61126fb1fdce97eb9464eab063ff5` / `9beac1a3ad296d9e5e3f8845674e6577fa8654ec` | Same family when needed |
+| Non-product pins | 6-bit / 8-bit mlx-community packs | see [`hub-pins.json`](hub-pins.json) | Not the shipping path. **No 3-bit SKU.** |
 
 Machine-readable pins: [`hub-pins.json`](hub-pins.json) (must match `WeightPreset`). A 5-bit community pack exists but is **not** a product preset.
 

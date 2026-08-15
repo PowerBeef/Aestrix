@@ -13,7 +13,7 @@ ImarelloRuntime   (Pipeline actor, StageOrchestrator, MemoryPolicy)
         │
    ┌────┴────┬────────────┐
 ImarelloText  ImarelloDiT   ImarelloVAE
- (Qwen3 tap) (MMDiT 5+20) (FLUX.2 AE)
+ (Qwen3 tap) (MMDiT 5+20) (Small Decoder + klein encode)
         │
 ImarelloWeights  (Hub snapshot load, module dirs)
         │
@@ -49,8 +49,8 @@ mlx-swift
 | `ImarelloCore` | Types, errors, tier, memory probe, Hub pins (`WeightPreset.pin`), **pure math** (RoPE, timestep emb, modulation layout, scheduler) |
 | `ImarelloWeights` | Resolve snapshot paths; read `hf download` metadata SHA |
 | `ImarelloText` | Tokenizer + Qwen3 3-layer tap |
-| `ImarelloDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` |
-| `ImarelloVAE` | Encode / decode-only / tiled cosine blend |
+| `ImarelloDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` + scaled f16 4-bit Linear |
+| `ImarelloVAE` | Small Decoder default decode; klein encode-only; tiled cosine blend |
 | `ImarelloRuntime` | Orchestrator + public pipeline API |
 | `ImarelloBench` | Multi-trial timings, pressure maps, attn knobs |
 | `ImarelloEval` | Pixel quality (no Metal) |
@@ -78,6 +78,7 @@ Scheduler primary path: `linspace(1, 1/N, N)` → exponential time-shift with μ
 | `Flux2Modulation` / `AdaLayerNormContinuous` | AdaLN conditioning |
 | `Flux2PosEmbed` / `Flux2TimestepGuidanceEmbeddings` | RoPE + temb |
 | `TransformerWeights.loadQuantized` | 4-bit affine load from `transformer/*.safetensors` |
+| `AttentionTuning.linearF16` | Product default: scaled f16 `quantizedMM` (`÷16`). `--attn-linear-compute f32` escape |
 | `DiTModule` | Staged loadable wrapper |
 
 Weight keys match mlx-community 4-bit packs (`x_embedder`, `transformer_blocks.N.attn.to_q`, … + `.scales`/`.biases` after `quantize`).
@@ -110,10 +111,12 @@ Weight keys match mlx-community 4-bit packs (`x_embedder`, `transformer_blocks.N
 
 | Type | Role |
 |------|------|
-| `Flux2VAE` | encode / decode / decodePackedLatents |
-| `Flux2Encoder` / `Flux2Decoder` | UNet-style residual stacks |
+| `Flux2VAE` | encode / decode / decodePackedLatents (klein AE) |
+| `Flux2VAEDecoderOnly` | **Product default decode** — BFL Small Decoder `[96,192,384,384]` |
+| `Flux2VAEEncoderOnly` | I2I encode — always klein AE (never `full_encoder_small_decoder`) |
+| `Flux2Encoder` / `Flux2Decoder` | UNet-style residual stacks (`--vae-variant full`) |
 | `VAEWeights.load` | Quantize mid-block attention Linears only; load hub shards |
-| `VAEModule` | Staged loadable wrapper |
+| `VAEModule` | Staged loadable wrapper; `VAEDecoderVariant.smallDecoder` default |
 
 Requires Metal metallib for real load (same as DiT).
 

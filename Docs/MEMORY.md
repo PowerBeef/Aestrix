@@ -12,7 +12,7 @@ Peak ≈ `max(TE, DiT+acts, VAE)` + context + latents + OS slack.
 |------|----------|------------------------|--------------|---------|
 | L | ~8 GB unified | ≤ ~5.5–6.5 GB process | **1024** default (tight; measure with `bench`) | 4-bit + staged |
 | M | ~16 GB | ≤ ~10–12 GB | 1024 | 4-bit + staged |
-| H | 24 GB+ | optional resident | 1024 | 4/8-bit; resident opt-in |
+| H | 24 GB+ | optional resident | 1024 | **4-bit** + staged; resident opt-in |
 
 ## Stages (T2I)
 
@@ -26,7 +26,7 @@ I2I adds VAE encode (then unload) before TE/DiT.
 
 | Policy | Behavior |
 |--------|----------|
-| `staged` (default) | One heavy module at a time; DiT **activation** checkpointing; **MLX Steel fused FA** (D=128); VAE decode-only + **tiled cosine blend** |
+| `staged` (default) | One heavy module at a time; DiT **activation** checkpointing; **MLX Steel fused FA** (D=128); **Small Decoder** T2I/I2I decode + klein encode-only + **tiled cosine blend** |
 | `stagedAggressive` | Reserved for tighter devices (optional DiT **weight** streaming — not default; measure first) |
 | `resident` | Keep quant modules warm (Tier H only) |
 
@@ -43,6 +43,7 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | VAE D=512 query-chunked attention | Done (`VAEAttention`; `evalEachChunk` **off**; `--vae-attn-chunk 0` = MLXFast A/B) |
 | `EvalCachePolicy.product` | Done (default). `mid` is ≥16 GB **bench only** (`--eval-cache mid`). **No `.high`.** |
 | VAE decode-only for T2I | Done |
+| BFL **Small Decoder** (product decode) | Done (default; `--vae-variant full` = klein AE). I2I encode stays klein |
 | VAE tiled decode (overlap + cosine blend) | Done |
 | DiT **weight** streaming (block JIT load) | Not default — iOS headroom spike |
 | Draw Things–style AdaLN split | **N/A for Klein** — shared modulation is ~4% of DiT (`Docs/DRAW_THINGS.md`) |
@@ -60,6 +61,7 @@ I2I adds VAE encode (then unload) before TE/DiT.
 |--------|----------------|
 | TE | 2.26 GB |
 | DiT | 2.18 GB |
-| VAE | 0.17 GB (decode-only ~97 MB) |
+| VAE (klein pack) | 0.17 GB (encode-only ~67 MB) |
+| Small Decoder (default decode) | ~112 MB F32 (`FLUX.2-small-decoder`) |
 
-On 8 GB M2 after the low-RAM path, **live peak active ≈ DiT weights (~2.0 GiB)** at both 512² and 1024²; watermark ~**3.0 GiB (512)** / ~**3.75 GiB (1024)**. Prefer **512² for interactive speed**, not because 1024² OOMs.
+On 8 GB M2 after the product path (auto + Small Decoder + f16 qmm, 2026-08-15), **live peak active ≈ DiT weights (~2.04 GiB)** at both 512² and 1024²; watermark **2.38 GiB (512)** / **3.46 GiB (1024)**. Prefer **512² for interactive speed**, not because 1024² OOMs. See [`PERF.md`](PERF.md).

@@ -9,9 +9,9 @@ Related: `Docs/MEMORY.md` (staged policy), `Docs/ARCHITECTURE.md`, `Docs/EVAL_WO
 ## Quick start
 
 ```bash
-swift build && ./Scripts/ensure-metallib.sh
+swift build -c release && ./Scripts/ensure-metallib.sh
 
-# Full staged T2I (default canvas 1024² — may OOM on 8 GB)
+# 512² smoke (prefer this on 8 GB). Product canvas is 1024² — measured-safe (~74 s, watermark 3.46 GiB).
 .build/release/imarello bench --label baseline --width 512 --height 512 --json /tmp/imarello-baseline.json
 
 # Pressure map: DiT block-level MLX active samples (use for 1024 diagnosis)
@@ -151,7 +151,7 @@ Prioritize only after a **baseline** report exists on the target machine. IDs ma
 | M4 | TE layer prune already (27 layers) — avoid full Qwen depth | te-only encode time/RAM |
 | M5 | VAE decode-only path for pure T2I (skip encode weights if split) | vae-decode + peak during decode |
 | M6 | Avoid retaining prompt embeds longer than needed | samples after_unload_te vs denoise |
-| M7 | 3-bit preset trade quality vs RAM | `--with-quality` + peak_rss |
+| M7 | ~~3-bit preset~~ — **cancelled**; 4-bit is locked | — |
 | M8 | Lower resolution for interactive preview | 256/384 vs 512 e2e |
 | M9 | I2I: free image NCHW after encode | I2I trace samples (future mode) |
 | M10 | Peak during first DiT step (activation) | denoise_step_0 memory sample |
@@ -229,7 +229,7 @@ Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fa
 
 **How to read RAM:** Live peak active is dominated by **DiT weights (~2 GB)** at both sizes. Watermark is higher at 1024² (activations + cosine-tile VAE accumulation) but still well under 8 GB. Prefer 512² for interactive speed.
 
-### Current-tree 512² T2I (`hoist-512`, 2026-08-13)
+### Historical 512² T2I (`hoist-512`, 2026-08-13)
 
 SHA `7c331bb` + context-projection hoist. Protocol: warmup 1 + trials 3, seed 42, `--probe-density stages`, fox prompt. No `CONTAMINATED` tags (WindowServer/MTLCompiler treated as ambient).
 
@@ -243,7 +243,7 @@ SHA `7c331bb` + context-projection hoist. Protocol: warmup 1 + trials 3, seed 42
 
 Trials were tight (e2e 27.44–27.53 s). This is a **cross-window** compare (tree also includes the 2026-08-11 performance pass). The hoist itself is one Linear 7680→3072 per generate instead of per step — expect a small slice of the denoise win, not the whole −14%. No same-day hoist-off A/B was run.
 
-### Current-tree 1024² T2I (`hoist-1024`, 2026-08-13)
+### Historical 1024² T2I (`hoist-1024`, 2026-08-13)
 
 SHA `64dadfb`. Same protocol as `hoist-512` (W1 T3, seed 42, stages, fox prompt). All 3 trials OK, no new `.ips`.
 
@@ -496,7 +496,7 @@ JSON: `/tmp/imarello-vae-mlxfast-512.json` / `…-chunk64-512.json` / `…-1024.
 Numeric: `IMARELLO_MLX_TESTS=1` tiny-tensor oracle, max abs err < 1e-4.  
 **Ship chunked as default** — decode time is within noise; the bound is the score matrix (never S×S). Untiled 1024² encode is S=16384 (~1.1 GiB scores); chunk 64 keeps scores at `[Tq, S]`. Did **not** run T2I pixel/vision on this pass (host dirty; math is the same softmax). `--eval-cache mid` was **not** measured on this 8 GB host (refused without `--force`).
 
-#### BFL Small Decoder (opt-in, 2026-08-14)
+#### BFL Small Decoder (product default as of 2026-08-15; first A/B 2026-08-14)
 
 `--vae-variant small-decoder` (product default as of 2026-08-15). New module (`[96,192,384,384]`), CompVis→MLX remap, klein BN. `--vae-variant full` restores the klein-pack decoder.
 
@@ -536,7 +536,7 @@ All **6/6 pixel PASS**. No `possible_tile_seam`. Composition matches (same laten
 | `opt-v3-scope` | 27.39 s | 5.24 s | 2.14 GB | 2.09 GB | 4.31 GB | Mid-series 512 |
 | `probe-768-4bit` | 49.6 s (1 cold) | 10.3 s | 2.14 GB | 2.13 GB | 8.27 GB | Pre full checkpoint/tile path |
 | `fair-512` / `fair-1024` | 30.6 / 96.0 s | 5.96 / 21.0 s | 1.73 / 1.77 GiB | 2.04 / 2.04 GiB | 2.99 / 3.29 GiB | Pre-Steel FA; hard VAE tiles |
-| **`fair-steel-512` / `fair-steel-1024`** | **31.1 / 93.9 s** | **6.06 / 20.2 s** | **1.74 / 1.75 GiB** | **2.04 / 2.05 GiB** | **2.99 / 3.75 GiB** | **Current** (Steel FA + cosine VAE) |
+| **`fair-steel-512` / `fair-steel-1024`** | **31.1 / 93.9 s** | **6.06 / 20.2 s** | **1.74 / 1.75 GiB** | **2.04 / 2.05 GiB** | **2.99 / 3.75 GiB** | Historical (Steel FA + cosine VAE; pre-auto / Small Decoder / f16 qmm) |
 
 **Shipped optimizations (cumulative in tree):**
 
@@ -851,7 +851,7 @@ Ship when: iOS host work starts, **or** measured VAE-stage RSS is a jetsam offen
 | Full DiT `compile` (staged) | Uncertain; may lose on recompile | Neutral / worse at compile | High | Spike block-level compile + resident mode only |
 | `cacheLimit` sweep | ~0% (measured) | ~0% peak (measured) | Low | **Done** — no product change |
 | VAE decode-only | ~0% e2e | **Shipped for T2I/I2I decode** — load_vae −40%, ~67 MB | Done | Full VAE still for I2I encode |
-| **Better next speed bets on M2** | | | | Lower preview res; 3-bit DiT; profile SDPA vs FFN; keep metallib full |
+| **Better next speed bets on M2** | | | | Paused 2026-08-15. Leftovers: TAEF2 preview, ref-KV, Δ-DiT — only on explicit ask. 4-bit is locked. |
 
 **Denoise remains the only large absolute time pool (~21 s).** Further speed work should either reduce DiT math (resolution/steps/bits) or successfully amortize a **resident** compiled forward—not chase VAE/cache micro-wins on staged T2I.
 

@@ -195,7 +195,7 @@ Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/ME
 
 ```bash
 # Filtered unit tests (no weights). Skip unfiltered `swift test` after a GPU abort.
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy|TextTokenMode'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy|TextTokenMode|DiTOpProfile'
 
 .build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
   --json /tmp/bench.json
@@ -208,18 +208,19 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 
 | Shipping | Parked |
 |----------|--------|
-| macOS library + CLI | iOS host (same staged core) |
+| macOS library + CLI | iOS host (same staged core) — next product phase |
 | 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
 | T2I, strength I2I, `--identity` | |
 | Steel FA · Small Decoder · auto tokens · f16 qmm · embed cache · Hub pin + CI floors | |
 
-Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
+Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
 
 | Doc | |
 |-----|--|
 | [WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs and pinned revisions |
 | [PERF.md](Docs/PERF.md) | Benchmarks and pressure probes |
 | [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Pixel + vision quality gate |
+| [AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md) | Skills, MCP servers, host-safe loops |
 | [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | Color vs identity strength |
 | [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 |
 

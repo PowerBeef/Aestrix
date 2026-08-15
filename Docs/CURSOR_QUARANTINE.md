@@ -1,5 +1,7 @@
 # `cursor-opt-quarantine` audit
 
+**This file is a historical audit, not a work queue.** Leftovers 1–4 below shipped on `main` (VAE D=512 chunked SDPA with `evalEachChunk` off, Steel metallib check, `EvalCachePolicy.mid` bench-only, PromptEmbedCache / TextTokenMode tests). `--text-tokens auto` is the **product default**. Do not re-open the branch.
+
 **Date:** 2026-08-13  
 **Branch:** `cursor-opt-quarantine` @ `2ce2a8f` — **deleted** after the worth-doing items were reimplemented on `main`.  
 **Merge-base with `main`:** `6c8b13c` (README I2I mug swap). Do **not** recreate or merge that tree. Retrieve the research note with `git show 2ce2a8f:Docs/OPTIMIZATION_RESEARCH_2026.md` while the object remains.
@@ -33,7 +35,7 @@ The research doc’s Wave-0 “evidence lock” is mostly **already shipped** af
 | Host contention / ambient filter | Done |
 | Face-region SSIM | Done |
 | HostPreflight lock | Done |
-| `--text-tokens auto` | Done (opt-in) |
+| `--text-tokens auto` | Done (**product default** as of 2026-08-15) |
 | Prompt-embed cache | Done (default on) |
 | `imarello session` | Done (≥16 GB gate) |
 | Steel FA D=128 | Done |
@@ -56,28 +58,16 @@ Merging `2ce2a8f` would **rewind** those files to the `6c8b13c` shape.
 | FlowUpscaler / iRDM / Core ML backend / TensorOps W8A8 | New model or new stack. Out of v1. |
 | NAX / custom Metal on this **M2 8 GB** | No Neural Accelerators. `neuralAccel=no`. |
 
-### Worth pursuing — reimplement on `main`, do not cherry-pick the WIP
+### Worth pursuing (2026-08-13) — **all shipped on `main`**
 
-**1. VAE D=512 query-chunked attention (highest remaining technical idea)**  
-Steel FA is D∈{64,80,128}. VAE mid-block is **one head, D=512**. On `main` this is still `MLXFast.scaledDotProductAttention` (fallback). Untiled **1024² encode** is S=16384 → ~1.1 GiB score matrix. Tiled decode is smaller (tile ~64² → S=4096 → ~64 MiB) but still not fused.
+Do not treat this section as a queue.
 
-Port the **math** (chunk Q, never S×S) with:
-
-- `evalEachChunk = false` by default  
-- `clearCacheEachChunk = false`  
-- unit test vs full-row oracle at tiny S  
-- measure `bench --mode vae-decode` @ 512 then 1024, and I2I encode-only @ 512  
-
-Land only if decode/encode time or peak drops and PNGs stay bit-close (or eval-regression + one I2I smoke).
-
-**2. `imarello info` metallib / Steel symbol check**  
-`MetallibVerification` (ASCII scan of `steel_attention`, `affine_qmm`) plus `ensure-metallib.sh` failing closed on a stub is cheap packaging hygiene. Skip NAX symbol requirements on this host.
-
-**3. Optional `EvalCachePolicy.mid` as a *bench flag only***  
-On a **≥16 GB** machine: `blockCacheClearInterval: 2`, 512 MiB denoise clamp. Never default. Never `.high`. This Mac stays on today’s product constants.
-
-**4. Small tests that never shipped**  
-`PromptEmbedCache` key tests and `TextTokenMode` tests are missing on `main`. Re-write from the idea, not the file, if they still apply.
+| # | Item | `main` now |
+|---|------|------------|
+| 1 | VAE D=512 query-chunked attention, `evalEachChunk = false` | `VAEAttention` + `VAEAttentionTests` |
+| 2 | `imarello info` Steel metallib symbol check | `MetallibVerification` |
+| 3 | `EvalCachePolicy.mid` as a ≥16 GB **bench flag only** | `--eval-cache mid`; never `.high` |
+| 4 | PromptEmbedCache + TextTokenMode tests | `PromptEmbedCacheKeyTests`, `TextTokenModeTests` |
 
 ### Park until the right hardware / product decision
 

@@ -108,7 +108,7 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 | Prompt-embed cache | Done | Keep |
 | AdaLN precompute / unload | Shared mods ~4% of Klein DiT | **Deprioritize** as RAM work |
 | DiT weight streaming | Parked `stagedAggressive` | iOS / watermark only |
-| 4/6/8-bit palletization | 4-bit default; 3/6/8 exist | 3-bit = honest RAM SKU |
+| 4/6/8-bit palletization | **4-bit locked** | 3-bit cancelled; not a product path |
 | 8-bit S + ANE int8 | Not in stack | Park (M3+ / iOS 26) |
 | FP16 body + FP32 residual | Acts are fp32; **QKV f16@512 shipped** | No full-body f16 |
 | Full-graph Core ML | Never used | Do not start |
@@ -132,7 +132,7 @@ DiT 4-bit pack is ~2.18 GiB ≈ **~4.4 B** 4-bit weights. Modulation is **~4
 |----|------|----------|-----|
 | **R2** | Log compute dtypes; trial FP16 body if hot path is bf16 | **Done (probe)** | Activations are **fp32**; scales only are bf16. No emu-fix to ship |
 | **R3** | DiT weight streaming as `stagedAggressive` | P7 / 8 GB comfort | RAM, not speed |
-| **R6** | Quality-gate 3-bit as optional Tier-L | If RAM SKU wanted | No architecture |
+| **R6** | Quality-gate 3-bit as optional Tier-L | **Cancelled** — 4-bit is locked | Do not resume |
 | **R1** | 4-step modulation batch | Low | ~4% of weights; tiny compute |
 | **R4** | Port MFA / s4nnc | No | Steel FA + MIT |
 | **R5** | ANE / 8-bit S | Park | Wrong SoC and stack |

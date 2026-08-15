@@ -1,6 +1,6 @@
 # Host safety (8 GB Apple Silicon)
 
-**Last updated:** 2026-08-13
+**Last updated:** 2026-08-15
 
 ## What crashed
 
@@ -29,7 +29,9 @@ pgrep -x imarello || true     # none (second instance is refused)
 
 ## Agent defaults
 
-See **AGENTS.md → Host safety**. Prefer `swift test`. No parallel Metal agents.
+See **AGENTS.md → Host safety** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents.
+
+1024² T2I is measured-safe on this host (product path ~**74 s**, watermark **3.46 GiB**). Default smokes stay **512²**. Do not start a 4-trial `identity-i2i` at 1024 unless asked.
 
 **Ambient vs competing:** `WindowServer`, Ghostty, `grok`, and `MTLCompilerService` are expected on this session and no longer mark a trial `CONTAMINATED`. Cursor / `swift-package` still do. Swap is recorded only.
 

@@ -7,7 +7,7 @@
 
 **Multimodal agents** should **supplement** pixel metrics: open the PNG, answer the vision checklist, merge into the report.
 
-Schema version: **1.3** (semantic/CLIP + LPIPS-lite + strength-aware I2I).
+Schema version: **1.4** (semantic/CLIP + LPIPS-lite + strength-aware I2I + `unstructured_garbage` hard fail).
 
 ---
 

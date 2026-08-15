@@ -25,7 +25,7 @@ Do not trade staged residency or the 4-bit lock for speed.
 | Rule | Detail |
 |------|--------|
 | Model | **Klein 4B only** — do not ship Klein 9B (Non-Commercial) or FLUX.2 Dev (32B) |
-| Weights | **Pre-quantized only** (default **4-bit**). **No user-facing bf16** download or quantize-from-bf16 at runtime |
+| Weights | **4-bit only** (pre-quantized). **No 3-bit product path.** **No user-facing bf16** download or quantize-from-bf16 at runtime |
 | Memory | **Staged pipeline is the default**: never co-reside text encoder + DiT + VAE |
 | Speed / quality | Defaults are the fastest path that passes quality + RAM (see **Product goal**) |
 | Platforms | macOS library + CLI first; iOS 26 uses the same staged core |
@@ -33,7 +33,9 @@ Do not trade staged residency or the 4-bit lock for speed.
 | Guidance | Distilled defaults: **4 steps**, **guidance = 1.0**, **no negative prompts**, no prompt-upsampling by default |
 | Default canvas | **1024²** (4-bit staged). Lower sizes via `--width` / `--height`. |
 
-## Skills to load
+## Skills, MCP, workflow
+
+**Canonical map:** [`Docs/AGENT_WORKFLOW.md`](Docs/AGENT_WORKFLOW.md) — session start, skills by task, MCP servers, host-safe loops.
 
 ### Product / prompting (project-scoped)
 
@@ -42,20 +44,31 @@ Do not trade staged residency or the 4-bit lock for speed.
   - Use for CLI examples, eval prompts, I2I UX, quality gates
   - **Do not** install flux-3 video skills into this repo
 
-### Engineering
+### Engineering (load by task — do not dump the catalog)
 
 | Work | Skill / tool |
 |------|----------------|
 | MLX arrays, NN, quant, wired memory, eval | `mlx-swift` |
-| Qwen3 text-encoder port patterns | `mlx-swift-lm` (+ model-porting) |
-| Library API truth | Context7 MCP |
+| Qwen3 text-encoder port patterns | `mlx-swift-lm` |
+| Library API truth | **Context7** MCP |
 | Hugging Face download / inspect | `hf-cli` / `hf` |
-| Build / sim / device | XcodeBuildMCP + `axiom-xcode-mcp` / `axiom-build` |
+| Build / sim / device | **XcodeBuildMCP** (P7 / Xcode) + `axiom-xcode-mcp` / `axiom-build`. Daily CLI: `swift build -c release` |
 | Concurrency / actors | `axiom-concurrency` |
 | Memory / perf audits | `axiom-performance`, **`Docs/PERF.md`**, `imarello bench` |
 | Tests | `axiom-testing` |
-| Image quality / gen feedback | **`Docs/EVAL_WORKFLOW.md`** + `imarello analyze-image` + vision tools |
-| “Done” claims | `verification-before-completion` + **EVAL_WORKFLOW** on sample PNGs |
+| Image quality / gen feedback | **`Docs/EVAL_WORKFLOW.md`** + `imarello analyze-image` + open the PNG |
+| “Done” claims | **EVAL_WORKFLOW** on sample PNGs (pixel **and** vision) |
+
+### MCP servers
+
+| Server | Use | Skip for |
+|--------|-----|----------|
+| **Context7** | mlx-swift / Swift / HF docs | Inventing Imarello internals |
+| **XcodeBuildMCP** | P7 iOS, sim, Xcode project | Daily SPM generate / bench |
+| **GitHub** | CI (`eval-floors`), PRs | Local Metal |
+| **sosumi** | Apple doc pages | Kernel math |
+
+Ignore: `chrome-devtools`, `browser-use`, `vercel`, `gmail`, `google_drive`, `tasks`, `voice`.
 
 BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills cover **implementation**.
 
@@ -82,8 +95,8 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
-| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **auto** + **f16 scaled qmm** are product defaults. Glue fusion parked. |
-| **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
+| **P9 Performance harness** | **Done** — leftover slices **paused** | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **auto** + **f16 scaled qmm** are product defaults. Glue fusion parked. **Do not resume speed work unless asked.** |
+| **P7 iOS host** | **Parked** — **next product phase** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
@@ -119,7 +132,7 @@ CLI: `HostPreflight` takes `~/Library/Caches/Imarello/imarello.lock` and refuses
 **Tests:** do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts). Prefer:
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile'
 ```
 
 ---
@@ -228,4 +241,4 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 - LoRA training  
 - Base CFG 28-step path  
 - bf16 product path  
-- User-facing bit-depth other than prequant Hub packs (3/4/6/8) without product decision  
+- 3-bit SKU (4-bit is locked; 6/8-bit pins exist but are not the product path)  

@@ -18,6 +18,7 @@ Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers sema
 | [eval-prompts.md](eval-prompts.md) | BFL-style regression prompts |
 | [TEXT_TOKENS.md](TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 quality A/B |
 | [AGENTS.md](../AGENTS.md) | Agent contract (must follow) |
+| [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) | Skills, MCP, host-safe loops |
 
 ---
 
@@ -39,9 +40,9 @@ Skip only for pure load/math tests (`load-te`, `mem-selftest`, unit tests withou
 ### T2I — generate and eval in one command
 
 ```bash
-swift build && ./Scripts/ensure-metallib.sh
+swift build -c release && ./Scripts/ensure-metallib.sh
 
-.build/debug/imarello t2i "YOUR PROMPT" \
+.build/release/imarello t2i "YOUR PROMPT" \
   --width 512 --height 512 --steps 4 --seed 42 \
   --output /tmp/imarello_out.png \
   --analyze --vision-brief
@@ -50,14 +51,14 @@ swift build && ./Scripts/ensure-metallib.sh
 ### I2I
 
 ```bash
-.build/debug/imarello i2i "YOUR EDIT PROMPT" \
+.build/release/imarello i2i "YOUR EDIT PROMPT" \
   --image /path/to/source.png \
   --strength 0.8 --steps 4 --seed 7 \
   --output /tmp/imarello_edit.png \
   --analyze --vision-brief
 
 # People / character consistency (Tier B identity stack)
-.build/debug/imarello i2i \
+.build/release/imarello i2i \
   "Same person, identical face and pose; golden hour outdoor balcony, emerald silk top" \
   --image /path/to/portrait.png \
   --strength 0.9 --identity --seed 7 \
@@ -158,7 +159,7 @@ Product path uses `--text-tokens auto`. Pad-512 gallery: `T2I_EXTRA='--text-toke
 | `low_semantic_alignment` | CLIP/proxy score low | Vision review subject |
 | `semantic_score` | Info: CLIP or Vision proxy score | Prefer Core ML CLIP when installed |
 
-**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Cosine **tiled VAE** (≥768) is covered by seam metrics. Schema **1.3**: semantic (CLIP/proxy) + LPIPS-lite + strength-aware I2I.
+**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Cosine **tiled VAE** (≥768) is covered by seam metrics. Schema **1.4**: semantic (CLIP/proxy) + LPIPS-lite + strength-aware I2I + `unstructured_garbage` hard fail.
 
 ```bash
 # Strength-aware I2I eval (also automatic after i2i --analyze)
@@ -234,9 +235,8 @@ swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|Imare
 
 # Optional extra t2i flags (e.g. T2I_EXTRA='--attn-f16-threshold 2048')
 # Optional smoke gen + hard pixel gate (needs snapshot + metallib; not CI)
-./Scripts/ensure-metallib.sh
-swift build
-.build/debug/imarello t2i "A red fox in a snowy forest at sunrise, photorealistic." \
+swift build -c release && ./Scripts/ensure-metallib.sh
+.build/release/imarello t2i "A red fox in a snowy forest at sunrise, photorealistic." \
   --width 512 --height 512 --steps 4 --seed 42 \
   --output /tmp/imarello_ci_t2i.png \
   --analyze --fail-on-pixel-gate

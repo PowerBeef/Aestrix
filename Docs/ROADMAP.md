@@ -1,8 +1,9 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-15 (pixel garbage-fail + 1024² current-stack baseline)  
-**Working tree focus:** macOS library + CLI is the shipping surface for now.  
-**Remaining work** is parked here so agents and humans can resume without rediscovering context.  
+**Last updated:** 2026-08-15 (docs freeze + official mark + **P9 speed work paused**)  
+**Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
+**Backend / P9 leftovers are paused** — do not start TAEF2, ref-KV, Δ-DiT, `stagedAggressive`, or fused qmm+SwiGLU unless the user asks.  
+**Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
 
 ---
@@ -24,9 +25,10 @@
 **Resume baseline (macOS):**
 
 ```bash
-swift build && ./Scripts/ensure-metallib.sh
+swift build -c release && ./Scripts/ensure-metallib.sh
 # Snapshot: ~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit
-.build/debug/imarello t2i "…" --output /tmp/out.png --analyze --vision-brief
+# Small Decoder: ~/Library/Caches/Imarello/models/black-forest-labs--FLUX.2-small-decoder
+.build/release/imarello t2i "…" --output /tmp/out.png --analyze --vision-brief
 ```
 
 ---
@@ -90,7 +92,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `partial` — harness shipped; optimizations data-gated |
+| **Status** | `done` — harness + product-path opts shipped; leftover slices **paused** (not an open queue) |
 | **Goal** | Push generation speed and lower peak RAM without breaking quality or product locks |
 | **Docs** | `Docs/PERF.md` |
 | **Code** | `ImarelloBench`, `PipelineTrace`, `imarello bench`, `imarello bench-compare` |
@@ -139,18 +141,17 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] **P9 Slice C (2026-08-15):** Steel FA vs FFN vs `processQKV` glue — **park glue fusion**. Linear+FFN **87% / 75%** of a 512² / 1024² step; `qkv_rope` ~5%. `--op-profile` stays as a ranking tool.  
 - [x] **P9 Linear/SwiGLU (2026-08-15):** f16 `quantizedMM` (cast bf16 scales; **×16** pre-scale — raw f16 is noise). 512² denoise **−6.5%**, e2e **−4.6%**. Compiled SwiGLU (same ops). `--attn-linear-compute f32` escape.  
 
-**P9 leftover slices** (2026-08-14 research re-rank; 3-bit **out**; do not start without an explicit ask):
+**P9 leftover slices** (paused 2026-08-15 — do not start without an explicit ask):
 
 | Slice | Status | Item | Notes |
 |-------|--------|------|-------|
 | **A** | **done** (default) | `--text-tokens auto` | Product default. Pad-512 via `--text-tokens 512`. [`TEXT_TOKENS.md`](TEXT_TOKENS.md). |
 | **B** | **done** (default) | BFL **FLUX.2 Small Decoder** as product decode | 512 + **1024** T2I quality PASS. Decode **−37%**. Default **small-decoder**; `--vae-variant full` for klein. Encoder stays klein. |
 | **C** | **done** (park glue) | Profile Steel FA vs FFN vs `processQKV` glue | 512² + 1024²: Linear+FFN own the step; `qkv_rope` ~5%. Do not fuse QK-Norm+RoPE. [`PERF.md`](PERF.md) Slice C. |
-| — | `parked` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
-| — | `parked` | Training-free **ref-KV** on 4B I2I | 9B-KV *schedule* on 4B; identity 512 first; kill if face-crop SSIM drops or watermark > ~4.2 GiB. |
-| — | `parked` | **Δ-DiT** skip a subset of single blocks on **step 2 only** | High risk; kill on any vision-brief / pixel fail. |
-| — | `parked` | `stagedAggressive` weight **drop** (not mmap) | iOS jetsam, not M2 speed. Expect slower e2e. |
-| — | **out** | 3-bit DiT SKU | Product lock; do not resume. |
+| — | `paused` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
+| — | `paused` | Training-free **ref-KV** on 4B I2I | 9B-KV *schedule* on 4B; identity 512 first; kill if face-crop SSIM drops or watermark > ~4.2 GiB. |
+| — | `paused` | **Δ-DiT** skip a subset of single blocks on **step 2 only** | High risk; kill on any vision-brief / pixel fail. |
+| — | `paused` | `stagedAggressive` weight **drop** (not mmap) | iOS jetsam, not M2 speed. Expect slower e2e. |
 
 **Latest default-path (8 GB Mac mini, release, auto + Small Decoder + f16 qmm ×16, 2026-08-15):** 512² W1T3 e2e **19.4 s** / denoise **3.34 s**; **1024² W1T3 e2e 74.0 s** / denoise **15.91 s** / decode **5.27 s**; peak active **2.04 / 2.05 GiB**; watermark **2.38 / 3.46 GiB**. Full tables: `Docs/PERF.md`.
 
@@ -178,10 +179,10 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 ## How to resume (agents)
 
-1. Read this file + `AGENTS.md` product locks.  
-2. Pick the highest-priority `parked` ID (default **P7** for product). P9 Linear/SwiGLU f16 qmm shipped; leftover speed is activation-scale tuning or a real fused qmm+SwiGLU kernel, not glue fusion.  
-3. Confirm macOS smoke still works (`t2i` + `EVAL_WORKFLOW.md`).  
-4. Open a focused branch; do not expand into “Out of v1” without an explicit ask.  
+1. Read this file + `AGENTS.md` product locks + [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
+2. Default next ID is **P7** (iOS host). P9 product path is shipped; leftover speed work is **paused**.  
+3. Confirm macOS smoke still works (`swift build -c release` + `t2i` + `EVAL_WORKFLOW.md`).  
+4. Open a focused branch; do not expand into “Out of v1” or resume P9 leftovers without an explicit ask.  
 5. Update this roadmap (checkboxes + “Last updated”) when an item lands or is cancelled.
 
 ---
@@ -202,8 +203,8 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-13 | Pin mlx-community Klein 4-bit Hub revision `1cebb9b45c21ece14a42615b16bf5fa4de9b56da`; CI eval floors on GitHub Actions |
 | 2026-08-13 | P8 I2I strength-curve recipes (`Docs/I2I_STRENGTH.md`); macOS polish backlog complete |
 | 2026-08-13 | Port quarantine leftovers on main: Steel metallib check, VAE D=512 chunked SDPA (`evalEachChunk` off), `EvalCachePolicy.mid` bench-only |
-| 2026-08-14 | P9 Slice A: `--text-tokens auto` is first-class opt-in; **pad-512 stays the product default**. Quality A/B 15/15 pixel PASS + vision. [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) |
-| 2026-08-14 | P9 Slice B: BFL Small Decoder as `--vae-variant small-decoder`. 512² decode −37%. **Full AE stays default.** |
+| 2026-08-14 | P9 Slice A: `--text-tokens auto` first-class opt-in; pad-512 still default that day. *(Superseded 2026-08-15 — `auto` is the product default.)* |
+| 2026-08-14 | P9 Slice B: BFL Small Decoder as `--vae-variant small-decoder`. 512² decode −37%. Full AE still default that day. *(Superseded 2026-08-15 — Small Decoder is the product default.)* |
 | 2026-08-15 | I2I encoder lock: always klein `encodeOnly`. Do not load `full_encoder_small_decoder.safetensors`. 512² mug + identity smokes with Small Decoder decode PASS. |
 | 2026-08-15 | Small Decoder 1024² T2I quality pass: 6/6 pixel PASS, vision match vs full AE, decode −37%. |
 | 2026-08-15 | **Promote Small Decoder to product default.** `--vae-variant full` is the klein-pack escape hatch. Missing snapshot fails with `hf download` hint. |
@@ -212,3 +213,6 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-15 | **f16 scaled 4-bit Linear is the product default.** Raw f16 qmm → noise (pixel harness missed it). ×16 pre-scale restores images; 512² denoise **−6.5%**. `--attn-linear-compute f32` escape. |
 | 2026-08-15 | Pixel harness **`unstructured_garbage` hard fail** (white noise + VAE-decoded rainbow speckle). Catches the unscaled-f16 miss. Schema 1.4. |
 | 2026-08-15 | Current-stack 1024² W1T3: e2e **74.0 s**, denoise/step **15.91 s**, watermark **3.46 GiB**. Identity 512 recolor+replace face lock holds on f16 qmm. |
+| 2026-08-15 | **4-bit is locked.** 3-bit is not a product path and is not parked for later. |
+| 2026-08-15 | Official mark is the 3D cream/gold iris (`Docs/assets/readme/imarello-mark.{jpg,png}`); lockups updated. |
+| 2026-08-15 | Docs freeze: [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md) (skills / MCP / host-safe loops). **P9 leftover speed work paused.** Next product phase is **P7**. |
