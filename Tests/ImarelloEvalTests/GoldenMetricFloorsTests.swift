@@ -143,12 +143,44 @@ struct GoldenMetricFloorsTests {
         #expect(report.promptAlignment.alignmentScore > 50)
     }
 
-    @Test("schema version is 1.3+")
+    @Test("schema version is 1.4+")
     func schemaVersion() throws {
         let url = try writeSolid(r: 10, g: 10, b: 10, name: "schema")
         defer { try? FileManager.default.removeItem(at: url) }
         let report = try ImageAnalyzer.analyze(imageURL: url, options: .init(skipSemantic: true))
-        #expect(report.version == "1.3" || report.version.compare("1.3", options: .numeric) != .orderedAscending)
+        #expect(report.version == "1.4" || report.version.compare("1.4", options: .numeric) != .orderedAscending)
+    }
+
+    @Test("white-noise PNG is unstructured_garbage fail")
+    func whiteNoiseFailsGarbageGate() throws {
+        let url = try writeNoise(name: "tv_static", side: 128)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let report = try ImageAnalyzer.analyze(
+            imageURL: url,
+            options: .init(prompt: "a red fox in a snowy forest", skipSemantic: true)
+        )
+        #expect(TechnicalQuality.looksLikeUnstructuredGarbage(report.technical))
+        #expect(report.findings.contains { $0.severity == .fail && $0.code == "unstructured_garbage" })
+    }
+
+    @Test("solid and gradient are not unstructured garbage")
+    func structuredFieldsPassGarbageGate() throws {
+        let solid = try writeSolid(r: 20, g: 40, b: 200, name: "not_noise_solid", side: 128)
+        let grad = try writeHorizontalGradient(name: "not_noise_grad", side: 128)
+        defer {
+            try? FileManager.default.removeItem(at: solid)
+            try? FileManager.default.removeItem(at: grad)
+        }
+        let solidReport = try ImageAnalyzer.analyze(
+            imageURL: solid, options: .init(prompt: "a cobalt blue ceramic mug", skipSemantic: true)
+        )
+        let gradReport = try ImageAnalyzer.analyze(
+            imageURL: grad, options: .init(skipSemantic: true)
+        )
+        #expect(!TechnicalQuality.looksLikeUnstructuredGarbage(solidReport.technical))
+        #expect(!TechnicalQuality.looksLikeUnstructuredGarbage(gradReport.technical))
+        #expect(!solidReport.findings.contains { $0.code == "unstructured_garbage" })
+        #expect(!gradReport.findings.contains { $0.code == "unstructured_garbage" })
     }
 
     // MARK: - Helpers
@@ -198,24 +230,51 @@ struct GoldenMetricFloorsTests {
         return try dec.decode(EvalFloorsFile.self, from: data)
     }
 
-    private func writeSolid(r: UInt8, g: UInt8, b: UInt8, name: String, side: Int = 64) throws -> URL {
+    private func writeHorizontalGradient(name: String, side: Int) throws -> URL {
         let w = side, h = side
         var rgba = [UInt8](repeating: 255, count: w * h * 4)
+        for y in 0 ..< h {
+            for x in 0 ..< w {
+                let t = Float(x) / Float(max(1, w - 1))
+                let i = (y * w + x) * 4
+                rgba[i] = UInt8((1 - t) * 200)
+                rgba[i + 1] = 40
+                rgba[i + 2] = UInt8(t * 200)
+                rgba[i + 3] = 255
+            }
+        }
+        return try writeRGBA(rgba, width: w, height: h, name: name)
+    }
+
+    private func writeNoise(name: String, side: Int) throws -> URL {
+        let w = side, h = side
+        var rgba = [UInt8](repeating: 255, count: w * h * 4)
+        var state: UInt32 = 0xC0FFEE
         for i in 0 ..< (w * h) {
-            rgba[i * 4] = r
-            rgba[i * 4 + 1] = g
-            rgba[i * 4 + 2] = b
+            state &+= 0x6D2B79F5
+            var z = state
+            z = (z ^ (z >> 15)) &* 0x85EBCA6B
+            z = (z ^ (z >> 13)) &* 0xC2B2AE35
+            z = z ^ (z >> 16)
+            rgba[i * 4] = UInt8(truncatingIfNeeded: z)
+            rgba[i * 4 + 1] = UInt8(truncatingIfNeeded: z >> 8)
+            rgba[i * 4 + 2] = UInt8(truncatingIfNeeded: z >> 16)
             rgba[i * 4 + 3] = 255
         }
+        return try writeRGBA(rgba, width: w, height: h, name: name)
+    }
+
+    private func writeRGBA(_ rgba: [UInt8], width w: Int, height h: Int, name: String) throws -> URL {
+        var pixels = rgba
         let cs = CGColorSpaceCreateDeviceRGB()
         let info = CGBitmapInfo.byteOrder32Big.union(
             CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         )
         guard let ctx = CGContext(
-            data: &rgba, width: w, height: h, bitsPerComponent: 8,
+            data: &pixels, width: w, height: h, bitsPerComponent: 8,
             bytesPerRow: w * 4, space: cs, bitmapInfo: info.rawValue
         ), let cg = ctx.makeImage() else {
-            throw ImarelloError.imageLoadFailed(path: name, reason: "solid write failed")
+            throw ImarelloError.imageLoadFailed(path: name, reason: "rgba write failed")
         }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("imarello_gold_\(name)_\(UUID().uuidString).png")
@@ -229,5 +288,17 @@ struct GoldenMetricFloorsTests {
             throw ImarelloError.imageLoadFailed(path: url.path, reason: "finalize")
         }
         return url
+    }
+
+    private func writeSolid(r: UInt8, g: UInt8, b: UInt8, name: String, side: Int = 64) throws -> URL {
+        let w = side, h = side
+        var rgba = [UInt8](repeating: 255, count: w * h * 4)
+        for i in 0 ..< (w * h) {
+            rgba[i * 4] = r
+            rgba[i * 4 + 1] = g
+            rgba[i * 4 + 2] = b
+            rgba[i * 4 + 3] = 255
+        }
+        return try writeRGBA(rgba, width: w, height: h, name: name)
     }
 }

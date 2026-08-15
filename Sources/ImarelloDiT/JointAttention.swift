@@ -59,16 +59,22 @@ public final class Flux2Attention: Module {
             normQ: normAddedQ, normK: normAddedK,
             numHeads: heads, headDim: dimHead
         )
-        // Concat text then image on sequence axis (axis 2 in B,H,S,D)
-        query = concatenated([encQ, query], axis: 2)
-        key = concatenated([encK, key], axis: 2)
-        value = concatenated([encV, value], axis: 2)
-
-        if let (cos, sin) = imageRotaryEmb {
-            (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
+        // Concat text then image on sequence axis (axis 2 in B,H,S,D), then RoPE.
+        (query, key, value) = DiTOpProfile.time(
+            .qkvRope,
+            inputs: [query, key, value, encQ, encK, encV],
+            sync: { [$0.0, $0.1, $0.2] }
+        ) {
+            var query = concatenated([encQ, query], axis: 2)
+            var key = concatenated([encK, key], axis: 2)
+            let value = concatenated([encV, value], axis: 2)
+            if let (cos, sin) = imageRotaryEmb {
+                (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
+            }
+            return (query, key, value)
         }
 
-        if AttentionTuning.current.qkvCheckpoint {
+        if AttentionTuning.current.qkvCheckpoint, !DiTOpProfile.enabled {
             eval(query, key, value)
         }
 

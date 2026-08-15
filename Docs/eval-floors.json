@@ -24,6 +24,10 @@
       "i2i_strength": 0.85,
       "prompt_color_edit": true,
       "expect_finding_code": "strength_too_low_for_edit"
+    },
+    "unstructured_noise": {
+      "expect_finding_code": "unstructured_garbage",
+      "note": "Synthetic white-noise PNG must hard-fail. Catches f16 qmm overflow / broken decode."
     }
   },
   "optional_generation_floors": {

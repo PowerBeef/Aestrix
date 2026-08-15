@@ -1,5 +1,6 @@
 import Foundation
 import ImarelloCore
+import ImarelloDiT
 
 // MARK: - Config
 
@@ -51,6 +52,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionQueryChunkSize: Int?
     public var attentionQueryChunkThreshold: Int?
     public var attentionF16SeqThreshold: Int?
+    /// When true, 4-bit Linear GEMMs + SwiGLU run in float16.
+    public var attentionLinearF16: Bool?
     public var attentionLinearChunkSize: Int?
     public var attentionLinearChunkThreshold: Int?
     /// `mlx` | `metal-fa` | `auto` (nil = product default).
@@ -59,8 +62,10 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionBlockClearSeqThreshold: Int?
     /// Clear cache every N blocks when per-block clears are active (nil = product default).
     public var attentionBlockClearInterval: Int?
-    /// Text token mode for T2I trials: "512" (default) | "auto" (trim experiment).
+    /// Text token mode for T2I trials: "auto" (product default) | "512" (pad).
     public var textTokens: String?
+    /// GPU-sync Steel FA vs FFN vs processQKV split (ranking only).
+    public var opProfile: Bool
     /// Reference image for I2I / identity-I2I modes.
     public var imagePath: String?
     /// I2I denoise strength. Defaults: 0.8 strength / 0.9 identity.
@@ -89,12 +94,14 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionQueryChunkSize: Int? = nil,
         attentionQueryChunkThreshold: Int? = nil,
         attentionF16SeqThreshold: Int? = nil,
+        attentionLinearF16: Bool? = nil,
         attentionLinearChunkSize: Int? = nil,
         attentionLinearChunkThreshold: Int? = nil,
         attentionBackend: String? = nil,
         attentionBlockClearSeqThreshold: Int? = nil,
         attentionBlockClearInterval: Int? = nil,
         textTokens: String? = nil,
+        opProfile: Bool = false,
         imagePath: String? = nil,
         strength: Float? = nil,
         identity: Bool? = nil
@@ -119,12 +126,14 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionQueryChunkSize = attentionQueryChunkSize
         self.attentionQueryChunkThreshold = attentionQueryChunkThreshold
         self.attentionF16SeqThreshold = attentionF16SeqThreshold
+        self.attentionLinearF16 = attentionLinearF16
         self.attentionLinearChunkSize = attentionLinearChunkSize
         self.attentionLinearChunkThreshold = attentionLinearChunkThreshold
         self.attentionBackend = attentionBackend
         self.attentionBlockClearSeqThreshold = attentionBlockClearSeqThreshold
         self.attentionBlockClearInterval = attentionBlockClearInterval
         self.textTokens = textTokens
+        self.opProfile = opProfile
         self.imagePath = imagePath
         self.strength = strength
         self.identity = identity
@@ -363,6 +372,7 @@ public struct BenchTrial: Sendable, Codable, Equatable {
     public var hostAfter: HostContentionSnapshot?
     public var error: String?
     public var lastProbeId: String?
+    public var opProfile: DiTOpProfileReport?
 
     public init(
         index: Int,
@@ -385,7 +395,8 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         hostBefore: HostContentionSnapshot? = nil,
         hostAfter: HostContentionSnapshot? = nil,
         error: String? = nil,
-        lastProbeId: String? = nil
+        lastProbeId: String? = nil,
+        opProfile: DiTOpProfileReport? = nil
     ) {
         self.index = index
         self.cold = cold
@@ -408,6 +419,7 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         self.hostAfter = hostAfter
         self.error = error
         self.lastProbeId = lastProbeId
+        self.opProfile = opProfile
     }
 }
 
@@ -487,5 +499,5 @@ public struct BenchReport: Sendable, Codable, Equatable {
     public var aggregate: BenchAggregate
     public var pressure: PressureReport?
 
-    public static let currentSchema = "1.2"
+    public static let currentSchema = "1.3"
 }

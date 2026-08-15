@@ -36,8 +36,8 @@ public struct ImageAnalysisReport: Sendable, Codable, Equatable {
 }
 
 public enum ImageAnalysisReportBuilder {
-    /// Schema 1.3: semantic/CLIP + LPIPS-lite + strength-aware I2I gates.
-    public static let schemaVersion = "1.3"
+    /// Schema 1.4: unstructured-garbage hard fail (TV-static / f16 overflow).
+    public static let schemaVersion = "1.4"
 
     public static func build(
         imagePath: String,
@@ -104,7 +104,18 @@ public enum ImageAnalysisReportBuilder {
                 message: String(format: "Low luminance contrast (σ=%.3f).", technical.stdLuminance)
             ))
         }
-        if technical.noiseProxy > 0.05 {
+        if TechnicalQuality.looksLikeUnstructuredGarbage(technical) {
+            findings.append(.init(
+                severity: .fail, code: "unstructured_garbage",
+                message: String(
+                    format: "Unstructured speckle (noise=%.3f sharp=%.0f hue_frac=%.2f autocorr=%.2f) — decode/GEMM garbage, not a picture.",
+                    technical.noiseProxy,
+                    technical.sharpnessLaplacianVar,
+                    technical.dominantHueFraction,
+                    technical.spatialAutocorrLag2
+                )
+            ))
+        } else if technical.noiseProxy > 0.05 {
             findings.append(.init(
                 severity: .info, code: "grain",
                 message: String(format: "Elevated high-frequency residual (%.4f) — grain or compression.", technical.noiseProxy)

@@ -43,7 +43,7 @@ They ship Klein in-app (e.g. `flux_2_klein_4b_q6p.ckpt`). They often prefer **6-
 3. In-place softmax / strided GEMM (MPSGraph allocated a second 500 MiB even when aliased).
 4. Never materialize attention `N×N` (FlashAttention).
 
-**Imarello:** MLX + Steel FA already delete the N×N matrix. The remaining fat allocation is **DiT weights (~2.0 GiB active)**, not softmax scratch. Watermark ~2.99 / 3.76 GiB @ 512 / 1024 is weights + MLX cache.
+**Imarello:** MLX + Steel FA already delete the N×N matrix. The remaining fat allocation is **DiT weights (~2.0 GiB active)**, not softmax scratch. Product-path watermark **2.38 / 3.46 GiB** @ 512 / 1024 (2026-08-15 auto + Small Decoder + f16 qmm).
 
 ### P2 — Peak = max(resident subgraph), not sum(model)
 
@@ -71,7 +71,9 @@ MMDiT activations grow with depth. BF16 has range; **M1/M2 BF16 is emulated and 
 | Quantization **scales** | **`bfloat16`** (tiny: e.g. `[3072, 48]`) |
 | Latents, AdaLN, residual, FFN, Q/K/V, Steel FA @ 512² | **`float32`** |
 
-The M2 “bf16 emu on activations” tax **does not apply**. Scales are bf16 but negligible. A follow-up A/B lowered `f16SeqThreshold` **2048 → 512** so 512² image QKV matches the 1024² f16 path: denoise/step **−4.3%**, e2e **−3.3%**, watermark flat, eval-regression 15/15. Residual/FFN stay fp32.
+The M2 “bf16 emu on activations” tax **does not apply**. Scales are bf16 but negligible. A follow-up A/B lowered `f16SeqThreshold` **2048 → 512** so 512² image QKV matches the 1024² f16 path: denoise/step **−4.3%**, e2e **−3.3%**, watermark flat, eval-regression 15/15.
+
+**2026-08-15:** FFN / fused QKV+MLP GEMMs now run as **f16 `quantizedMM`** (scales cast to f16 so promote stays f16; activations ÷16 before / ×16 after so f16 accumulate does not overflow). Residual + AdaLN stay fp32. Raw unscaled f16 qmm is TV static. 512² denoise **−6.5%**. `--attn-linear-compute f32` restores the old GEMM.
 
 ---
 

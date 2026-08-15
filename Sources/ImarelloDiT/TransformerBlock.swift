@@ -56,11 +56,12 @@ public final class Flux2TransformerBlock: Module {
         }
 
         nh = ModulationOps.modApply(norm2(h), scaleMlp, shiftMlp)
-        let ffH = ff(nh)
+        let ffH = DiTOpProfile.time(.ffn, inputs: [nh], sync: { [$0] }) { ff(nh) }
         h = ModulationOps.gateAdd(h, gateMlp, ffH)
 
         ne = ModulationOps.modApply(norm2Context(e), cScaleMlp, cShiftMlp)
-        e = ModulationOps.gateAdd(e, cGateMlp, ffContext(ne))
+        let ffE = DiTOpProfile.time(.ffn, inputs: [ne], sync: { [$0] }) { ffContext(ne) }
+        e = ModulationOps.gateAdd(e, cGateMlp, ffE)
 
         if dump {
             ComputeDTypeProbe.record("block0.ff.in", nh)

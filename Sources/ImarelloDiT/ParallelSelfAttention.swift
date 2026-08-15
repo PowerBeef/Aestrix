@@ -33,48 +33,75 @@ public final class Flux2ParallelSelfAttention: Module {
     ) -> MLXArray {
         // Chunk long sequences (1024² single-stream L≈4608) so fused QKV+MLP proj
         // never materializes a full [B, L, ~27k] temp in one shot.
-        let proj = AttentionUtils.linearChunkedSequence(toQkvMlpProj, hiddenStates)
-        let splitQkv = split(proj, indices: [innerDim * 3], axis: -1)
-        let qkv = splitQkv[0]
-        let mlpHidden = splitQkv[1]
-        let qkvParts = split(qkv, parts: 3, axis: -1)
-        var query = qkvParts[0]
-        var key = qkvParts[1]
-        var value = qkvParts[2]
-
-        let batch = query.dim(0)
-        let seq = query.dim(1)
-        query = query.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
-        key = key.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
-        value = value.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
-
-        // Norm in f32 for stability, then store Q/K/V in f16 for long sequences
-        // (L≈4608 @ 1024²: f32 QKV alone ≈1.7 GB).
-        let f16Thr = AttentionTuning.current.f16SeqThreshold
-        let attnDType: DType = seq > f16Thr ? .float16 : .float32
-        query = normQ(query.asType(.float32)).asType(attnDType)
-        key = normK(key.asType(.float32)).asType(attnDType)
-        value = value.asType(attnDType)
-
-        if let (cos, sin) = imageRotaryEmb {
-            (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
+        let proj = DiTOpProfile.time(
+            .qkvProj,
+            inputs: [hiddenStates],
+            sync: { [$0] }
+        ) {
+            AttentionUtils.linearChunkedSequence(toQkvMlpProj, hiddenStates)
         }
+        let packed = DiTOpProfile.time(
+            .qkvRope,
+            inputs: [proj],
+            sync: { [$0.0, $0.1, $0.2, $0.3] }
+        ) {
+            let splitQkv = split(proj, indices: [innerDim * 3], axis: -1)
+            let qkv = splitQkv[0]
+            let mlpHidden = splitQkv[1]
+            let qkvParts = split(qkv, parts: 3, axis: -1)
+            var query = qkvParts[0]
+            var key = qkvParts[1]
+            var value = qkvParts[2]
+
+            let batch = query.dim(0)
+            let seq = query.dim(1)
+            query = query.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
+            key = key.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
+            value = value.reshaped([batch, seq, heads, dimHead]).transposed(0, 2, 1, 3)
+
+            // Norm in f32 for stability, then store Q/K/V in f16 for long sequences
+            // (L≈4608 @ 1024²: f32 QKV alone ≈1.7 GB).
+            let f16Thr = AttentionTuning.current.f16SeqThreshold
+            let attnDType: DType = seq > f16Thr ? .float16 : .float32
+            query = normQ(query.asType(.float32)).asType(attnDType)
+            key = normK(key.asType(.float32)).asType(attnDType)
+            value = value.asType(attnDType)
+
+            if let (cos, sin) = imageRotaryEmb {
+                (query, key) = AttentionUtils.applyRopeBSHD(query: query, key: key, cos: cos, sin: sin)
+            }
+            return (query, key, value, mlpHidden)
+        }
+        let query = packed.0
+        let key = packed.1
+        let value = packed.2
+        let mlpHidden = packed.3
+        let batch = query.dim(0)
+        let seq = query.dim(2)
 
         // Free proj graph before attention. Cache clear only on long sequences
         // (same gate as the transformer's per-block clears).
         if AttentionTuning.current.qkvCheckpoint {
-            eval(query, key, value, mlpHidden)
+            if !DiTOpProfile.enabled {
+                eval(query, key, value, mlpHidden)
+            }
             if seq > AttentionTuning.current.blockCacheClearSeqThreshold {
                 Memory.clearCache()
             }
         }
 
-        var attnOut = AttentionUtils.computeAttention(
+        let attnOut = AttentionUtils.computeAttention(
             query: query, key: key, value: value,
             batchSize: batch, numHeads: heads, headDim: dimHead
         )
-        let mlpOut = mlpAct(mlpHidden.asType(.float32)).asType(mlpHidden.dtype)
-        attnOut = concatenated([attnOut.asType(mlpOut.dtype), mlpOut], axis: -1)
-        return AttentionUtils.linearChunkedSequence(toOut, attnOut)
+        return DiTOpProfile.time(
+            .ffn,
+            inputs: [attnOut, mlpHidden],
+            sync: { [$0] }
+        ) {
+            let mlpOut = mlpAct(mlpHidden)
+            let fused = concatenated([attnOut.asType(mlpOut.dtype), mlpOut], axis: -1)
+            return AttentionUtils.linearChunkedSequence(toOut, fused)
+        }
     }
 }

@@ -22,6 +22,10 @@ swift build && ./Scripts/ensure-metallib.sh
 .build/release/imarello bench --mode dit-one-step --width 768 --height 768 \
   --probe-density blocks --json /tmp/p768-step0.json
 
+# Slice C ranking: Steel FA vs FFN vs processQKV glue (do not use as e2e)
+.build/release/imarello bench --mode dit-one-step --width 512 --height 512 \
+  --op-profile --probe-density off --json /tmp/op-c-512.json
+
 # Resolution ladder (subprocess per side; survives Metal abort)
 .build/release/imarello bench --mode res-ladder --ladder 512,640,768,896,1024 \
   --probe-density blocks
@@ -68,6 +72,8 @@ Snapshot path (default):
 | `--vae-attn-chunk` | `64` | VAE mid-block query chunk. `0` = legacy `MLXFast` SDPA |
 | `--eval-cache` | `product` | `product` (8 GB-safe) or `mid` (≥16 GB bench only; refused on tier L without `--force`) |
 | `--with-quality` | off | Pixel score + color; I2I adds SSIM; identity adds face-crop SSIM |
+| `--op-profile` | off | GPU-sync split of `qkv_proj` / `qkv_rope` / `steel_fa` / `ffn` (ranking only; inflates wall time) |
+| `--attn-linear-compute` | `f16` | `f16` = scaled 4-bit `quantizedMM` (product). `f32` = reference GEMM. Raw unscaled f16 is **noise**. |
 
 ### `imarello bench-compare BASE CANDIDATE`
 
@@ -113,7 +119,7 @@ With `--with-quality`: `technical_score`, `color_match` from `ImarelloEval` so y
 
 ## Report schema
 
-JSON schema version: **`1.0`** (`BenchReport.schemaVersion`).
+JSON schema version: **`1.3`** (`BenchReport.schemaVersion`). Optional `trials[].op_profile` when `--op-profile` is set.
 
 Snake_case keys. Load with `BenchReportWriter.loadReport`. Fields: `label`, `created_at`, `system`, `config`, `trials[]`, `aggregate`.
 
@@ -185,7 +191,26 @@ Prioritize only after a **baseline** report exists on the target machine. IDs ma
 **Machine:** Mac mini, Apple M2, 8 GB unified, thermal nominal  
 **Build:** `swift build -c release` + `Scripts/ensure-metallib.sh`, **4-bit** weights  
 
-### Fair A/B: 512² vs 1024² (current tree — Steel FA + cosine VAE tiles)
+### Product path (2026-08-15) — use these numbers
+
+Defaults: `--text-tokens auto` · BFL Small Decoder · scaled f16 4-bit Linear (`÷16`) · Steel FA · staged 4-bit. Protocol: W1T3, seed 42, `--probe-density stages`, fox prompt. Bench embed-cache is off.
+
+| Metric | **512²** | **1024²** | **1024 / 512** |
+|--------|---------:|----------:|---------------:|
+| **e2e (mean)** | **19.4 s** | **74.0 s** | **3.81×** |
+| denoise / step | 3.34 s | 15.91 s | 4.76× |
+| decode VAE | 1.05 s | 5.27 s | 5.0× |
+| encode TE | 2.11 s | 2.11 s | 1.0× |
+| **peak MLX active** | **2.04 GiB** | **2.05 GiB** | **1.00×** |
+| **peak MLX watermark** | **2.38 GiB** | **3.46 GiB** | **1.45×** |
+| peak RSS | 1.79 GiB | 1.91 GiB | 1.07× |
+
+JSON: `/tmp/imarello-qmm-f16s16-512.json`, `/tmp/imarello-auto-sd-f16-1024.json`.  
+Vs the 2026-08-13 `hoist-*` tree (pad-512 + klein AE + f32 Linear): 512² **27.5 → 19.4 s**; 1024² **87.7 → 74.0 s**. That is the stacked product change, not a single-knob A/B.
+
+Older same-day A/Bs below are historical.
+
+### Fair A/B: 512² vs 1024² (2026-08-11 — Steel FA + cosine VAE tiles)
 
 Protocol: **warmup 1 + trials 3**, seed 42, `--probe-density stages`, labels `fair-steel-512` / `fair-steel-1024`  
 **Date:** 2026-08-11 · **Machine:** Mac mini Apple M2 8 GB · **Build:** release + full metallib · **Weights:** 4-bit
@@ -341,6 +366,77 @@ Quality close-out + recipes: [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) (2026-08-14
   **both** auto and pad-512 (Klein flake, not a trim regression).
 - **2026-08-15:** identity I2I A/B + product decision — **promoted to default**. `--text-tokens 512` remains the pad gallery path.
 
+#### P9 Slice C — Steel FA vs FFN vs processQKV glue (2026-08-15)
+
+Off-by-default GPU-sync timer (`DiTOpProfile`, `imarello bench --op-profile`). Extra `eval` at bucket boundaries inflates wall time — **ranking only**.
+
+Buckets:
+
+| Bucket | What it times |
+|--------|----------------|
+| `qkv_proj` | Double-stream `to_q/k/v` Linears + single-stream fused `to_qkv_mlp_proj` |
+| `qkv_rope` | RMSNorm, reshape, concat, RoPE, QKV checkpoint (the fuse/compile-glue target) |
+| `steel_fa` | `computeAttention` (Steel fused FA on the product path) |
+| `ffn` | Double-stream SwiGLU FFN + single-stream `mlpAct` + `to_out` |
+| `other` | Remainder of the denoise step (AdaLN, residuals, embed/proj) |
+
+Cold `dit-one-step`, 1 trial, `--probe-density off`, release + full metallib, 8 GB M2, product defaults (auto + Small Decoder):
+
+| Canvas | qkv_proj | ffn | steel_fa | qkv_rope | other | Linear+FFN |
+|--------|---------:|----:|---------:|---------:|------:|-----------:|
+| 512² | **51.5%** | 35.3% | 4.8% | 4.7% | 3.8% | **86.7%** |
+| 1024² | **44.0%** | 30.8% | 15.0% | 5.8% | 4.4% | **74.8%** |
+
+Counts match the graph (5 double + 20 single): `qkv_proj` n=30, `qkv_rope` n=35, `steel_fa` n=25, `ffn` n=30.
+
+**Decision: park glue fusion.** `qkv_rope` is ~5% of a step at both canvases. Making it free would be ~0.2 s @ 512² / ~1 s @ 1024² on an inflated ranking step — not a week of fused QK-Norm+RoPE. Steel FA is already cheap at 512² and only 15% at 1024². The remaining speed is **4-bit `Linear` + SwiGLU FFN** (quant GEMM). Full DiT `MLX.compile` stays NO-GO.
+
+Same-day product-path 512² baseline (profiler **off**, W1/T3, `--probe-density stages`, seed 42): e2e **20.5 s**, denoise/step **3.59 s**, decode **1.06 s**, peak active **2.04 GiB**, watermark **2.31 GiB**. JSON: `/tmp/imarello-auto-sd-512.json`, `/tmp/imarello-op-c-512.json`, `/tmp/imarello-op-c-1024.json`.
+
+1024² ranking trial was tagged `CONTAMINATED` (`XprotectService` 52% CPU) — shares only.
+
+#### P9 Linear / SwiGLU — f16 `quantizedMM` (2026-08-15)
+
+Slice C showed 4-bit Linear + SwiGLU own **87% / 75%** of a 512² / 1024² step. The hub pack stores affine **scales in bf16**. `QuantizedLinear` does `promote(x, scales)` — so f32 activations keep the GEMM in f32, and a naive `x.f16` still promotes to f32 unless **scales are cast to f16 too**.
+
+Attacks tried:
+
+| Attack | Result |
+|--------|--------|
+| Compiled SwiGLU (`split` + `g*sigmoid(g)*up`, not shapeless — shapeless `split` aborts) | Safe, same ops. Noise vs f32 baseline. |
+| 2D flatten before qmm | Already what Metal does when `x` is row-contiguous. |
+| Raw f16 `quantizedMM` (no scale) | **−12% denoise but TV-static images.** Pixel harness 15/15 PASS (noise is “sharp”). Vision catch. **Do not ship.** |
+| f16 qmm + **÷16** before / **×16** after, f32 out | **Real images.** 512² W1T3 vs f32: e2e **−4.6%** (20.36 → 19.44 s), denoise/step **−6.5%** (3.57 → 3.34 s), peak active flat. |
+
+**Shipped default:** `AttentionTuning.linearF16 = true`, `linearF16Scale = 16`. `--attn-linear-compute f32` is the reference GEMM.
+
+Vision (seed 42, 512²): terracotta mug (known two-handle Klein quirk), “OPEN STUDIO” poster correct, fox photoreal. Eval-regression **15/15 pixel PASS** (`/tmp/imarello-eval-qmm-f16s16`). JSON: `/tmp/imarello-qmm-f32-512.json`, `/tmp/imarello-qmm-f16s16-512.json`.
+
+#### Current-stack 1024² baseline (2026-08-15)
+
+Same product defaults as the 512² f16 row (auto + Small Decoder + scaled f16 qmm). W1T3, seed 42, `--probe-density stages`, release + full metallib, 8 GB M2. Trials tight (73.86–74.09 s). Not a single-variable A/B vs `hoist-1024` (that tree lacked auto/SD/f16).
+
+| Metric | hoist-1024 (2026-08-13) | **auto-sd-f16-1024** |
+|--------|------------------------:|---------------------:|
+| e2e mean | 87.7 s | **74.0 s** |
+| denoise / step | ~18.6 s | **15.91 s** |
+| decode VAE | ~8 s klein | **5.27 s** |
+| peak MLX active | 2.05 GiB | **2.05 GiB** |
+| watermark | 3.76 GiB | **3.46 GiB** |
+
+JSON: `/tmp/imarello-auto-sd-f16-1024.json`.
+
+Identity 512² on this GEMM (`identity-ref.jpg`, s=0.9, seed 7): recolor SSIM **0.751**, same collar/cut, ivory→emerald; replace SSIM **0.748**, face lock, sleeveless wrap (cut drift as with auto), no balcony. Pixel PASS. Paths: `/tmp/imarello-id-f16/`.
+
+#### Pixel `unstructured_garbage` (2026-08-15)
+
+Unscaled f16 qmm produced TV static that **15/15 pixel-passed** (noise is “sharp”). Schema **1.4** hard-fails:
+
+- independent-pixel snow (`noise_proxy` high + lag-2 autocorr low), or
+- VAE-decoded rainbow speckle (sharp ≥ 1000, hue lock &lt; 0.36, ≥4 chromatic hues, sat &gt; 0.40)
+
+The 2026-08-15 overflow PNG now exits 2 (`unstructured_garbage`). Fox/mug still pass. Tests: `GoldenMetricFloorsTests`.
+
 #### P3a prompt-embed disk cache (default on)
 
 `~/Library/Caches/Imarello/embeds/<sha256>.safetensors` keyed by
@@ -466,6 +562,8 @@ All **6/6 pixel PASS**. No `possible_tile_seam`. Composition matches (same laten
 | M5 P4 | Tiled VAE stitch: slice-local accumulate + cached cosine masks (was full-canvas pad+add ×2 per tile) | decode −8.9% @ 512²; 1024² within noise (see “P4 + P5” subsection) |
 | S6 P2 | `--text-tokens auto` trim (**product default** 2026-08-15; [`TEXT_TOKENS.md`](TEXT_TOKENS.md)) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; identity face lock holds; `--text-tokens 512` for pad gallery |
 | S7 P3a | Prompt-embed disk cache (default on; `--no-embed-cache`) | Hit skips TE stage: **−4 s** @ 512², byte-identical output |
+| S2 C | Profile Steel FA vs FFN vs `processQKV` glue (`--op-profile`) | **Park glue fusion.** Linear+FFN **87% / 75%** of a 512² / 1024² step; `qkv_rope` ~5% |
+| S4 L | f16 scaled 4-bit `quantizedMM` (`--attn-linear-compute f16`, ÷16) | 512² denoise **−6.5%**, e2e **−4.6%**; raw f16 is noise; `--attn-linear-compute f32` escape |
 | — P3b | `imarello session` warm mode (resident policy, ≥16 GB gate, `--force-resident`) | No win on 8 GB (gate validated); resident reuse byte-identical |
 
 ### Draw Things / PDF report mapping (2026-08-11)
@@ -481,7 +579,7 @@ External report claimed “1024 → OOM” and ranked tiled VAE as the unlock. *
 | Further quant | **Out of product scope** | 4-bit lock |
 | Pressure harness | **Done** | `pressure-map` / `res-ladder` / `dit-one-step` |
 
-**Priority now:** iOS jetsam (optional DiT weight streaming) → speed (resident compile spike) — 1024 on 8 GB is green.
+**Priority now:** iOS jetsam (optional DiT weight streaming). f16 scaled qmm shipped; leftover speed is a fused qmm+SwiGLU kernel or better activation scale, not glue fusion. 1024 on 8 GB is green.
 
 ### Phase C — Attention knob sweep (2026-08-11, M2 8 GB)
 

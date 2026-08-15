@@ -8,9 +8,19 @@ public final class Flux2SwiGLU: Module, UnaryLayer {
     }
 
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let parts = split(x, parts: 2, axis: -1)
-        return silu(parts[0]) * parts[1]
+        Self.compiledSwiGLU(x)
     }
+
+    /// Same ops as `silu(g) * up` (`g * sigmoid(g) * up`).
+    /// Not shapeless: `split` cannot infer shapes under shapeless compile.
+    /// Inlined sigmoid so we do not nest `compiledSilu` inside another compile.
+    private static let compiledSwiGLU: @Sendable (MLXArray) -> MLXArray = {
+        compile { (x: MLXArray) -> MLXArray in
+            let parts = split(x, parts: 2, axis: -1)
+            let g = parts[0]
+            return (g * sigmoid(g)) * parts[1]
+        }
+    }()
 }
 
 /// Double-stream FFN: Linear(dim → 2*inner) → SwiGLU → Linear(inner → dim).
@@ -27,6 +37,7 @@ public final class Flux2FeedForward: Module, UnaryLayer {
     }
 
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
-        linearOut(act(linearIn(x)))
+        let hidden = AttentionUtils.linearChunkedSequence(linearIn, x)
+        return AttentionUtils.linearChunkedSequence(linearOut, act(hidden))
     }
 }

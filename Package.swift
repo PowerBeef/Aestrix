@@ -151,6 +151,7 @@ let package = Package(
             dependencies: [
                 "ImarelloBench",
                 "ImarelloCore",
+                "ImarelloDiT",
             ]
         ),
         .testTarget(

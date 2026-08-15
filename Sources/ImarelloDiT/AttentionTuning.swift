@@ -11,6 +11,13 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     /// When seq **>** this, store Q/K/V (and RoPE out) in float16 after f32 RMSNorm.
     /// Product default **512** so 512² image tokens (seq=1024) use f16; text pad (512) stays f32.
     public var f16SeqThreshold: Int
+    /// Run 4-bit `QuantizedLinear` (and SwiGLU) in float16. Residuals / AdaLN stay f32.
+    /// Product default **true**: 4-bit qmm in f16 (scales cast f16; residual f32).
+    /// `--attn-linear-compute f32` restores the old f32 GEMM path.
+    public var linearF16: Bool
+    /// Divide activations by this before f16 `quantizedMM`, multiply after (f32 out).
+    /// Raw f16 GEMM overflowed to noise; **16** is the shipped rescue scale.
+    public var linearF16Scale: Float
     /// Above this seq length, apply `Linear` in chunks along the sequence axis.
     public var linearChunkThreshold: Int
     /// Sequence tokens per Linear chunk.
@@ -35,6 +42,8 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         /// Phase C sweep (1024² warm): 512 beats 256 by ~1% denoise/step; 128 was neutral/slower.
         queryChunkSize: Int = 512,
         f16SeqThreshold: Int = 512,
+        linearF16: Bool = true,
+        linearF16Scale: Float = 16,
         linearChunkThreshold: Int = 1536,
         linearChunkSize: Int = 512,
         /// Default **mlx** (chunked SDPA). Use `metal-fa` / `auto` to exercise custom FA2;
@@ -48,6 +57,8 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         self.queryChunkThreshold = queryChunkThreshold
         self.queryChunkSize = queryChunkSize
         self.f16SeqThreshold = f16SeqThreshold
+        self.linearF16 = linearF16
+        self.linearF16Scale = max(1, linearF16Scale)
         self.linearChunkThreshold = linearChunkThreshold
         self.linearChunkSize = linearChunkSize
         self.backend = backend
@@ -69,6 +80,6 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
 
     /// Short label for bench reports.
     public var shortLabel: String {
-        "\(backend.rawValue)/q\(queryChunkSize)/t\(queryChunkThreshold)/f16@\(f16SeqThreshold)/lin\(linearChunkSize)"
+        "\(backend.rawValue)/q\(queryChunkSize)/t\(queryChunkThreshold)/f16@\(f16SeqThreshold)/lin\(linearChunkSize)/qmm-\(linearF16 ? "f16" : "f32")"
     }
 }

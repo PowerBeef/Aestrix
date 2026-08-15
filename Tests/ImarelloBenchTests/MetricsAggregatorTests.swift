@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import ImarelloBench
+import ImarelloDiT
 
 @Suite("ImarelloBench metrics")
 struct MetricsAggregatorTests {
@@ -132,6 +133,50 @@ struct MetricsAggregatorTests {
         #expect(loaded.trials.count == 1)
         #expect(loaded.trials[0].timingsMs.e2e == 1234.5)
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    @Test("text summary prints op profile shares")
+    func opProfileSummary() {
+        var trial = BenchTrial(
+            index: 0,
+            cold: true,
+            timingsMs: StageTimingsMs(e2e: 1000, denoiseTotal: 800, denoiseSteps: [800]),
+            memorySamples: [],
+            peakRssBytes: 1,
+            peakMlxActiveBytes: 1,
+            peakMlxPeakBytes: 1,
+            peakMlxCacheBytes: 1
+        )
+        trial.opProfile = DiTOpProfileReport(
+            bucketsMs: ["qkv_proj": 400, "qkv_rope": 50, "steel_fa": 200, "ffn": 150],
+            counts: ["qkv_proj": 30, "qkv_rope": 35, "steel_fa": 25, "ffn": 30],
+            countedMs: 800,
+            denoiseMs: 800,
+            otherMs: 0,
+            shares: ["qkv_proj": 0.5, "qkv_rope": 0.0625, "steel_fa": 0.25, "ffn": 0.1875, "other": 0],
+            notes: ["ranking only"]
+        )
+        let report = BenchReport(
+            schemaVersion: BenchReport.currentSchema,
+            label: "op",
+            createdAt: "t",
+            system: SystemSnapshot(
+                hostname: "h", osVersion: "o", processId: 1,
+                physicalMemoryBytes: 1, processorCount: 1,
+                recommendedMaxWorkingSetBytes: nil, thermalState: "nominal",
+                mlxCacheLimitBytes: nil, mlxMemoryLimitBytes: nil, imarelloGitSha: nil,
+                gpuName: nil, metalSupport: nil, hasNeuralAccelerators: nil
+            ),
+            config: BenchConfig(label: "op", opProfile: true),
+            trials: [trial],
+            aggregate: MetricsAggregator.aggregate(trials: [trial]),
+            pressure: nil
+        )
+        let text = BenchReportWriter.textSummary(report)
+        #expect(text.contains("op_profile"))
+        #expect(text.contains("qkv_proj"))
+        #expect(text.contains("steel_fa"))
+        #expect(text.contains("dominant=qkv_proj"))
     }
 
     @Test("compare text non-empty")

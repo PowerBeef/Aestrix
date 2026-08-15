@@ -55,6 +55,7 @@ Exit codes:
 | `hue_weights` / `top_chromatic_hues` | Center-weighted chromatic mass |
 | `noise_proxy` | High-frequency residual after blur |
 | `luminance_entropy` | Histogram richness |
+| `spatial_autocorr_lag2` | Horizontal lag-2 luminance correlation (1 ≈ structured, ~0 ≈ speckle) |
 | `expects_vae_tiling` | `true` when max(side) ≥ 768 (Imarello auto-tiles decode) |
 | `tile_seam_score` / `_vertical` / `_horizontal` | Midline discontinuity / mean gradient (clean often &lt;2.5) |
 | `technical_score` | 0–100 composite (includes mild seam penalty when tiling expected). A flat unclipped field scores **~40** (vacuous noise+clip+seam terms); in `Float` that value is `40.nextDown`, so a `>= 40` floor can never pass a solid-color fixture. |
@@ -126,6 +127,7 @@ Pass `--strength` to `analyze-image` (or automatic after `i2i --analyze`):
 | `possible_tile_seam` | warn | seam_score &gt; 3 on ≥768 canvas |
 | `vae_tile_expected` | info | ≥768 canvas; report seam_score |
 | `soft_focus` / `highlight_clip` / `low_contrast` | warn | Technical gates |
+| `unstructured_garbage` | **fail** | White-noise snow **or** VAE-decoded rainbow speckle (sharp ≥ 1000, no hue lock). Catches f16-overflow static the old harness missed. |
 | `high_structure_fidelity` / `low_structure_fidelity` | info | I2I SSIM vs reference |
 | `needs_visual_review` | info | Prompt mentions text/hands/… |
 

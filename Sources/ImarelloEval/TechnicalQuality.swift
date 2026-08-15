@@ -35,6 +35,8 @@ public enum TechnicalQuality {
 
         /// Shannon entropy of 64-bin luminance histogram (0–6-ish).
         public var luminanceEntropy: Float
+        /// Horizontal lag-2 luminance autocorrelation on a subsample (1 ≈ structured, ~0 ≈ speckle).
+        public var spatialAutocorrLag2: Float
 
         /// True when max(side) ≥ 768 — Imarello VAE tiles unpatchified latents at spatial ≥ 96 (~768 px).
         public var expectsVAETiling: Bool
@@ -61,6 +63,7 @@ public enum TechnicalQuality {
         let hueStats = hueStatistics(pixels)
         let noise = noiseProxy(lum, width: pixels.width, height: pixels.height)
         let entropy = luminanceEntropy(lum)
+        let autocorr = spatialAutocorr(lum, width: pixels.width, height: pixels.height, lag: 2)
         let seams = tileSeamDiscontinuities(lum, width: pixels.width, height: pixels.height, meanGradient: grad)
         let expectsTile = max(pixels.width, pixels.height) >= 768
 
@@ -93,12 +96,27 @@ public enum TechnicalQuality {
             topChromaticHues: hueStats.topChromatic,
             noiseProxy: noise,
             luminanceEntropy: entropy,
+            spatialAutocorrLag2: autocorr,
             expectsVAETiling: expectsTile,
             tileSeamScore: seams.score,
             tileSeamVertical: seams.vertical,
             tileSeamHorizontal: seams.horizontal,
             technicalScore: score
         )
+    }
+
+    /// TV-static / unstructured decode garbage (f16 overflow, broken VAE, etc.).
+    ///
+    /// Independent-pixel white noise is weakly correlated. VAE-decoded overflow
+    /// (the 2026-08-15 unscaled f16 miss) is still *spatially* correlated, but
+    /// it is rainbow-speckle: very sharp, no dominant hue, high saturation.
+    public static func looksLikeUnstructuredGarbage(_ m: Metrics) -> Bool {
+        let whiteNoise = m.noiseProxy >= 0.055 && m.spatialAutocorrLag2 < 0.28
+        let decodedRainbowSnow = m.sharpnessLaplacianVar >= 1000
+            && m.dominantHueFraction < 0.36
+            && m.topChromaticHues.count >= 4
+            && m.meanSaturation > 0.40
+        return whiteNoise || decodedRainbowSnow
     }
 
     // MARK: - Internals
@@ -270,6 +288,36 @@ public enum TechnicalQuality {
             }
         }
         return count > 0 ? sqrt(acc / count) : 0
+    }
+
+    /// Pearson correlation of luminance vs itself shifted `lag` pixels right.
+    /// Constant fields return 1. White noise is near 0.
+    private static func spatialAutocorr(
+        _ lum: [Float], width: Int, height: Int, lag: Int
+    ) -> Float {
+        guard width > lag + 2, height > 2, lag > 0 else { return 1 }
+        let step = max(1, min(width, height) / 128)
+        var mean: Float = 0
+        var n: Float = 0
+        for y in stride(from: 0, to: height, by: step) {
+            for x in stride(from: 0, to: width - lag, by: step) {
+                mean += lum[y * width + x]
+                n += 1
+            }
+        }
+        guard n > 8 else { return 1 }
+        mean /= n
+        var num: Float = 0
+        var den: Float = 0
+        for y in stride(from: 0, to: height, by: step) {
+            for x in stride(from: 0, to: width - lag, by: step) {
+                let a = lum[y * width + x] - mean
+                let b = lum[y * width + x + lag] - mean
+                num += a * b
+                den += a * a
+            }
+        }
+        return den > 1e-8 ? num / den : 1
     }
 
     private static func luminanceEntropy(_ lum: [Float]) -> Float {

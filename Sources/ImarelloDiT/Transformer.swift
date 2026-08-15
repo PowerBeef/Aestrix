@@ -166,7 +166,7 @@ public final class Flux2Transformer: Module {
 
         let temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
 
-        var h = xEmbedder(hiddenStates)
+        var h = AttentionUtils.applyLinear(xEmbedder, hiddenStates)
         // Prompt→innerDim is invariant across denoise steps; pipeline hoists it.
         var e = contextIsProjected
             ? encoderHiddenStates
@@ -238,7 +238,7 @@ public final class Flux2Transformer: Module {
 
         h = h[0..., txtLen..., 0...]
         h = normOut(h, textEmbeddings: temb)
-        h = projOut(h)
+        h = AttentionUtils.applyLinear(projOut, h)
         eval(h)
         sample("after_proj")
         return h

@@ -19,6 +19,7 @@ public actor BenchRunner {
         if let v = config.attentionQueryChunkSize { t.queryChunkSize = v }
         if let v = config.attentionQueryChunkThreshold { t.queryChunkThreshold = v }
         if let v = config.attentionF16SeqThreshold { t.f16SeqThreshold = v }
+        if let v = config.attentionLinearF16 { t.linearF16 = v }
         if let v = config.attentionLinearChunkSize { t.linearChunkSize = v }
         if let v = config.attentionLinearChunkThreshold { t.linearChunkThreshold = v }
         if let raw = config.attentionBackend, let backend = AttentionBackend(rawValue: raw) {
@@ -116,8 +117,14 @@ public actor BenchRunner {
     private func executeTrial(index: Int, cold: Bool) async -> BenchTrial {
         let density: ProbeDensity = {
             switch config.mode {
-            case .pressureMap, .ditOneStep: return config.probeDensity == .off ? .blocks : config.probeDensity
-            default: return config.probeDensity
+            case .pressureMap:
+                return config.probeDensity == .off ? .blocks : config.probeDensity
+            case .ditOneStep:
+                // Keep --op-profile on the product eval path; block probes confound GPU-sync splits.
+                if config.opProfile { return config.probeDensity }
+                return config.probeDensity == .off ? .blocks : config.probeDensity
+            default:
+                return config.probeDensity
             }
         }()
         let collector = TraceCollector(
@@ -127,6 +134,11 @@ public actor BenchRunner {
         let e2eStart = CFAbsoluteTimeGetCurrent()
 
         let hostBefore = HostContention.capture()
+        if config.opProfile {
+            DiTOpProfile.begin()
+        } else {
+            DiTOpProfile.reset()
+        }
         do {
             let outputPath: String?
             switch config.mode {
@@ -187,6 +199,21 @@ public actor BenchRunner {
         let timings = collector.buildTimings(e2eMs: e2eMs)
         let samples = collector.memorySamples
         let peaks = collector.peaks()
+        let opProfile: DiTOpProfileReport?
+        if config.opProfile {
+            let denoiseSec: Double?
+            if let total = timings.denoiseTotal {
+                denoiseSec = total / 1000
+            } else if !timings.denoiseSteps.isEmpty {
+                denoiseSec = timings.denoiseSteps.reduce(0, +) / 1000
+            } else {
+                denoiseSec = nil
+            }
+            opProfile = DiTOpProfile.snapshot(denoiseSeconds: denoiseSec)
+            DiTOpProfile.reset()
+        } else {
+            opProfile = nil
+        }
 
         var qualityScore: Float?
         var qualityColor: Bool?
@@ -230,7 +257,8 @@ public actor BenchRunner {
             hostBefore: hostBefore,
             hostAfter: hostAfter,
             error: error,
-            lastProbeId: collector.lastProbeId
+            lastProbeId: collector.lastProbeId,
+            opProfile: opProfile
         )
     }
 

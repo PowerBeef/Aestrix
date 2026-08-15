@@ -30,6 +30,20 @@ func applyAttnF16Threshold(_ value: Int?) {
     AttentionTuning.current = t
 }
 
+func applyAttnLinearCompute(_ raw: String?) throws {
+    guard let raw else { return }
+    var t = AttentionTuning.current
+    switch raw {
+    case "f16", "float16":
+        t.linearF16 = true
+    case "f32", "float32":
+        t.linearF16 = false
+    default:
+        throw ValidationError("Unknown --attn-linear-compute '\(raw)'; use f16 | f32")
+    }
+    AttentionTuning.current = t
+}
+
 func applyVAEVariant(_ raw: String, to config: inout ImarelloConfig) throws {
     guard let variant = VAEDecoderVariant(rawValue: raw) else {
         throw ValidationError("Unknown --vae-variant '\(raw)'; use full | small-decoder")
@@ -430,12 +444,16 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
     var attnF16Threshold: Int?
 
+    @Option(name: .long, help: "4-bit Linear compute: f16 (default, scaled qmm) | f32 (reference GEMM).")
+    var attnLinearCompute: String?
+
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
     func run() async throws {
         try ensureMLXReady()
         applyAttnF16Threshold(attnF16Threshold)
+        try applyAttnLinearCompute(attnLinearCompute)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -588,12 +606,16 @@ struct I2I: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512). 2048 restores f32 QKV at 512².")
     var attnF16Threshold: Int?
 
+    @Option(name: .long, help: "4-bit Linear compute: f16 (default, scaled qmm) | f32 (reference GEMM).")
+    var attnLinearCompute: String?
+
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
     func run() async throws {
         try ensureMLXReady()
         applyAttnF16Threshold(attnF16Threshold)
+        try applyAttnLinearCompute(attnLinearCompute)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -875,6 +897,9 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512).")
     var attnF16Threshold: Int?
 
+    @Option(name: .long, help: "4-bit Linear compute: f16 (default, scaled qmm) | f32 (reference GEMM).")
+    var attnLinearCompute: String?
+
     @Option(name: .long, help: "VAE mid-block attention query chunk (default 64). 0 = legacy MLXFast SDPA.")
     var vaeAttnChunk: Int?
 
@@ -920,6 +945,9 @@ struct Bench: AsyncParsableCommand {
     @Flag(name: .long, help: "Run pixel quality metrics on each trial PNG.")
     var withQuality: Bool = false
 
+    @Flag(name: .long, help: "Time Steel FA vs FFN vs processQKV glue (GPU-sync; ranking only). See Docs/PERF.md.")
+    var opProfile: Bool = false
+
     func run() async throws {
         try ensureMLXReady()
 
@@ -962,10 +990,26 @@ struct Bench: AsyncParsableCommand {
             effectiveReset = true
         }
         if benchMode == .ditOneStep {
-            effectiveDensity = density == .off ? .blocks : density
+            // Op-profile ranking wants the product eval path; extra block probes confound it.
+            if !opProfile {
+                effectiveDensity = density == .off ? .blocks : density
+            }
             effectiveTrials = 1
             effectiveWarmup = 0
             effectiveFailSoft = true
+        }
+
+        let linearF16: Bool?
+        if let raw = attnLinearCompute {
+            switch raw {
+            case "f16", "float16": linearF16 = true
+            case "f32", "float32": linearF16 = false
+            default:
+                print("error: unknown --attn-linear-compute '\(raw)'. Use: f16 | f32")
+                throw ExitCode.failure
+            }
+        } else {
+            linearF16 = nil
         }
 
         let config = BenchConfig(
@@ -988,12 +1032,14 @@ struct Bench: AsyncParsableCommand {
             attentionQueryChunkSize: attnChunkSize,
             attentionQueryChunkThreshold: attnChunkThreshold,
             attentionF16SeqThreshold: attnF16Threshold,
+            attentionLinearF16: linearF16,
             attentionLinearChunkSize: attnLinearChunk,
             attentionLinearChunkThreshold: attnLinearThreshold,
             attentionBackend: attnBackend,
             attentionBlockClearSeqThreshold: attnBlockClearThreshold,
             attentionBlockClearInterval: attnBlockClearInterval,
             textTokens: textTokens,
+            opProfile: opProfile,
             imagePath: image,
             strength: strength,
             identity: identity || benchMode == .identityI2I
@@ -1050,6 +1096,10 @@ struct Bench: AsyncParsableCommand {
         )
         print("  snapshot: \(await pipeline.snapshotPath ?? "?")")
         print("  eval_cache: \(EvalCachePolicy.current.profileName)")
+        if opProfile {
+            print("  op_profile: on (ranking only; extra eval syncs inflate wall time)")
+        }
+        print("  linear_compute: \(linearF16 == true || (linearF16 == nil && AttentionTuning.current.linearF16) ? "f16" : "f32")")
         let vaeAttn = VAEAttentionConfig.current
         print(
             "  vae_attn: \(vaeAttn.useMLXFast ? "mlxfast" : "chunk\(vaeAttn.queryChunkSize)")")

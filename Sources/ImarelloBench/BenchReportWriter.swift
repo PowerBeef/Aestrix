@@ -112,6 +112,44 @@ public enum BenchReportWriter {
             }
         }
 
+        if let op = report.trials.compactMap(\.opProfile).last {
+            lines.append("op_profile (ranking only):")
+            let order = ["qkv_proj", "qkv_rope", "steel_fa", "ffn", "other"]
+            for key in order {
+                let ms: Double
+                if key == "other" {
+                    ms = op.otherMs ?? 0
+                } else {
+                    ms = op.bucketsMs[key] ?? 0
+                }
+                let share = (op.shares[key] ?? 0) * 100
+                let count: String
+                if key == "other" {
+                    count = ""
+                } else if let n = op.counts[key] {
+                    count = "  n=\(n)"
+                } else {
+                    count = ""
+                }
+                let name = key.padding(toLength: 10, withPad: " ", startingAt: 0)
+                lines.append(
+                    String(format: "  %@ %7.0f ms  %5.1f%%%@", name, ms, share, count)
+                )
+            }
+            if let denoise = op.denoiseMs {
+                let dom = op.dominantBucket ?? "?"
+                lines.append(
+                    String(
+                        format: "  counted=%.0f ms  denoise=%.0f ms  dominant=%@",
+                        op.countedMs, denoise, dom
+                    )
+                )
+            }
+            for note in op.notes {
+                lines.append("  note: \(note)")
+            }
+        }
+
         if let p = report.pressure {
             lines.append("pressure:")
             lines.append(

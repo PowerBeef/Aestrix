@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-15 (`--text-tokens auto` is the product default)  
+**Last updated:** 2026-08-15 (pixel garbage-fail + 1024² current-stack baseline)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
@@ -136,21 +136,23 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] Research: M2 compute dtype — **activations fp32**, only quant scales are bf16 (`load-dit --dump-dtypes`, 2026-08-13)  
 - [x] Research: Klein AdaLN/modulation size vs DT split — **~4% of DiT**, shared (not per-block); unload not worth it  
 - [x] **P9 Slice B (2026-08-15):** BFL Small Decoder is the **product default** decode — 512 + 1024 quality PASS, decode **−37%**; `--vae-variant full` restores klein AE; I2I encode stays klein  
+- [x] **P9 Slice C (2026-08-15):** Steel FA vs FFN vs `processQKV` glue — **park glue fusion**. Linear+FFN **87% / 75%** of a 512² / 1024² step; `qkv_rope` ~5%. `--op-profile` stays as a ranking tool.  
+- [x] **P9 Linear/SwiGLU (2026-08-15):** f16 `quantizedMM` (cast bf16 scales; **×16** pre-scale — raw f16 is noise). 512² denoise **−6.5%**, e2e **−4.6%**. Compiled SwiGLU (same ops). `--attn-linear-compute f32` escape.  
 
-**P9 leftover slices** (2026-08-14 research re-rank; 3-bit **out**; do not start without an explicit ask). Next speed work after Slice A:
+**P9 leftover slices** (2026-08-14 research re-rank; 3-bit **out**; do not start without an explicit ask):
 
 | Slice | Status | Item | Notes |
 |-------|--------|------|-------|
 | **A** | **done** (default) | `--text-tokens auto` | Product default. Pad-512 via `--text-tokens 512`. [`TEXT_TOKENS.md`](TEXT_TOKENS.md). |
 | **B** | **done** (default) | BFL **FLUX.2 Small Decoder** as product decode | 512 + **1024** T2I quality PASS. Decode **−37%**. Default **small-decoder**; `--vae-variant full` for klein. Encoder stays klein. |
-| **C** | `parked` | Profile one 512 step: Steel FA vs FFN vs `processQKV` glue | Gates whether fused QK-Norm+RoPE / compile-glue-only is worth a week. |
+| **C** | **done** (park glue) | Profile Steel FA vs FFN vs `processQKV` glue | 512² + 1024²: Linear+FFN own the step; `qkv_rope` ~5%. Do not fuse QK-Norm+RoPE. [`PERF.md`](PERF.md) Slice C. |
 | — | `parked` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
 | — | `parked` | Training-free **ref-KV** on 4B I2I | 9B-KV *schedule* on 4B; identity 512 first; kill if face-crop SSIM drops or watermark > ~4.2 GiB. |
 | — | `parked` | **Δ-DiT** skip a subset of single blocks on **step 2 only** | High risk; kill on any vision-brief / pixel fail. |
 | — | `parked` | `stagedAggressive` weight **drop** (not mmap) | iOS jetsam, not M2 speed. Expect slower e2e. |
 | — | **out** | 3-bit DiT SKU | Product lock; do not resume. |
 
-**Latest default-path A/B (8 GB Mac mini, release, W1T3, 2026-08-13 `hoist-*`):** 512² e2e **~27.5 s** / 1024² e2e **~87.7 s**; denoise/step **~5.20 s** / **~18.6 s**; peak active **~2.04 / 2.05 GiB**; watermark **~2.99 / 3.76 GiB**. Full tables: `Docs/PERF.md`.
+**Latest default-path (8 GB Mac mini, release, auto + Small Decoder + f16 qmm ×16, 2026-08-15):** 512² W1T3 e2e **19.4 s** / denoise **3.34 s**; **1024² W1T3 e2e 74.0 s** / denoise **15.91 s** / decode **5.27 s**; peak active **2.04 / 2.05 GiB**; watermark **2.38 / 3.46 GiB**. Full tables: `Docs/PERF.md`.
 
 **Acceptance for any “faster / leaner” claim**
 
@@ -177,7 +179,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 ## How to resume (agents)
 
 1. Read this file + `AGENTS.md` product locks.  
-2. Pick the highest-priority `parked` ID (default **P7** for product; P9 leftover **Slice B** for speed).  
+2. Pick the highest-priority `parked` ID (default **P7** for product). P9 Linear/SwiGLU f16 qmm shipped; leftover speed is activation-scale tuning or a real fused qmm+SwiGLU kernel, not glue fusion.  
 3. Confirm macOS smoke still works (`t2i` + `EVAL_WORKFLOW.md`).  
 4. Open a focused branch; do not expand into “Out of v1” without an explicit ask.  
 5. Update this roadmap (checkboxes + “Last updated”) when an item lands or is cancelled.
@@ -206,3 +208,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-15 | Small Decoder 1024² T2I quality pass: 6/6 pixel PASS, vision match vs full AE, decode −37%. |
 | 2026-08-15 | **Promote Small Decoder to product default.** `--vae-variant full` is the klein-pack escape hatch. Missing snapshot fails with `hf download` hint. |
 | 2026-08-15 | `--text-tokens auto` identity I2I A/B (512², seed 7): face lock holds; outfit *cut* can drift. **Promoted to product default.** `--text-tokens 512` is the pad gallery path. |
+| 2026-08-15 | P9 Slice C: Linear+FFN own 87% / 75% of a 512² / 1024² step; `qkv_rope` ~5%. **Park fused QK-Norm+RoPE / compile-glue.** |
+| 2026-08-15 | **f16 scaled 4-bit Linear is the product default.** Raw f16 qmm → noise (pixel harness missed it). ×16 pre-scale restores images; 512² denoise **−6.5%**. `--attn-linear-compute f32` escape. |
+| 2026-08-15 | Pixel harness **`unstructured_garbage` hard fail** (white noise + VAE-decoded rainbow speckle). Catches the unscaled-f16 miss. Schema 1.4. |
+| 2026-08-15 | Current-stack 1024² W1T3: e2e **74.0 s**, denoise/step **15.91 s**, watermark **3.46 GiB**. Identity 512 recolor+replace face lock holds on f16 qmm. |

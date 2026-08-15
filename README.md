@@ -98,7 +98,7 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --seed 42 --output out.png
 ```
 
-Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~27 s on an 8 GB M2).
+Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~19 s on an 8 GB M2).
 
 ```bash
 # Recolor / style — strength ≥ 0.8 for object color
@@ -130,18 +130,20 @@ Add `--analyze --vision-brief` to any generate for the pixel report + agent chec
 
 ## Performance
 
-Apple M2 **8 GB** Mac mini · release · 4-bit · W1/T3 · seed 42. Live peak is the DiT (~2 GiB) at both sizes — 1024² is slower, not much hungrier.
+Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 · seed 42 · fox prompt. Product defaults: `--text-tokens auto`, BFL Small Decoder, scaled f16 4-bit Linear (`÷16`). Live peak is the DiT (~2 GiB) at both sizes — 1024² is slower, not much hungrier.
 
-| Canvas | Time | Denoise / step | MLX active | Watermark |
-|--------|-----:|---------------:|-----------:|----------:|
-| **512²** | **~27 s** | ~5.1 s | 2.04 GiB | 2.99 GiB |
-| **1024²** | **~88 s** | ~18.6 s | 2.05 GiB | 3.76 GiB |
+| Canvas | Time | Denoise / step | Decode | MLX active | Watermark |
+|--------|-----:|---------------:|-------:|-----------:|----------:|
+| **512²** | **19.4 s** | 3.34 s | 1.05 s | 2.04 GiB | 2.38 GiB |
+| **1024²** | **74.0 s** | 15.91 s | 5.27 s | 2.05 GiB | 3.46 GiB |
 
-Default `--text-tokens auto` trims pad tokens (−32% e2e at 512²). Same seed is not the same PNG as `--text-tokens 512` (gallery / old recipes). See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+`--text-tokens auto` trims pad tokens. Same seed is not the same PNG as `--text-tokens 512` (gallery / old recipes). See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
-Default decode is BFL **Small Decoder** (−37% decode at 512² and 1024²; quality matches the klein AE). `--vae-variant full` restores the klein decoder. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
+BFL **Small Decoder** is the default decode (−37% vs the klein AE). `--vae-variant full` restores klein. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 
-Same-day A/Bs only. Tables: [Docs/PERF.md](Docs/PERF.md).
+`--attn-linear-compute f32` is the old f32 GEMM. Raw unscaled f16 overflows to noise — do not use it.
+
+Same-day A/Bs and older trees: [Docs/PERF.md](Docs/PERF.md).
 
 ---
 
@@ -184,16 +186,16 @@ let url = try await pipeline.generate(
 |--|--|
 | `ImarelloRuntime` | Staged pipeline, I2I / identity, embed cache |
 | `ImarelloText` | Qwen3 tap (layers 9/18/27 → 7680) |
-| `ImarelloDiT` | MMDiT 5+20, Steel fused FA, f16 QKV |
-| `ImarelloVAE` | Decode-only / encode-only, tiled cosine blend, D=512 chunked attn |
-| `ImarelloEval` / `ImarelloBench` | Pixel gates · multi-trial harness |
+| `ImarelloDiT` | MMDiT 5+20, Steel fused FA, f16 QKV, scaled f16 4-bit Linear |
+| `ImarelloVAE` | Small Decoder default, klein encode-only, tiled cosine blend |
+| `ImarelloEval` / `ImarelloBench` | Pixel gates (incl. unstructured-garbage fail) · multi-trial harness |
 | `ImarelloCore` | Pins, scheduler, RoPE, policy |
 
 Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md).
 
 ```bash
 # Filtered unit tests (no weights). Skip unfiltered `swift test` after a GPU abort.
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy|TextTokenMode'
 
 .build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
   --json /tmp/bench.json
@@ -209,7 +211,7 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 | macOS library + CLI | iOS host (same staged core) |
 | 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
 | T2I, strength I2I, `--identity` | |
-| Steel FA · tiled VAE · embed cache · Hub pin + CI floors | |
+| Steel FA · Small Decoder · auto tokens · f16 qmm · embed cache · Hub pin + CI floors | |
 
 Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
 

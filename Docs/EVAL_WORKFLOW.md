@@ -6,7 +6,7 @@ It has two layers:
 
 | Layer | Tool | What it catches |
 |-------|------|-----------------|
-| **A. Pixel harness** | `ImarelloEval` / `imarello analyze-image` | Sharpness, clip, hue, SSIM, color-word heuristics, structured findings |
+| **A. Pixel harness** | `ImarelloEval` / `imarello analyze-image` | Sharpness, clip, hue, SSIM, color-word heuristics, **unstructured-garbage hard fail**, structured findings |
 | **B. Vision review** | Multimodal agent (open PNG) | Subject match, real color, text/logo, hands, artifacts, “edit applied”, aesthetics |
 
 Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers semantics.
@@ -145,6 +145,7 @@ Product path uses `--text-tokens auto`. Pad-512 gallery: `T2I_EXTRA='--text-toke
 
 | Code | Meaning | Typical fix |
 |------|---------|-------------|
+| `unstructured_garbage` | **Fail** — TV-static / f16-overflow speckle, not a picture | Do not ship the kernel change; `--attn-linear-compute f32` |
 | `color_mismatch` | Prompt color not found (fail if single color; **warn** if multi-color) | Raise I2I `--strength`, clearer color words; multi-color → vision |
 | `possible_tile_seam` | High midline discontinuity on ≥768 canvas | Inspect flat regions; VAE tile blend |
 | `vae_tile_expected` | Info: large canvas likely tiled decode | Check `tile_seam_score` |

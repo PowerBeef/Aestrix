@@ -63,9 +63,9 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 
 1. **Serial residency**: TE encode → unload → DiT denoise → unload → VAE decode → unload; `Memory.clearCache()` after unload and between large-canvas stages.
 2. **Qwen3 TE**: chat template required; layers **9/18/27** concat → **7680**. TE still encodes a 512 pad; DiT default is **`--text-tokens auto`** (trim to real tokens, round up to 8). `--text-tokens 512` is the byte-stable gallery path. [`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md).
-3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **MLX Steel fused FA** (simdgroup MMA, full Q, D=128); **f16 Q/K/V** when seq > 512 (512² image tokens included). Prompt context is **`projectContext` once per generate** (`7680→3072`), not every denoise step.
+3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **MLX Steel fused FA** (simdgroup MMA, full Q, D=128); **f16 Q/K/V** when seq > 512 (512² image tokens included). **4-bit Linear GEMMs run in f16** (scales cast f16; activations ÷16 / ×16 — raw f16 is noise). `--attn-linear-compute f32` restores the old GEMM. Prompt context is **`projectContext` once per generate** (`7680→3072`), not every denoise step.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
-5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-13 `hoist-*`: 512² e2e ~**27.5 s**, 1024² ~**87.7 s**; peak active ~**2.04–2.05 GiB**, watermark ~**2.99 / 3.76 GiB**. See `Docs/PERF.md`.
+5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-15 auto+Small Decoder+f16 qmm: 512² e2e **19.4 s** / 1024² **74.0 s**; denoise/step **3.34 / 15.91 s**; peak active **2.04 / 2.05 GiB**; watermark **~2.4 / 3.46 GiB**. See `Docs/PERF.md`.
 6. **VAE**: T2I / final I2I decode use **decode-only** weights. Default decode is BFL **Small Decoder** (`--vae-variant small-decoder`; extra Hub pin). `--vae-variant full` restores the klein AE decoder. Large canvases use **tiled decode** (`VAETileConfig`). **I2I encode is always the klein AE** — do not load `full_encoder_small_decoder.safetensors`.
 7. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (module-split TE/DiT/VAE). Pins: `WeightPreset.pin`, `Docs/hub-pins.json`, `Docs/WEIGHTS.md`.
 8. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`.
@@ -82,7 +82,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
-| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **`--text-tokens auto`** are product defaults (2026-08-15). Next speed: FA-vs-FFN vs `processQKV` — `Docs/ROADMAP.md` |
+| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **auto** + **f16 scaled qmm** are product defaults. Glue fusion parked. |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
@@ -107,7 +107,7 @@ This machine is **8 GB unified** (`Mac14,3`). Cursor agents + `swift build`/`swi
 **Rules for every agent on this host:**
 
 1. **One Metal owner.** Do not run `imarello` generate/bench/compile-spike while Xcode, another `imarello`, or a second IDE is compiling Metal.
-2. **Default to filtered unit tests and 512² smokes.** 1024² T2I bench is OK when asked (measured ~88 s, watermark ~3.76 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 (joint ~8704) unless the user explicitly wants that.
+2. **Default to filtered unit tests and 512² smokes.** 1024² T2I bench is OK when asked (product path ~**74 s**, watermark **3.46 GiB**). Do **not** start a 4-trial `identity-i2i` at 1024 (joint ~8704) unless the user explicitly wants that.
 3. **Never** `MLX.compile` the full DiT; **never** `dit-compile-spike` on this host without `--force` on an idle machine.
 4. **Never** relax cache-clear / `EvalCachePolicy.high` (that type is not in this tree).
 5. After any reboot, hang, or new `imarello-*.ips`, **stop and inspect** DiagnosticReports before retrying.
@@ -184,7 +184,7 @@ Do **not** claim Tier L/M readiness or 1024² support without measured peak RSS 
 
 | Layer | Covers |
 |-------|--------|
-| Pixel | Sharpness, clip, hue, SSIM, color-word heuristics, exit 2 on hard fail |
+| Pixel | Sharpness, clip, hue, SSIM, color-word heuristics, unstructured-garbage fail, exit 2 on hard fail |
 | Vision | Subject, real color, text, hands, artifacts, edit applied, aesthetics |
 
 Do **not** claim “blue mug works” from metrics alone without opening the image.
@@ -212,7 +212,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `imarello t2i … --analyze --vision-brief` | Generate + eval kickoff |
 | `imarello i2i … --analyze --vision-brief` | Edit + eval kickoff |
 | `imarello analyze-image` | Pixel / brief only |
-| `imarello bench` | Timings, memory, pressure; modes `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `vae-decode`. Flags: `--vae-attn-chunk`, `--eval-cache product\|mid` |
+| `imarello bench` | Timings, memory, pressure; modes `t2i` \| `i2i` \| `identity-i2i` \| `pressure-map` \| `dit-one-step` \| `res-ladder` \| `vae-decode`. Flags: `--vae-attn-chunk`, `--eval-cache product\|mid`, `--op-profile`, `--attn-linear-compute f16\|f32` |
 | `imarello bench-compare A B` | Percent deltas between JSON reports |
 | `imarello session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
 | `imarello dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |
