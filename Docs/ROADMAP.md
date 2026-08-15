@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-15 (I2I encoder lock: klein encode + optional Small Decoder)  
+**Last updated:** 2026-08-15 (Small Decoder 1024² quality pass; default stays full AE)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
@@ -142,7 +142,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | Slice | Status | Item | Notes |
 |-------|--------|------|-------|
 | **A** | **done** | `--text-tokens auto` quality close-out | [`TEXT_TOKENS.md`](TEXT_TOKENS.md). Default stays pad-512. |
-| **B** | **done** (opt-in) | BFL **FLUX.2 Small Decoder** as optional decode | `--vae-variant small-decoder`. 512² decode **−37%**. T2I + I2I (klein encode) quality OK. **Encoder stays klein.** Default decode stays full. |
+| **B** | **done** (opt-in) | BFL **FLUX.2 Small Decoder** as optional decode | 512 + **1024** T2I quality PASS (mug/poster/fox). Decode **−37%** both sizes. **Default stays full AE** (second Hub download). Encoder stays klein. |
 | **C** | `parked` | Profile one 512 step: Steel FA vs FFN vs `processQKV` glue | Gates whether fused QK-Norm+RoPE / compile-glue-only is worth a week. |
 | — | `parked` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
 | — | `parked` | Training-free **ref-KV** on 4B I2I | 9B-KV *schedule* on 4B; identity 512 first; kill if face-crop SSIM drops or watermark > ~4.2 GiB. |
@@ -203,3 +203,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-14 | P9 Slice A: `--text-tokens auto` is first-class opt-in; **pad-512 stays the product default**. Quality A/B 15/15 pixel PASS + vision. [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) |
 | 2026-08-14 | P9 Slice B: BFL Small Decoder as `--vae-variant small-decoder`. 512² decode −37%. **Full AE stays default.** |
 | 2026-08-15 | I2I encoder lock: always klein `encodeOnly`. Do not load `full_encoder_small_decoder.safetensors`. 512² mug + identity smokes with Small Decoder decode PASS. |
+| 2026-08-15 | Small Decoder 1024² T2I quality pass: 6/6 pixel PASS, vision match vs full AE, decode −37%. **Do not flip default** (klein-only snapshot must still `t2i`). |

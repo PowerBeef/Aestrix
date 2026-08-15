@@ -39,7 +39,9 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --output /tmp/small.png --analyze --vision-brief
 ```
 
-Packed-latent BN stats still come from the klein pack. Flip the default only after a 512 + 1024 pixel/vision A/B.
+Packed-latent BN stats still come from the klein pack.
+
+**1024² T2I quality pass (2026-08-15):** mug / OPEN STUDIO / fox seed 42, full vs small — **6/6 pixel PASS**, vision match, tile seams clean (score 1.2–1.7). Decode **−37%** (8.08 → 5.12 s). **Default stays full AE** so a klein-only snapshot still generates. Use `--vae-variant small-decoder` when the extra ~112 MB file is present.
 
 I2I (2026-08-15, klein `encodeOnly` + Small Decoder, 512²):
 

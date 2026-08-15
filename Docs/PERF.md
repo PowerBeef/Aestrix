@@ -415,6 +415,23 @@ JSON: `/tmp/imarello-vae-full-512.json` / `/tmp/imarello-vae-small-512.json`. RS
 
 I2I (2026-08-15): klein `encodeOnly` + Small Decoder. Mug recolor s=0.8 seed 7: pixel PASS, SSIM 0.43, emerald glaze. Identity s=0.9 seed 7: pixel PASS, SSIM 0.73, face lock, emerald blouse; balcony scene mild (identity stack, not encode). Paths: `/tmp/imarello-smalldec-i2i/`. **No second encoder.**
 
+**1024² quality pass (2026-08-15).** Same-day release. Decode W1/T2; T2I seed 42, 3 eval spots.
+
+| Label | decode mean | vs full |
+|-------|------------:|--------:|
+| `vae-full-1024` | 8.08 s | — |
+| **`vae-small-1024`** | **5.12 s** | **−36.6%** |
+
+JSON: `/tmp/imarello-sd-1024/vae-full-1024.json` / `vae-small-1024.json`.
+
+| Prompt | full tech / seam | small tech / seam | vision |
+|--------|-----------------:|------------------:|--------|
+| mug | 80.5 / 1.16 | 81.1 / 1.18 | Same terracotta one-handle still life; linen; window left |
+| OPEN STUDIO | 73.8 / 2.16 | 73.8 / 1.68 | Headline correct on both; indigo; white-type clip warn |
+| fox | 98.4 / 1.68 | 98.7 / 1.69 | Same sitting fox, snow, sunrise |
+
+All **6/6 pixel PASS**. No `possible_tile_seam`. Composition matches (same latents). **Default stays full AE** — Small Decoder is a second Hub download; `t2i` must work from the klein pack alone. Paths: `/tmp/imarello-sd-1024/`.
+
 ### Historical snapshots (not for cross-size RAM A/B)
 
 | Label | e2e mean | denoise/step | peak RSS | peak MLX active | peak MLX watermark | Notes |

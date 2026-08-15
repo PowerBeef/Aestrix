@@ -134,7 +134,7 @@ Apple M2 **8 GB** Mac mini · release · 4-bit · W1/T3 · seed 42. Live peak is
 
 `--text-tokens auto` (documented opt-in; default stays 512) can cut 512² to ~21 s by trimming pad tokens — numerics differ from the full-512 reference. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
-`--vae-variant small-decoder` (BFL distilled VAE, Apache-2.0) is **−37%** decode at 512²; default stays the full klein AE. Download pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
+`--vae-variant small-decoder` (BFL distilled VAE, Apache-2.0) is **−37%** decode at 512² and 1024²; 1024 T2I quality matches the full AE. Default stays the klein decoder so a klein-only snapshot still generates. Download pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 
 Same-day A/Bs only. Tables: [Docs/PERF.md](Docs/PERF.md).
 
