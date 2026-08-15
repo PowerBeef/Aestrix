@@ -52,7 +52,8 @@ Do not trade staged residency or the 4-bit lock for speed.
 | Qwen3 text-encoder port patterns | `mlx-swift-lm` |
 | Library API truth | **Context7** MCP |
 | Hugging Face download / inspect | `hf-cli` / `hf` |
-| Build / sim / device | **XcodeBuildMCP** (P7 / Xcode) + `axiom-xcode-mcp` / `axiom-build`. Daily CLI: `swift build -c release` |
+| Build / sim / device | **XcodeBuildMCP** for **Simulator UI only** on this host (device workflow is not enabled). Physical iPhone: `xcodebuild` + `devicectl` — [`Docs/IOS.md`](Docs/IOS.md). Also `axiom-xcode-mcp` / `axiom-build`. Daily CLI: `swift build -c release` |
+| iOS 26 UI | **`axiom-design`**, **`axiom-swiftui`**, **Impeccable** (`layout`). Verify on sim with **`xcui`** + **AXe** (`axiom-tools`, `axiom:simulator-tester`) |
 | Concurrency / actors | `axiom-concurrency` |
 | Memory / perf audits | `axiom-performance`, **`Docs/PERF.md`**, `imarello bench` |
 | Tests | `axiom-testing` |
@@ -64,7 +65,7 @@ Do not trade staged residency or the 4-bit lock for speed.
 | Server | Use | Skip for |
 |--------|-----|----------|
 | **Context7** | mlx-swift / Swift / HF docs | Inventing Imarello internals |
-| **XcodeBuildMCP** | P7 iOS, sim, Xcode project | Daily SPM generate / bench |
+| **XcodeBuildMCP** | P7 Simulator UI, Xcode project | Physical device install; daily SPM generate / bench |
 | **GitHub** | CI (`eval-floors`), PRs | Local Metal |
 | **sosumi** | Apple doc pages | Kernel math |
 
@@ -96,7 +97,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
 | **P9 Performance harness** | **Done** — leftover slices **paused** | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **auto** + **f16 scaled qmm** are product defaults. Glue fusion parked. **Do not resume speed work unless asked.** |
-| **P7 iOS host** | **Parked** — **next product phase** | Resume via `Docs/ROADMAP.md` § P7 |
+| **P7 iOS host** | **Partial** | `Apps/ImarelloIOS` installed on a physical iPhone. Simulator = UI only. **Generate waits on weights + an explicit App ID profile** (wildcard team profile strips kernel entitlements). [`Docs/IOS.md`](Docs/IOS.md) |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
@@ -119,7 +120,7 @@ This machine is **8 GB unified** (`Mac14,3`). Cursor agents + `swift build`/`swi
 
 **Rules for every agent on this host:**
 
-1. **One Metal owner.** Do not run `imarello` generate/bench/compile-spike while Xcode, another `imarello`, or a second IDE is compiling Metal.
+1. **One Metal owner.** Do not run `imarello` generate/bench/compile-spike while Xcode, `xcodebuild` (including an iPhoneos mlx-swift compile), another `imarello`, or a second IDE is compiling Metal.
 2. **Default to filtered unit tests and 512² smokes.** 1024² T2I bench is OK when asked (product path ~**74 s**, watermark **3.46 GiB**). Do **not** start a 4-trial `identity-i2i` at 1024 (joint ~8704) unless the user explicitly wants that.
 3. **Never** `MLX.compile` the full DiT; **never** `dit-compile-spike` on this host without `--force` on an idle machine.
 4. **Never** relax cache-clear / `EvalCachePolicy.high` (that type is not in this tree).
@@ -232,7 +233,46 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `Scripts/eval-generation.sh` | Eval existing PNG |
 | `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate (`T2I_EXTRA='--text-tokens 512'` for the pad path) |
 | `Scripts/ci-eval-floors.sh` | Hub pins + synthetic golden floors (no weights; GitHub Actions) |
-| `Scripts/ensure-metallib.sh` | Build/install full Metal library |
+| `Scripts/ensure-metallib.sh` | Build/install full Metal library (SPM CLI only — not the iOS app) |
+| `Scripts/generate-ios-project.sh` | XcodeGen → `Apps/ImarelloIOS/ImarelloIOS.xcodeproj` |
+| `Scripts/sync-ios-device-weights.sh` | Notes for copying pinned snapshots into the iPhone app container |
+
+## P7 iOS host (agent workflow)
+
+Canonical detail: [`Docs/IOS.md`](Docs/IOS.md). Product locks are unchanged (Klein 4B, 4-bit, staged, no Catalyst).
+
+| Surface | What to do |
+|---------|------------|
+| **iOS Simulator** | UI preview only. **MLX does not run.** `Generate` is a chrome no-op. No gate banner. |
+| **Physical iPhone** | T2I + last-in-app I2I (strength 0.8). No photo import. |
+| **Mac Catalyst** | Forbidden. Do not add a Mac destination. |
+
+**Build / install (this host):** XcodeBuildMCP’s **device** workflow is not enabled — do not wait for `build_run_device`. After `project.yml` edits run `./Scripts/generate-ios-project.sh`. Then:
+
+```bash
+# Discover the connected phone (hardware UDID, not the CoreDevice UUID)
+xcodebuild -project Apps/ImarelloIOS/ImarelloIOS.xcodeproj -scheme ImarelloIOS -showdestinations
+
+xcodebuild -project Apps/ImarelloIOS/ImarelloIOS.xcodeproj -scheme ImarelloIOS \
+  -configuration Debug -destination 'platform=iOS,id=<hardware-udid>' \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+  DEVELOPMENT_TEAM=FK2D8X36G2 CODE_SIGN_STYLE=Automatic \
+  -skipPackagePluginValidation \
+  build
+
+xcrun devicectl device install app --device <coredevice-id|name> path/to/Imarello.app
+xcrun devicectl device process launch --device <coredevice-id|name> app.imarello.demo
+```
+
+mlx-swift’s CUDA package plugin will fail Xcode validation without **`-skipPackagePluginValidation`**.
+
+**Entitlements:** `Apps/ImarelloIOS/ImarelloIOS/ImarelloIOS.entitlements` has `increased-memory-limit` and `extended-virtual-addressing` (public Booleans). Automatic signing currently uses the wildcard `iOS Team Provisioning Profile: *` and **strips those keys** from the signed `.xcent`. Do **not** hand-`codesign` extra keys onto the `.app` — install then fails with `0xe8008015` (profile mismatch). Need an **explicit App ID** profile before a real 512² generate. Simulator ignores both keys.
+
+**Weights:** never ship the ~5 GB pack in the bundle. Device looks in the sandbox `Caches/Imarello/models/` for the two pins in [`Docs/WEIGHTS.md`](Docs/WEIGHTS.md). Copy from the Mac cache (`Scripts/sync-ios-device-weights.sh`). First device session: **512² T2I**, then eval the PNG on the Mac (`EVAL_WORKFLOW.md`). 1024² only after 512 succeeds.
+
+**UI:** Impeccable `layout` + `axiom-design` / `axiom-swiftui` (Liquid Glass Regular, not Clear; `glassProminent` tint on the primary only — dock capsules are matched 52 pt fills). Simulator verification: `xcui doctor` → `axe describe-ui` → tap **by label** → `axe screenshot` (or `devicectl device capture screenshot` when that subcommand exists). Do not sleep-and-rescreenshot.
+
+**Metallib:** the iOS app uses Xcode + mlx-swift bundled resources (`MetallibVerification.resolveFromBundles()`). Do not run `Scripts/ensure-metallib.sh` for the app target.
 
 ## Out of scope (v1)
 

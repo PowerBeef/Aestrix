@@ -6,6 +6,8 @@
 Tools/Metal/mlx.metallib
 Tools/Metal/mlx.metallib.stub
 *.xcodeproj
+!Apps/ImarelloIOS/ImarelloIOS.xcodeproj
+!Apps/ImarelloIOS/ImarelloIOS.xcodeproj/**
 xcuserdata/
 DerivedData/
 .idea/
@@ -24,6 +26,7 @@ models/
 outputs/
 *.png
 !Docs/**/*.png
+!Apps/**/*.png
 # Keep metallib build recipe only
 Tools/Metal/*.air
 Tools/Metal/*.metallib

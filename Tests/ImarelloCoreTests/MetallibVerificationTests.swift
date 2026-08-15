@@ -24,6 +24,11 @@ struct MetallibVerificationTests {
         #expect(!v.naxPackaged)
     }
 
+    @Test("bundle search does not trap")
+    func resolveFromBundlesDoesNotTrap() {
+        _ = MetallibVerification.resolveFromBundles()
+    }
+
     @Test("missing metallib path is a stub")
     func missingFile() {
         let url = URL(fileURLWithPath: "/tmp/imarello-no-such-mlx.metallib")

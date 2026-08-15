@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-15 (docs freeze + official mark + **P9 speed work paused**)  
+**Last updated:** 2026-08-15 (P7 app installed on a physical iPhone; generate waits on weights + entitlements profile)  
 **Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
 **Backend / P9 leftovers are paused** — do not start TAEF2, ref-KV, Δ-DiT, `stagedAggressive`, or fused qmm+SwiGLU unless the user asks.  
 **Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
@@ -41,20 +41,21 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `parked` |
+| **Status** | `partial` — iOS 26 app **installed and launches** on a physical iPhone. Simulator = UI only (no MLX). **Generate blocked** on pinned weights in the app container + an explicit App ID profile (wildcard profile strips kernel entitlements) |
 | **Goal** | Ship an iOS 26 app (or host) that links `ImarelloRuntime` and runs staged T2I (+ I2I) on-device |
 | **Depends on** | macOS path stable (done); full metallib packaging for app targets; device memory tiers |
 
 **Acceptance criteria**
 
-- [ ] Xcode app target (or multiplatform package consumer) links `ImarelloRuntime` / MLX  
-- [ ] Metallib / MLX resources packaged for iOS (not only SPM CLI bootstrap)  
-- [ ] On-device snapshot path (app container / shared group) documented  
-- [ ] Single 512² T2I smoke on a physical device or iOS simulator (if Metal allows)  
-- [ ] Tier-aware max side / memory policy (`DeviceTier`, `MemoryPolicy.staged`)  
-- [ ] Basic UI: prompt, generate, progress, save/share  
-- [ ] Optional: I2I with photo picker + strength slider  
-- [ ] Eval notes for device outputs (pixel harness runs on host Mac from exported PNG if needed)
+- [x] Xcode app target (`Apps/ImarelloIOS`) links `ImarelloRuntime`  
+- [x] Metallib check via `MetallibVerification.resolveFromBundles()` (Xcode + mlx-swift resources)  
+- [x] On-device snapshot path documented (`Docs/IOS.md`, app `Caches/Imarello/models`)  
+- [x] Debug `iphoneos` build + `devicectl` install/launch on a physical iPhone  
+- [ ] Single 512² T2I smoke on that iPhone (needs Klein 4-bit in the container + kernel entitlements in the signed binary)  
+- [x] Tier-aware config (`ImarelloConfig.autoDetectingTier()`, staged) — 512 / 1024 UI  
+- [x] Basic UI: prompt, generate, progress, share/save  
+- [x] In-app I2I of last result (no photo picker / import)  
+- [ ] Eval notes for device outputs (pixel harness on host Mac from exported PNG)
 
 **Resume notes**
 
@@ -63,11 +64,9 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - Start with Tier L (512², 4-step) before higher resolutions.  
 - See `Docs/MEMORY.md` for peak budgets; `Docs/WEIGHTS.md` for pack layout.
 
-**Suggested first PR**
+**Suggested next step**
 
-1. Empty iOS app shell + SPM dependency on local `Imarello` packages  
-2. Wire metallib / MLX init parity with `MLXBootstrap`  
-3. Call `ImarelloPipeline.generate` from a button with hardcoded prompt  
+Phone is available and the app launches. Next: explicit App ID so `increased-memory-limit` + `extended-virtual-addressing` survive codesign; `hf download` the Klein 4-bit pin if missing on the Mac; `Scripts/sync-ios-device-weights.sh`; **512² T2I**; eval the PNG on the Mac. Do not generate on the Simulator. Recipe: [`IOS.md`](IOS.md).  
 
 ---
 
@@ -216,3 +215,5 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-15 | **4-bit is locked.** 3-bit is not a product path and is not parked for later. |
 | 2026-08-15 | Official mark is the 3D cream/gold iris (`Docs/assets/readme/imarello-mark.{jpg,png}`); lockups updated. |
 | 2026-08-15 | Docs freeze: [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md) (skills / MCP / host-safe loops). **P9 leftover speed work paused.** Next product phase is **P7**. |
+| 2026-08-15 | P7 started: `Apps/ImarelloIOS` iOS 26 demo. Simulator is UI-only (MLX has no Simulator Metal). No Catalyst. [`IOS.md`](IOS.md). |
+| 2026-08-15 | P7 Debug build installed on a physical iPhone via `xcodebuild` + `devicectl`. Generate still blocked: weights not in the container; wildcard team profile strips kernel entitlements. |

@@ -99,6 +99,26 @@ public struct MetallibVerification: Sendable, Equatable, Codable {
         return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
+    /// App / framework bundles first (iOS host), then the CLI search path.
+    public static func resolveFromBundles() -> URL? {
+        let resourceNames = ["mlx", "default"]
+        var bundles: [Bundle] = [Bundle.main]
+        bundles.append(contentsOf: Bundle.allFrameworks)
+        bundles.append(contentsOf: Bundle.allBundles)
+        var seen = Set<String>()
+        for bundle in bundles {
+            let id = bundle.bundlePath
+            if seen.contains(id) { continue }
+            seen.insert(id)
+            for name in resourceNames {
+                if let url = bundle.url(forResource: name, withExtension: "metallib") {
+                    return url
+                }
+            }
+        }
+        return resolveExisting()
+    }
+
     private static func containsASCII(_ needle: String, in data: Data) -> Bool {
         guard let pattern = needle.data(using: .utf8), !pattern.isEmpty else { return false }
         return data.range(of: pattern) != nil

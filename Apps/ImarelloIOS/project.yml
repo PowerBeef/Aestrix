@@ -1,0 +1,59 @@
+name: ImarelloIOS
+options:
+  bundleIdPrefix: app.imarello
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  defaultConfig: Debug
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SUPPORTS_MACCATALYST: NO
+    SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: FK2D8X36G2
+packages:
+  Imarello:
+    path: ../..
+targets:
+  ImarelloIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: ImarelloIOS
+    entitlements:
+      path: ImarelloIOS/ImarelloIOS.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.imarello.demo
+        PRODUCT_NAME: Imarello
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Imarello
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.graphics-design
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Imarello saves generated images to your photo library when you tap Save.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        CODE_SIGN_ENTITLEMENTS: ImarelloIOS/ImarelloIOS.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - package: Imarello
+        product: ImarelloRuntime
+schemes:
+  ImarelloIOS:
+    build:
+      targets:
+        ImarelloIOS: all
+    run:
+      config: Debug
+    profile:
+      config: Release

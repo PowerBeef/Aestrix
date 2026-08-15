@@ -1,0 +1,406 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */; };
+		1165DFA5EB338D1AD8AD2882 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3C025ECF679CB2A4A60E6A /* RootView.swift */; };
+		1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58755645B76E510CF21B41DE /* ImarelloTheme.swift */; };
+		9E1B802657B41A29DF429E21 /* WeightStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAC6ECA2578C9C3C29265B6 /* WeightStatusView.swift */; };
+		A5AC8575E702DF6C13330356 /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D482C3DD3AB7F71F99071A24 /* ResultView.swift */; };
+		A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */; };
+		AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */; };
+		C690006F06E7EB17EEEF0086 /* GenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825BC00012CB6290369BC8B4 /* GenerationModel.swift */; };
+		D1C8BD9991E84BA68001595B /* StudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B08685E00C996591992D850 /* StudioView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		094826A3BD2A33F6FD78B2AF /* Aestrix */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Aestrix; path = ../..; sourceTree = SOURCE_ROOT; };
+		0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		1FAC6ECA2578C9C3C29265B6 /* WeightStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightStatusView.swift; sourceTree = "<group>"; };
+		53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ImarelloIOS.entitlements; sourceTree = "<group>"; };
+		58755645B76E510CF21B41DE /* ImarelloTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloTheme.swift; sourceTree = "<group>"; };
+		5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloIOSApp.swift; sourceTree = "<group>"; };
+		7B08685E00C996591992D850 /* StudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioView.swift; sourceTree = "<group>"; };
+		7F3C025ECF679CB2A4A60E6A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		825BC00012CB6290369BC8B4 /* GenerationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationModel.swift; sourceTree = "<group>"; };
+		D482C3DD3AB7F71F99071A24 /* ResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultView.swift; sourceTree = "<group>"; };
+		F87FDE8274E2450312381B47 /* ImarelloIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ImarelloIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F1731F1C1C3115699C43D55C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		634F302C42D9AEEBFC9B3526 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F87FDE8274E2450312381B47 /* ImarelloIOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B19D826DD6551914BE35418D /* ImarelloIOS */ = {
+			isa = PBXGroup;
+			children = (
+				0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */,
+				825BC00012CB6290369BC8B4 /* GenerationModel.swift */,
+				53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */,
+				5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */,
+				58755645B76E510CF21B41DE /* ImarelloTheme.swift */,
+				D482C3DD3AB7F71F99071A24 /* ResultView.swift */,
+				7F3C025ECF679CB2A4A60E6A /* RootView.swift */,
+				7B08685E00C996591992D850 /* StudioView.swift */,
+				1FAC6ECA2578C9C3C29265B6 /* WeightStatusView.swift */,
+			);
+			path = ImarelloIOS;
+			sourceTree = "<group>";
+		};
+		B85FBE261D9CB4AD0843E76B = {
+			isa = PBXGroup;
+			children = (
+				B19D826DD6551914BE35418D /* ImarelloIOS */,
+				E6B44C17339FE453212F1424 /* Packages */,
+				634F302C42D9AEEBFC9B3526 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E6B44C17339FE453212F1424 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				094826A3BD2A33F6FD78B2AF /* Aestrix */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9E8DC6AAD8CD689517FC88DA /* Build configuration list for PBXNativeTarget "ImarelloIOS" */;
+			buildPhases = (
+				9273E40A0F398951DB9DCCB0 /* Sources */,
+				548B8689A7B5AD862255F57A /* Resources */,
+				F1731F1C1C3115699C43D55C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ImarelloIOS;
+			packageProductDependencies = (
+				02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */,
+			);
+			productName = ImarelloIOS;
+			productReference = F87FDE8274E2450312381B47 /* ImarelloIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		17904BFE505FB5B3A136FF6E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					25896D23D78AD62B0ED8DCD9 = {
+						DevelopmentTeam = FK2D8X36G2;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = FB54A9268A78244031FD327C /* Build configuration list for PBXProject "ImarelloIOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = B85FBE261D9CB4AD0843E76B;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				DF6450E8C227DA77722C501D /* XCLocalSwiftPackageReference "../.." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 634F302C42D9AEEBFC9B3526 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		548B8689A7B5AD862255F57A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9273E40A0F398951DB9DCCB0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C690006F06E7EB17EEEF0086 /* GenerationModel.swift in Sources */,
+				0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */,
+				1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */,
+				A5AC8575E702DF6C13330356 /* ResultView.swift in Sources */,
+				1165DFA5EB338D1AD8AD2882 /* RootView.swift in Sources */,
+				D1C8BD9991E84BA68001595B /* StudioView.swift in Sources */,
+				9E1B802657B41A29DF429E21 /* WeightStatusView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		4D8CBD7F5C5F3B0734CECD23 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ImarelloIOS/ImarelloIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Imarello;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.graphics-design";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Imarello saves generated images to your photo library when you tap Save.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.demo;
+				PRODUCT_NAME = Imarello;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		4F6DFBC36BF5A455B8AC0C24 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = FK2D8X36G2;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		59DE629D7796A580924D32D7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = FK2D8X36G2;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		CF24B4202A4E77D7CD35E310 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ImarelloIOS/ImarelloIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Imarello;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.graphics-design";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Imarello saves generated images to your photo library when you tap Save.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.demo;
+				PRODUCT_NAME = Imarello;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		9E8DC6AAD8CD689517FC88DA /* Build configuration list for PBXNativeTarget "ImarelloIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CF24B4202A4E77D7CD35E310 /* Debug */,
+				4D8CBD7F5C5F3B0734CECD23 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FB54A9268A78244031FD327C /* Build configuration list for PBXProject "ImarelloIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4F6DFBC36BF5A455B8AC0C24 /* Debug */,
+				59DE629D7796A580924D32D7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		DF6450E8C227DA77722C501D /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ImarelloRuntime;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 17904BFE505FB5B3A136FF6E /* Project object */;
+}

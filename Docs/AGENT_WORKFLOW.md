@@ -32,7 +32,9 @@ Do not dump the whole skill catalog into context.
 | App-side memory / jank | **`axiom-performance`** — **speed claims** still go through [`PERF.md`](PERF.md) + `imarello bench` |
 | Hub download, pin, inspect | **`hf-cli`** (`hf`) |
 | Library API truth (mlx-swift, SwiftPM, Hugging Face) | **Context7** skill + MCP |
-| Apple framework APIs (P7 later) | **`axiom-apple-docs`**, **`axiom-macos`**, **`axiom-swiftui`** |
+| Apple framework APIs / iOS 26 UI | **`axiom-apple-docs`**, **`axiom-swiftui`**, **`axiom-design`** (Liquid Glass). Layout: **Impeccable** `layout`. |
+| Simulator UI drive / a11y | **`axiom-tools`** (`xcui`) + **AXe** (`axiom-xcode-mcp` axe-ref) + **`axiom:simulator-tester`**. Never sleep-and-rescreenshot. |
+| Physical iPhone install | **`xcodebuild`** + **`devicectl`**. XcodeBuildMCP device tools are **not enabled** on this host. Recipe: [`IOS.md`](IOS.md). |
 | Quality “done” | [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) + open the PNG with vision |
 
 Do **not** load Vercel, Chrome DevTools, game-asset, or Hugging Face Spaces / SageMaker skills for this repo.
@@ -46,7 +48,7 @@ BFL skills cover **prompting and product behavior**, not DiT / VAE math. MLX ski
 | Server | Use for this repo | Do not use for |
 |--------|-------------------|----------------|
 | **Context7** | Current mlx-swift / Swift / Hugging Face API docs | Inventing Imarello internals |
-| **XcodeBuildMCP** | P7 iOS app target, simulator, Xcode project | Daily SPM CLI generate / bench — use `swift build -c release` |
+| **XcodeBuildMCP** | P7 **Simulator** UI, Xcode project | Physical device install (`xcodebuild` + `devicectl`). Daily SPM CLI generate / bench — use `swift build -c release`. **Do not** call `ImarelloPipeline` on the Simulator. No Catalyst. |
 | **GitHub** | CI (`eval-floors`), PRs, issues | Local Metal work |
 | **sosumi** | Apple doc pages when axiom-apple-docs is thin | Kernel math |
 
@@ -137,6 +139,20 @@ This machine is 8 GB unified (`Mac14,3`). Cursor + `swift build` / Metal compile
 6. Ambient ≠ contaminated: `WindowServer`, Ghostty, `grok`, `MTLCompilerService`. Cursor / `swift-package` still mark trials dirty.
 
 `HostPreflight` takes `~/Library/Caches/Imarello/imarello.lock`. Details: [`HOST_SAFETY.md`](HOST_SAFETY.md).
+
+---
+
+## P7 iOS (device)
+
+Full recipe: [`IOS.md`](IOS.md). Short version:
+
+1. Simulator = UI only. `Generate` is a no-op. Do not fake Klein.
+2. After `project.yml` edits: `./Scripts/generate-ios-project.sh`.
+3. Device build needs `-skipPackagePluginValidation`, `-allowProvisioningUpdates`, team `FK2D8X36G2`.
+4. Install / launch with `xcrun devicectl device install app` / `process launch`.
+5. Wildcard team profile **strips** kernel memory entitlements. Do not hand-resign extra keys (`0xe8008015`). Need an explicit App ID before 512² generate.
+6. Weights stay on disk (`Caches/Imarello/models/`), never in the bundle. `Scripts/sync-ios-device-weights.sh`.
+7. First generate is **512²**. Eval the PNG on the Mac.
 
 ---
 
