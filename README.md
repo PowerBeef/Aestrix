@@ -137,7 +137,7 @@ Apple M2 **8 GB** Mac mini · release · 4-bit · W1/T3 · seed 42. Live peak is
 | **512²** | **~27 s** | ~5.1 s | 2.04 GiB | 2.99 GiB |
 | **1024²** | **~88 s** | ~18.6 s | 2.05 GiB | 3.76 GiB |
 
-`--text-tokens auto` (documented opt-in; default stays 512) can cut 512² to ~21 s by trimming pad tokens — numerics differ from the full-512 reference. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+Default `--text-tokens auto` trims pad tokens (−32% e2e at 512²). Same seed is not the same PNG as `--text-tokens 512` (gallery / old recipes). See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
 Default decode is BFL **Small Decoder** (−37% decode at 512² and 1024²; quality matches the klein AE). `--vae-variant full` restores the klein decoder. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 

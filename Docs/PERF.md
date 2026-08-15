@@ -320,11 +320,11 @@ same-day baseline: 512² e2e −11.8% (35.9 → 31.7 s), denoise/step −14.5%
 Quality gate: seed-42 512² smoke, pixel PASS + vision checklist clean (typical klein
 two-handle quirk only). Reports: `/tmp/p45-512.json`, `/tmp/p45-1024.json`.
 
-#### P2 `--text-tokens auto` (first-class opt-in; default stays 512)
+#### P2 `--text-tokens auto` (product default as of 2026-08-15)
 
 Trims TE output + `txtIds` to the real (unpadded) token count instead of the full 512
 padded window. Changes numerics vs the reference full-512 path (padding tokens
-participate in attention in FLUX.2). Product default remains pad-512.
+participate in attention in FLUX.2). `--text-tokens 512` is the byte-stable gallery path.
 
 Quality close-out + recipes: [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) (2026-08-14).
 
@@ -338,8 +338,8 @@ Quality close-out + recipes: [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md) (2026-08-14
 - **2026-08-14 quality A/B:** `T2I_EXTRA='--text-tokens auto' ./Scripts/eval-regression.sh`
   — **15/15 pixel PASS**. Vision (mug / fox / OPEN STUDIO + shop / fisherman): same
   subject and quality, texture/pose drift. Seed-7 “OPEN STUDIO” drops “OPEN” on
-  **both** auto and pad-512 (Klein flake, not a trim regression). **Did not flip
-  the default.**
+  **both** auto and pad-512 (Klein flake, not a trim regression).
+- **2026-08-15:** identity I2I A/B + product decision — **promoted to default**. `--text-tokens 512` remains the pad gallery path.
 
 #### P3a prompt-embed disk cache (default on)
 
@@ -464,7 +464,7 @@ All **6/6 pixel PASS**. No `possible_tile_seam`. Composition matches (same laten
 | S5 P5 | Compiled RoPE pair-mix (`compiledRopeMix`, 50×/step) + compiled AdaLN `modApply`/`gateAdd` | e2e **−7.0%** @ 512² on top of P1 (with P4); flat @ 1024² (see “P4 + P5” subsection) |
 | M5 P4 | VAE encode-only load for I2I stage-0 (`VAELoadMode.encodeOnly`, ~67 MB) | Decoder never resident during reference encode |
 | M5 P4 | Tiled VAE stitch: slice-local accumulate + cached cosine masks (was full-canvas pad+add ×2 per tile) | decode −8.9% @ 512²; 1024² within noise (see “P4 + P5” subsection) |
-| S6 P2 | `--text-tokens auto` trim (first-class opt-in; default stays 512; [`TEXT_TOKENS.md`](TEXT_TOKENS.md)) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; watermark 3.21 → 2.99 GB @ 512²; 2026-08-14 eval 15/15 PASS |
+| S6 P2 | `--text-tokens auto` trim (**product default** 2026-08-15; [`TEXT_TOKENS.md`](TEXT_TOKENS.md)) | e2e **−32%** @ 512², denoise/step ~−10% @ 1024²; identity face lock holds; `--text-tokens 512` for pad gallery |
 | S7 P3a | Prompt-embed disk cache (default on; `--no-embed-cache`) | Hit skips TE stage: **−4 s** @ 512², byte-identical output |
 | — P3b | `imarello session` warm mode (resident policy, ≥16 GB gate, `--force-resident`) | No win on 8 GB (gate validated); resident reuse byte-identical |
 

@@ -1,6 +1,6 @@
 # Text tokens (`512` vs `auto`)
 
-**P9 Slice A close-out (2026-08-14).** Product default stays **full 512 pad**. `--text-tokens auto` is a first-class, documented opt-in.
+**P9 Slice A.** Product default is **`--text-tokens auto`** (2026-08-15). `--text-tokens 512` is the byte-stable gallery path.
 
 Code: `TextTokenMode`, `ImarelloPipeline.trimTextTokens`. CLI: `imarello t2i|i2i|session|bench --text-tokens 512|auto`.
 
@@ -22,10 +22,9 @@ Embed-cache entries stay the full `[1, 512, 7680]` tensor (key includes `len=512
 
 | Intent | Flag | Why |
 |--------|------|-----|
-| Gallery, eval, “same seed → same pixels” | **`512`** (default) | Matches `AGENTS.md` / `ARCHITECTURE.md` pad lock |
-| Interactive 512², prompt iteration | **`auto`** | Largest measured unused speedup in-tree |
-| Official `Scripts/eval-regression.sh` | omit (512) | Pixel floors are on the pad-512 path |
-| Re-run this A/B | `T2I_EXTRA='--text-tokens auto'` | See below |
+| Product `t2i` / `i2i` (default) | **`auto`** | −32% e2e @ 512²; quality + identity face lock passed |
+| Gallery, “same seed → same pixels” | **`512`** | Pad participates in joint attn; byte-stable vs old PNGs |
+| Official pad-512 eval | `T2I_EXTRA='--text-tokens 512'` | Compare against the old reference |
 
 Do **not** claim a pad-512 PNG is reproducible under `auto`.
 
@@ -109,38 +108,30 @@ Paths: `/tmp/imarello-auto-id-i2i/recolor-{512,auto}.png`, `replace-{512,auto}.p
 
 **Read-out:** auto does **not** drop the person. Recolor quality matches pad-512. On “replace outfit,” auto changed sleeves more than pad-512; neither delivered the outdoor balcony (identity-stack limit, both paths). Auto can change *how* a wardrobe edit lands, not just texture.
 
-## Decision (do not flip the default)
+## Decision (product default is `auto`)
 
-Keep **`--text-tokens 512`** as the product default.
+**`--text-tokens auto` is the default** (2026-08-15). Speed at 512² is large; T2I eval + identity I2I face lock passed. Same seed is **not** the same PNG — use `--text-tokens 512` when you need the old pad-512 pixels.
 
-Reasons:
-
-1. `AGENTS.md` / `ARCHITECTURE.md` lock: full 512 pad to DiT.  
-2. Padding participates in attention — auto is a different sampler, not a free lunch.  
-3. Vision is comparable, but PNGs are not byte-identical; gallery / eval must stay on one path.  
-4. Seed-7 “OPEN STUDIO” already flakes on pad-512. Flipping the default would not fix typography and would invalidate every stored pad-512 seed.  
-5. Identity I2I (2026-08-15): face lock holds, but outfit-edit *shape* can drift vs pad-512. Gallery/identity recipes stay on 512.
-
-`auto` is **first-class**: documented here, listed in `imarello info` / `--help`, safe for interactive 512². Changing the default needs a new product decision plus a pad-512 → auto eval-floor migration.
+Outfit-edit *cut* can drift vs pad-512 on identity replace. That is accepted for the default; pin `512` for a locked recipe.
 
 ## Re-run
 
 ```bash
-# Auto quality loop (512² only on 8 GB)
-T2I_EXTRA='--text-tokens auto' \
-  OUT_DIR=/tmp/imarello-eval-regression-auto \
+# Product path (auto is CLI default)
+OUT_DIR=/tmp/imarello-eval-regression-auto \
   IMARELLO=.build/release/imarello \
   ./Scripts/eval-regression.sh
 
-# Pad-512 reference (script default)
-OUT_DIR=/tmp/imarello-eval-regression-pad \
+# Pad-512 gallery path
+T2I_EXTRA='--text-tokens 512' \
+  OUT_DIR=/tmp/imarello-eval-regression-pad \
   IMARELLO=.build/release/imarello \
   ./Scripts/eval-regression.sh
 
-# Identity A/B (512² only)
+# Identity, pad-512 control
 .build/release/imarello i2i "$PROMPT" --image Docs/assets/readme/identity-ref.jpg \
   --strength 0.9 --identity --seed 7 --width 512 --height 512 \
-  --text-tokens auto --output /tmp/id-auto.png --analyze --vision-brief
+  --text-tokens 512 --output /tmp/id-512.png --analyze --vision-brief
 
 # Token count for any prompt
 .build/release/imarello encode-prompt "YOUR PROMPT"

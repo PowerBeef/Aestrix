@@ -10,11 +10,13 @@ That is the bar for defaults, not a research side path.
 
 | Ship as the **default** when | Leave **opt-in** when |
 |------------------------------|------------------------|
-| Faster e2e and/or denoise/step | Numerics change vs the reference path (same seed ≠ same PNG) — e.g. `--text-tokens auto` |
-| Peak e2e RAM (DiT watermark / RSS) does not go up in a way that threatens 8 GB | Quality fails pixel or vision vs the current default |
-| `EVAL_WORKFLOW.md` (pixel **and** vision) shows no noticeable degradation | Unmeasured, or only a decode-only RSS blip that does not move the e2e peak |
+| Faster e2e and/or denoise/step | Quality fails pixel or vision vs the current default |
+| Peak e2e RAM (DiT watermark / RSS) does not go up in a way that threatens 8 GB | Unmeasured, or only a decode-only RSS blip that does not move the e2e peak |
+| `EVAL_WORKFLOW.md` (pixel **and** vision) shows no noticeable degradation | — |
 
-An extra Hub file, a longer first-run `hf download`, or “klein-only snapshot still works” is **not** a reason to hide a proven win behind a flag. Document the extra pin in `README.md` / `Docs/WEIGHTS.md` and refuse with the download hint if it is missing. `--vae-variant full` is the escape hatch, not the product path.
+An extra Hub file, a longer first-run `hf download`, or “klein-only snapshot still works” is **not** a reason to hide a proven win behind a flag. Document the extra pin in `README.md` / `Docs/WEIGHTS.md` and refuse with the download hint if it is missing. Escape hatches (`--vae-variant full`, `--text-tokens 512`) are for the old reference path, not the product path.
+
+Same-seed PNG drift is acceptable when vision says the **subject and edit still land** (auto text trim). Keep a flag for the byte-stable path; do not keep the slow path as default.
 
 Do not trade staged residency or the 4-bit lock for speed.
 
@@ -60,7 +62,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 ## Architecture reminders
 
 1. **Serial residency**: TE encode → unload → DiT denoise → unload → VAE decode → unload; `Memory.clearCache()` after unload and between large-canvas stages.
-2. **Qwen3 TE**: chat template required; layers **9/18/27** concat → **7680**; full **512** padded tokens to DiT by default.
+2. **Qwen3 TE**: chat template required; layers **9/18/27** concat → **7680**. TE still encodes a 512 pad; DiT default is **`--text-tokens auto`** (trim to real tokens, round up to 8). `--text-tokens 512` is the byte-stable gallery path. [`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md).
 3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Long sequences: **block checkpointing**, **MLX Steel fused FA** (simdgroup MMA, full Q, D=128); **f16 Q/K/V** when seq > 512 (512² image tokens included). Prompt context is **`projectContext` once per generate** (`7680→3072`), not every denoise step.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from pipeline (no host `item()` sync).
 5. **Default resolution**: **1024²** (4-bit). On ~8 GB unified: release + full metallib; 2026-08-13 `hoist-*`: 512² e2e ~**27.5 s**, 1024² ~**87.7 s**; peak active ~**2.04–2.05 GiB**, watermark ~**2.99 / 3.76 GiB**. See `Docs/PERF.md`.
@@ -70,7 +72,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 9. **Latents**: packed `[B, H/16·W/16, 128]`; VAE decode uses BN denorm + unpatchify.
 10. **I2I strength**: full N-step schedule; color curve default. Color/object **≥ 0.8**. Recipes: [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md).
 11. **I2I identity (Tier B)**: `--identity` = ref latents (`t=10`) + face mask + clean-pull + milder `identity` curve. People + scene **0.85–0.9**. Say **recolor same cut** vs **replace outfit**. Default I2I stays strength-only.
-12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Imarello/embeds`; leftover `~/Library/Caches/Aestrix/` is still read). Keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical. `--text-tokens auto` trims padding tokens (numerics differ from the full-512 reference — **first-class opt-in**, default stays **512**; see [`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md); big win at 512²). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
+12. **Text-stage shortcuts**: prompt-embed disk cache is **default on** (`~/Library/Caches/Imarello/embeds`; leftover `~/Library/Caches/Aestrix/` is still read). Keyed by prompt+model+bits+len; `--no-embed-cache` opts out; hit skips the whole TE stage, byte-identical. **`--text-tokens auto` is the default** (trim pad; faster; same seed ≠ same PNG). `--text-tokens 512` is the pad gallery path. See [`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md). `--identity --ref-downsample N` pools reference tokens for cheaper identity I2I.
 
 ## Phase status
 
@@ -80,7 +82,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
-| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder is the default decode** (2026-08-15). `--text-tokens auto` stays opt-in ([`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md)). Next speed: FA-vs-FFN vs `processQKV` — `Docs/ROADMAP.md` |
+| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **`--text-tokens auto`** are product defaults (2026-08-15). Next speed: FA-vs-FFN vs `processQKV` — `Docs/ROADMAP.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
@@ -215,7 +217,7 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `imarello session` | Warm multi-prompt loop; modules resident (≥16 GB gate, `--force-resident`) |
 | `imarello dit-compile-spike` | Research: block-level `MLX.compile` (NO-GO; refused on 8 GB without `--force`) |
 | `Scripts/eval-generation.sh` | Eval existing PNG |
-| `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate (`T2I_EXTRA='--text-tokens auto'` for the trim path) |
+| `Scripts/eval-regression.sh` | 512² T2I eval-prompts × seeds 42/0/7 + pixel gate (`T2I_EXTRA='--text-tokens 512'` for the pad path) |
 | `Scripts/ci-eval-floors.sh` | Hub pins + synthetic golden floors (no weights; GitHub Actions) |
 | `Scripts/ensure-metallib.sh` | Build/install full Metal library |
 

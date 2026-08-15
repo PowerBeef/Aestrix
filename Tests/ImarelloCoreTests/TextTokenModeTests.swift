@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import ImarelloCore
 
 @Suite("Text token mode")
@@ -10,5 +11,13 @@ struct TextTokenModeTests {
         #expect(TextTokenMode(rawValue: "512") == .full512)
         #expect(TextTokenMode(rawValue: "auto") == .auto)
         #expect(TextTokenMode(rawValue: "256") == nil)
+    }
+
+    @Test("library request default is auto")
+    func requestDefaultIsAuto() {
+        let t2i = T2IRequest(prompt: "x")
+        #expect(t2i.textTokens == .auto)
+        let i2i = I2IRequest(prompt: "x", imageURL: URL(fileURLWithPath: "/tmp/ref.png"))
+        #expect(i2i.textTokens == .auto)
     }
 }

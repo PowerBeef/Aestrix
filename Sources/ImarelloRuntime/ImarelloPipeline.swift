@@ -298,7 +298,7 @@ public actor ImarelloPipeline {
                 }
             }
 
-            // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).
+            // Default: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)
@@ -593,7 +593,7 @@ public actor ImarelloPipeline {
                 }
             }
 
-            // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).
+            // Default: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)

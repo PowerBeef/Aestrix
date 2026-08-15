@@ -4,12 +4,12 @@ import Foundation
 ///
 /// FLUX.2 joint attention has no text mask, so padding tokens participate in attention.
 /// `.auto` trims the padded 512-token sequence to the real prompt length (rounded up to
-/// a multiple of 8). First-class opt-in; product default remains `.full512`.
+/// a multiple of 8). Product default (faster). `.full512` is the byte-stable gallery path.
 /// See `Docs/TEXT_TOKENS.md`.
 public enum TextTokenMode: String, Sendable, Codable {
-    /// Full 512 padded tokens (documented product default).
+    /// Full 512 padded tokens (byte-stable / gallery; `--text-tokens 512`).
     case full512 = "512"
-    /// Trim to real prompt length rounded up to a multiple of 8 (opt-in; numerics differ).
+    /// Trim to real prompt length rounded up to a multiple of 8. Product default.
     case auto
 }
 
@@ -22,7 +22,7 @@ public struct T2IRequest: Sendable {
     public var seed: UInt64?
     /// Destination PNG path. If nil, pipeline chooses a timestamped file under Caches/Imarello/outputs.
     public var outputURL: URL?
-    /// Text tokens passed to the DiT (default: full 512 padded).
+    /// Text tokens passed to the DiT (default: auto trim).
     public var textTokens: TextTokenMode
     /// Cache prompt embeddings on disk and skip TE load+encode on repeat prompts.
     /// Default **false** so library/bench behavior is unchanged; the CLI enables it.
@@ -36,7 +36,7 @@ public struct T2IRequest: Sendable {
         guidance: Float = 1.0,
         seed: UInt64? = nil,
         outputURL: URL? = nil,
-        textTokens: TextTokenMode = .full512,
+        textTokens: TextTokenMode = .auto,
         embedCache: Bool = false
     ) {
         self.prompt = prompt
@@ -65,7 +65,7 @@ public struct I2IRequest: Sendable {
     public var outputURL: URL?
     /// Tier-B identity stack (reference latents, face mask, schedule curve). Default off.
     public var identity: IdentityPreserveConfig
-    /// Text tokens passed to the DiT (default: full 512 padded).
+    /// Text tokens passed to the DiT (default: auto trim).
     public var textTokens: TextTokenMode
     /// Cache prompt embeddings on disk and skip TE load+encode on repeat prompts.
     public var embedCache: Bool
@@ -81,7 +81,7 @@ public struct I2IRequest: Sendable {
         seed: UInt64? = nil,
         outputURL: URL? = nil,
         identity: IdentityPreserveConfig = .disabled,
-        textTokens: TextTokenMode = .full512,
+        textTokens: TextTokenMode = .auto,
         embedCache: Bool = false
     ) {
         self.prompt = prompt

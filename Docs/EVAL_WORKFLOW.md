@@ -89,7 +89,7 @@ swift build && ./Scripts/ensure-metallib.sh
 Match canvas to the reference (omit `--width`/`--height` or set native size) so 1024 sources are not downscaled to 512.
 
 **512² pixel loop:** `Scripts/eval-regression.sh` (T2I eval-prompts 1–5 × seeds 42/0/7).  
-Optional trim path: `T2I_EXTRA='--text-tokens auto'` — see [`TEXT_TOKENS.md`](TEXT_TOKENS.md) (default stays pad-512).
+Product path uses `--text-tokens auto`. Pad-512 gallery: `T2I_EXTRA='--text-tokens 512'` — [`TEXT_TOKENS.md`](TEXT_TOKENS.md).
 
 ### Sidecar files (next to the PNG)
 

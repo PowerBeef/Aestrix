@@ -241,7 +241,7 @@ public actor BenchRunner {
         let outURL = outDir.appendingPathComponent(
             "bench_\(config.label)_s\(config.seed)_t\(Date().timeIntervalSince1970).png"
         )
-        let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .full512
+        let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .auto
         let request = T2IRequest(
             prompt: config.prompt,
             width: config.width,
@@ -273,7 +273,7 @@ public actor BenchRunner {
         let outURL = outDir.appendingPathComponent(
             "bench_\(config.label)_\(kind)_s\(config.seed)_t\(Date().timeIntervalSince1970).png"
         )
-        let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .full512
+        let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .auto
         let identityConfig = identity
             ? IdentityPreserveConfig.identityPreset
             : IdentityPreserveConfig.disabled

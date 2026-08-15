@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-15 (Small Decoder is the product decode default)  
+**Last updated:** 2026-08-15 (`--text-tokens auto` is the product default)  
 **Working tree focus:** macOS library + CLI is the shipping surface for now.  
 **Remaining work** is parked here so agents and humans can resume without rediscovering context.  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
@@ -125,7 +125,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] 2026-08-11 pass P1: size-gated per-block `clearCache` + collapsed QKV evals + single-eval chunked Linear — denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²  
 - [x] 2026-08-11 pass P4+P5: slice-local tiled-VAE stitch + cached masks, `VAELoadMode.encodeOnly` (I2I stage-0), identity `--ref-downsample`, compiled RoPE/AdaLN — cumulative **−11.8% e2e @ 512²**, **−3.7% @ 1024²**, watermark flat  
 - [x] `--text-tokens auto` trim — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²  
-- [x] **P9 Slice A (2026-08-14):** auto vs pad-512 quality A/B — eval-regression **15/15 pixel PASS**; vision comparable (texture/pose drift; seed-7 “OPEN STUDIO” flakes on **both** paths). **Default stays 512.** Doc: [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md)  
+- [x] **P9 Slice A (2026-08-15):** `--text-tokens auto` is the **product default** — eval 15/15 + identity I2I face lock. `--text-tokens 512` is the pad gallery path. [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md)  
 - [x] Prompt-embed disk cache (default on) — TE stage skipped on hit (**−4 s** @ 512², byte-identical)  
 - [x] `imarello session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
 - [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks  
@@ -141,7 +141,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Slice | Status | Item | Notes |
 |-------|--------|------|-------|
-| **A** | **done** | `--text-tokens auto` quality close-out | [`TEXT_TOKENS.md`](TEXT_TOKENS.md). Default stays pad-512. |
+| **A** | **done** (default) | `--text-tokens auto` | Product default. Pad-512 via `--text-tokens 512`. [`TEXT_TOKENS.md`](TEXT_TOKENS.md). |
 | **B** | **done** (default) | BFL **FLUX.2 Small Decoder** as product decode | 512 + **1024** T2I quality PASS. Decode **−37%**. Default **small-decoder**; `--vae-variant full` for klein. Encoder stays klein. |
 | **C** | `parked` | Profile one 512 step: Steel FA vs FFN vs `processQKV` glue | Gates whether fused QK-Norm+RoPE / compile-glue-only is worth a week. |
 | — | `parked` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
@@ -205,4 +205,4 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-15 | I2I encoder lock: always klein `encodeOnly`. Do not load `full_encoder_small_decoder.safetensors`. 512² mug + identity smokes with Small Decoder decode PASS. |
 | 2026-08-15 | Small Decoder 1024² T2I quality pass: 6/6 pixel PASS, vision match vs full AE, decode −37%. |
 | 2026-08-15 | **Promote Small Decoder to product default.** `--vae-variant full` is the klein-pack escape hatch. Missing snapshot fails with `hf download` hint. |
-| 2026-08-15 | `--text-tokens auto` identity I2I A/B (512², seed 7): face lock holds on recolor + replace; outfit *cut* can drift vs pad-512. Default stays **512**. [`TEXT_TOKENS.md`](TEXT_TOKENS.md) |
+| 2026-08-15 | `--text-tokens auto` identity I2I A/B (512², seed 7): face lock holds; outfit *cut* can drift. **Promoted to product default.** `--text-tokens 512` is the pad gallery path. |
