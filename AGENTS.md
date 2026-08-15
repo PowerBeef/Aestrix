@@ -2,6 +2,22 @@
 
 Imarello is a **from-scratch** native **Swift + MLX** runtime for **Black Forest Labs FLUX.2 [klein] 4B** (Apache-2.0) on Apple Silicon. It is **not** a fork of existing Swift ports; public MLX ports are oracles only.
 
+## Product goal
+
+Make **plain** `t2i` / `i2i` **faster** without **noticeable quality loss**, at **minimal RAM** (8 GB unified is the machine of record).
+
+That is the bar for defaults, not a research side path.
+
+| Ship as the **default** when | Leave **opt-in** when |
+|------------------------------|------------------------|
+| Faster e2e and/or denoise/step | Numerics change vs the reference path (same seed ≠ same PNG) — e.g. `--text-tokens auto` |
+| Peak e2e RAM (DiT watermark / RSS) does not go up in a way that threatens 8 GB | Quality fails pixel or vision vs the current default |
+| `EVAL_WORKFLOW.md` (pixel **and** vision) shows no noticeable degradation | Unmeasured, or only a decode-only RSS blip that does not move the e2e peak |
+
+An extra Hub file, a longer first-run `hf download`, or “klein-only snapshot still works” is **not** a reason to hide a proven win behind a flag. Document the extra pin in `README.md` / `Docs/WEIGHTS.md` and refuse with the download hint if it is missing. `--vae-variant full` is the escape hatch, not the product path.
+
+Do not trade staged residency or the 4-bit lock for speed.
+
 ## Product locks
 
 | Rule | Detail |
@@ -9,6 +25,7 @@ Imarello is a **from-scratch** native **Swift + MLX** runtime for **Black Forest
 | Model | **Klein 4B only** — do not ship Klein 9B (Non-Commercial) or FLUX.2 Dev (32B) |
 | Weights | **Pre-quantized only** (default **4-bit**). **No user-facing bf16** download or quantize-from-bf16 at runtime |
 | Memory | **Staged pipeline is the default**: never co-reside text encoder + DiT + VAE |
+| Speed / quality | Defaults are the fastest path that passes quality + RAM (see **Product goal**) |
 | Platforms | macOS library + CLI first; iOS 26 uses the same staged core |
 | v1 features | Text-to-image + single-image I2I (strength + optional **identity** stack) |
 | Guidance | Distilled defaults: **4 steps**, **guidance = 1.0**, **no negative prompts**, no prompt-upsampling by default |
@@ -63,7 +80,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 |-------|--------|--------|
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
-| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Slice A** `--text-tokens auto` quality close-out 2026-08-14 ([`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md)). Next speed: Small Decoder / FA-vs-FFN profile — `Docs/ROADMAP.md` |
+| **P9 Performance harness** | **Done** (leftover slices parked) | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder is the default decode** (2026-08-15). `--text-tokens auto` stays opt-in ([`Docs/TEXT_TOKENS.md`](Docs/TEXT_TOKENS.md)). Next speed: FA-vs-FFN vs `processQKV` — `Docs/ROADMAP.md` |
 | **P7 iOS host** | **Parked** | Resume via `Docs/ROADMAP.md` § P7 |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
