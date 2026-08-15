@@ -21,7 +21,9 @@ Machine-readable pins: [`hub-pins.json`](hub-pins.json) (must match `WeightPrese
 
 ### Optional: BFL Small Decoder (decode only)
 
-Not a swap into the klein `vae/` pack. Narrower channels `[96, 192, 384, 384]` vs `[128, 256, 512, 512]`. Encoder (I2I) stays the klein AE. Product default remains **full**.
+Not a swap into the klein `vae/` pack. Narrower channels `[96, 192, 384, 384]` vs `[128, 256, 512, 512]`. Product default remains **full**.
+
+**I2I encoder lock:** stage-0 encode is always the **klein pack** (`VAELoadMode.encodeOnly`, ~67 MB). BFL did not ship a small encoder. Do **not** load `full_encoder_small_decoder.safetensors` — that bundle is a ComfyUI convenience file (full AE encoder + Small Decoder). Imarello already splits encode/decode; mixing it would duplicate weights, force a PyTorch remap, and can drift BN / `quant_conv` vs the mlx-community pack the DiT was paired with. Identity ref latents, face mask, and clean-pull assume klein encode + klein BN. TAEF2 stays preview-only (not export I2I encode).
 
 | Role | Hugging Face ID | Pinned revision | File |
 |------|-----------------|-----------------|------|
@@ -38,6 +40,16 @@ hf download black-forest-labs/FLUX.2-small-decoder \
 ```
 
 Packed-latent BN stats still come from the klein pack. Flip the default only after a 512 + 1024 pixel/vision A/B.
+
+I2I (2026-08-15, klein `encodeOnly` + Small Decoder, 512²):
+
+```bash
+.build/release/imarello i2i "the same ceramic mug but emerald green glaze #0B5F4B, same morning light" \
+  --image Docs/assets/readme/i2i-mug-before.jpg --strength 0.8 --seed 7 \
+  --vae-variant small-decoder --output /tmp/edit.png --analyze --vision-brief
+```
+
+Mug recolor: pixel PASS, SSIM 0.43, emerald glaze, handle/table held. Identity (`--identity` 0.9, `identity-ref.jpg`): pixel PASS (warn `color_mismatch` waived — blouse is emerald; hair/skin dominate the hue bucket), SSIM 0.73, face lock, scene balcony only mild. Encoder stays klein.
 
 ### On-disk layout (already staged-friendly)
 

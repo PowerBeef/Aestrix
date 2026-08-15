@@ -413,6 +413,8 @@ Same-day release, 512² `bench --mode vae-decode` W1/T3:
 
 JSON: `/tmp/imarello-vae-full-512.json` / `/tmp/imarello-vae-small-512.json`. RSS is higher because the BFL file is F32 (~112 MB) vs the 4-bit-attn klein decode pack. Quality: fox + mug seed 42, pixel PASS (tech 96.4 / 85.3), vision near-identical to full AE. **Did not flip the default** (no 1024 A/B, no full eval-regression).
 
+I2I (2026-08-15): klein `encodeOnly` + Small Decoder. Mug recolor s=0.8 seed 7: pixel PASS, SSIM 0.43, emerald glaze. Identity s=0.9 seed 7: pixel PASS, SSIM 0.73, face lock, emerald blouse; balcony scene mild (identity stack, not encode). Paths: `/tmp/imarello-smalldec-i2i/`. **No second encoder.**
+
 ### Historical snapshots (not for cross-size RAM A/B)
 
 | Label | e2e mean | denoise/step | peak RSS | peak MLX active | peak MLX watermark | Notes |

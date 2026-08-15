@@ -3,6 +3,7 @@ import Foundation
 /// Which VAE decoder graph to run at T2I / I2I decode time.
 ///
 /// The encoder (I2I stage-0) is always the full FLUX.2 AE from the klein pack.
+/// Do not load BFL `full_encoder_small_decoder.safetensors` as a second encoder.
 /// Small Decoder is a **separate** distilled module (`[96, 192, 384, 384]` vs
 /// `[128, 256, 512, 512]`) — not a weight swap into `Flux2Decoder`.
 /// Product default stays `.full` until a quality A/B flips it.

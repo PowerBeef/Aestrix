@@ -59,6 +59,7 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
                 model = nil
                 encodeOnlyModel = nil
             case .encodeOnly:
+                // Always klein AE. `--vae-variant` is decode-only (BFL did not ship a small encoder).
                 encodeOnlyModel = try VAEWeights.loadEncodeOnly(from: snapshot.vaeDirectory)
                 model = nil
                 decodeOnlyModel = nil
