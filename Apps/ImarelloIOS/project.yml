@@ -28,6 +28,9 @@ targets:
       - path: ImarelloIOS
     entitlements:
       path: ImarelloIOS/ImarelloIOS.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
+        com.apple.developer.kernel.extended-virtual-addressing: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.imarello.demo
