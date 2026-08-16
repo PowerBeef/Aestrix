@@ -30,7 +30,7 @@
       "revision": "a3efc24f613ef42d9428af62fdbd6f5fd8856c4a",
       "file": "small_decoder.safetensors",
       "last_modified": "2026-04-07T20:42:04.000Z",
-      "note": "Distilled decode-only. Not a klein-pack swap. Product default stays full AE."
+      "note": "Distilled decode-only. Not a klein-pack swap. Product default decode since 2026-08-15; klein full AE via --vae-variant full."
     }
   }
 }

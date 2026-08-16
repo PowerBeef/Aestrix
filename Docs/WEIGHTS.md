@@ -93,4 +93,4 @@ hf download mlx-community/FLUX.2-Klein-4B-4bit \
 ## Related
 
 - Model card: https://huggingface.co/black-forest-labs/FLUX.2-klein-4B  
-- BFL prompting skill: `.grok/skills/flux-best-practices/`  
+- BFL prompting skill: `.claude/skills/flux-best-practices/`  

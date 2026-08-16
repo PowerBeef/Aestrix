@@ -175,7 +175,7 @@ No-Metal quality/accuracy feedback for agents and CI.
 ## References
 
 - Plan (session): low-RAM / prequant / BFL skills  
-- Official prompts: `.grok/skills/flux-best-practices/`  
+- Official prompts: `.claude/skills/flux-best-practices/`  
 - Weights: `Docs/WEIGHTS.md`  
 - Memory: `Docs/MEMORY.md`  
 - **Eval procedure:** `Docs/EVAL_WORKFLOW.md`  

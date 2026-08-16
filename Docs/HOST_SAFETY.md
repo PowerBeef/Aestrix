@@ -29,7 +29,7 @@ pgrep -x imarello || true     # none (second instance is refused)
 
 ## Agent defaults
 
-See **AGENTS.md → Host safety** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents.
+See **CLAUDE.md → Host safety** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents.
 
 1024² T2I is measured-safe on this host (product path ~**74 s**, watermark **3.46 GiB**). Default smokes stay **512²**. Do not start a 4-trial `identity-i2i` at 1024 unless asked.
 

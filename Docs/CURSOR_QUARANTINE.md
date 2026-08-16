@@ -51,7 +51,7 @@ Merging `2ce2a8f` would **rewind** those files to the `6c8b13c` shape.
 | Item | Why |
 |------|-----|
 | **Whole branch** | Diverged; would clobber `main`. |
-| **`EvalCachePolicy.high`** | Relaxes per-step `clearCache` and the 768-side clamp. Forbidden in `AGENTS.md`. This is the class of change that can grow the MLX watermark on 8 GB. |
+| **`EvalCachePolicy.high`** | Relaxes per-step `clearCache` and the 768-side clamp. Forbidden in `CLAUDE.md`. This is the class of change that can grow the MLX watermark on 8 GB. |
 | **VAE `evalEachChunk = true`** | Extra `eval` on every D=512 query chunk. Extra GPU sync on the VAE path that already produced `imarello-*.ips` Metal aborts. |
 | **Auto-select cache policy from `DeviceTier`** | The quarantine type itself says never do this. Keep product constants. |
 | TeaCache / TaylorSeer / FORA / ToCa as default Klein | Their own note: 4-step Klein has almost no safe skip. |

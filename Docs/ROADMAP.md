@@ -12,7 +12,7 @@
 
 | ID | Item | Where / notes |
 |----|------|----------------|
-| P0 | Scaffold, SPM packages, staged memory policy, BFL skills | `Package.swift`, `Docs/MEMORY.md`, `.grok/skills/flux-best-practices/` |
+| P0 | Scaffold, SPM packages, staged memory policy, BFL skills | `Package.swift`, `Docs/MEMORY.md`, `.claude/skills/flux-best-practices/` |
 | P1 | Pure math: RoPE, temb, modulation, flow-match scheduler | `ImarelloCore` |
 | P2 | MMDiT + 4-bit load | `ImarelloDiT`, `imarello load-dit` |
 | P3 | VAE encode/decode + pack/BN path | `ImarelloVAE`, `imarello load-vae` |
@@ -181,7 +181,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 ## How to resume (agents)
 
-1. Read this file + `AGENTS.md` product locks + [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
+1. Read this file + `CLAUDE.md` product locks + [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
 2. Default next ID is **P7** (iOS host). P9 product path is shipped; leftover speed work is **paused**.  
 3. Confirm macOS smoke still works (`swift build -c release` + `t2i` + `EVAL_WORKFLOW.md`).  
 4. Open a focused branch; do not expand into “Out of v1” or resume P9 leftovers without an explicit ask.  

@@ -2,7 +2,7 @@
 
 **Status (2026-08-16):** `Apps/ImarelloIOS` runs staged Klein 4B on a physical iPhone (Debug, Apple Development). Simulator remains UI-only. **512² T2I smoke passed** (fox, seed 42; pixel PASS + vision pass). Device jobs: `Scripts/ios-device-harness.sh`. **1024² T2I** runs but can fail vision anatomy (Klein 4-step / μ=1.15 / 4096 tokens — not a seed-commit bug). Weights are **not** in the bundle; **resync after every `devicectl install`**. Profile `app.imarello.demo` signs both kernel entitlements. Metallib resolution walks the `.app` for `mlx-swift_Cmlx.bundle`.
 
-The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agent map: [`../AGENTS.md`](../AGENTS.md) § P7.
+The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agent map: [`../CLAUDE.md`](../CLAUDE.md) § P7 iOS.
 
 ## Simulator vs device
 

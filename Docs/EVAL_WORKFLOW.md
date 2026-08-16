@@ -17,7 +17,7 @@ Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers sema
 | [IMAGE_ANALYSIS.md](IMAGE_ANALYSIS.md) | Metrics schema & library API |
 | [eval-prompts.md](eval-prompts.md) | BFL-style regression prompts |
 | [TEXT_TOKENS.md](TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 quality A/B |
-| [AGENTS.md](../AGENTS.md) | Agent contract (must follow) |
+| [CLAUDE.md](../CLAUDE.md) | Agent contract (must follow) |
 | [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) | Skills, MCP, host-safe loops |
 
 ---

@@ -116,7 +116,7 @@ Add `--analyze --vision-brief` to any generate for the pixel report + agent chec
 
 ## Use it well
 
-**Prompting (klein).** Narrative prose, subject first, lighting spelled out. No negative prompts — say what you want. Hex colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Recipes: [`.grok/skills/flux-best-practices`](.grok/skills/flux-best-practices).
+**Prompting (klein).** Narrative prose, subject first, lighting spelled out. No negative prompts — say what you want. Hex colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Recipes: [`.claude/skills/flux-best-practices`](.claude/skills/flux-best-practices).
 
 **I2I.** Strength-only is for color/style. People + scene changes want `--identity` at **0.85–0.9**. See [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
 
@@ -213,7 +213,7 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 | T2I, strength I2I, `--identity` | |
 | Steel FA · Small Decoder · auto tokens · f16 qmm · embed cache · Hub pin + CI floors | |
 
-Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
+Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
 
 | Doc | |
 |-----|--|

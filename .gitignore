@@ -18,9 +18,10 @@ venv/
 # Model weight caches (download separately)
 models/
 *.safetensors
-# Local agent noise
-.claude/settings.local.json
-.claude/
+# Local agent noise (vendored skills stay tracked)
+.claude/*
+!.claude/skills/
+.impeccable/
 
 # Generated samples / local artifacts (do not ship)
 outputs/
