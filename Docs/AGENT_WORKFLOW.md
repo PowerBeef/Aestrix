@@ -82,7 +82,7 @@ Ignore for Imarello: `claude-in-chrome`, `chrome-devtools`, `vercel`, `gmail`, `
 | Canvas | **1024²** | `--width` / `--height` (512 for smokes) |
 | Steps / guidance | 4 / 1.0 | Distilled path; no negatives |
 
-Pins and download: [`WEIGHTS.md`](WEIGHTS.md). Numbers: [`PERF.md`](PERF.md) (8 GB M2, 2026-08-16 post-Tier-1: 512² **23.2 s** / 1024² **73.5 s**, watermark 2.57 / 3.07 GiB).
+Pins and download: [`WEIGHTS.md`](WEIGHTS.md). Numbers: [`PERF.md`](PERF.md) (8 GB M2, 2026-08-16 post-Tier-2: 512² **23.0 s** / 1024² **71.0 s**, watermark 2.57 / 3.00 GiB).
 
 ---
 

@@ -134,10 +134,10 @@ Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 �
 
 | Canvas | Time | Denoise / step | Decode | MLX active | Watermark |
 |--------|-----:|---------------:|-------:|-----------:|----------:|
-| **512²** | **23.2 s** | 4.42 s | 0.98 s | 2.06 GiB | 2.57 GiB |
-| **1024²** | **73.5 s** | 15.89 s | 4.87 s | 2.05 GiB | 3.07 GiB |
+| **512²** | **23.0 s** | 4.37 s | 0.98 s | 2.06 GiB | 2.57 GiB |
+| **1024²** | **71.0 s** | 15.29 s | 4.84 s | 2.05 GiB | 3.00 GiB |
 
-The 2026-08-16 Tier-1 engine work (fused qmm rescale, load-time scale precast, hoisted step conditioning, chunk-streamed single blocks) took 1024² from 79.0 → 73.5 s and its watermark from 3.63 → 3.07 GiB with **byte-identical** output — the pad-512 default is now faster at 1024² than the reverted `auto` path was. `--text-tokens auto` (opt-in) still trims for speed at 512² but weakens prompt conditioning; same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+The 2026-08-16 Tier-1/2 engine work (fused qmm rescale, hoisted step conditioning, chunk-streamed single blocks, joint-f16 attention, untiled 768² decode, relaxed cache policy) took 1024² from 79.0 → **71.0 s (−10%)** and its watermark from 3.63 → **3.00 GiB (−17%)**, with byte-identical output everywhere except two gated quality-gaining promotions — the pad-512 default is now clearly faster at 1024² than the reverted `auto` path was. 768² decode dropped 51% (untiled, no seams). `--text-tokens auto` (opt-in) still trims for speed at 512² but weakens prompt conditioning; same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
 BFL **Small Decoder** is the default decode (−37% vs the klein AE). `--vae-variant full` restores klein. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 

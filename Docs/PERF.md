@@ -1078,3 +1078,27 @@ Implementation of `ENGINE_RESEARCH.md` Tiers 0/1 plus the chunk-streamed single-
 | 1024² (W0T1) | 79.00 → **73.53 s** (−6.9%) | 17.20 → 15.89 s (−7.6%) | 3.63 → **3.07 GiB** (−15%) |
 
 The pad-512 default at 1024² is now **faster than the reverted `auto` path was** (73.5 vs 74.0 s) with full conditioning quality. Reports: `outputs/engine-research-2026-08-16/bench-tier1-512.json`, `bench-tier1-1024.json`, `bench-tier1s4-1024.json`.
+
+---
+
+## 2026-08-16 — Tier-2 levers measured; three shipped, two closed as NO-GO
+
+One variable at a time, each with its own A/B; pixel-changing promotions passed the full gate (eval-regression 15/15 multi-seed + 1024² human-subject/fox-anatomy/identity vision).
+
+| Lever | Verdict | Evidence |
+|---|---|---|
+| **Joint-seq f16 attention** (`jointSeqF16 = true`) | **shipped default** | Double blocks stop ping-ponging f16↔f32 (six casts/block gone; all 25 blocks on f16 Steel). −0.9% e2e @512², −1.3% @1024², watermark 3.07→3.00. First formally-gated 1024² human portrait: clean. |
+| **VAE tile threshold 96 → 128** | **shipped default** | 768² decodes untiled: **4.78 → 2.35 s (−51%)**, no blend seams, RSS 19 MB; vision clean. **Untiled 1024² Metal-aborts on 8 GB** (`imarello-2026-08-16-104942.ips`, known class-B) — 1024² keeps tiling. |
+| **Cache policy: interval-2 clears + 512 MiB clamp** (product) | **shipped default** | Post-streaming, the old every-block/256 MiB policy cost ~2% @1024² for an **identical** 3.00 GiB watermark. Byte-identical outputs (allocator-only). `mid` moves up to interval-4 / 1 GiB. |
+| **asyncEval per block** (`--attn-async-eval`) | **NO-GO** (bench knob retained) | +1.0% @1024² (GPU-bound; stalls already overlap); −0.9% @512² but watermark 2.57→2.83 GiB. Not worth it. |
+| **÷16-fold into quant scales** | **NO-GO — re-analyzed before implementation** | The pre-divide protects the **f16 input cast**, not just the accumulator: folding into weights leaves `x.f16` exposed to >65504 activations — the TV-static class. `ENGINE_RESEARCH.md` §4.9 stands corrected. |
+
+**Product path after Tier-2** (seed 42 fox, same-day chain vs day-start):
+
+| Canvas | e2e | denoise/step | decode | watermark |
+|---|---:|---:|---:|---:|
+| 512² (W1T3) | **22.98 s** (−5.7%) | 4.37 s | 0.98 s | 2.57 GiB |
+| 768² | est. ~47 s | — | **2.35 s** | — |
+| 1024² (W0T1) | **71.0 s** (−10.1%) | 15.29 s (−11.1%) | 4.84 s | **3.00 GiB** (−17%) |
+
+Reports: `bench-jf16-{512,1024}.json`, `vae-untile-768.json`, `bench-mid-1024.json`, `bench-t2final-{512,1024}.json` under `outputs/engine-research-2026-08-16/`.
