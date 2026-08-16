@@ -30,9 +30,10 @@ final class Flux2ResnetBlock2D: Module {
         super.init()
     }
 
-    /// Input/output NCHW.
+    /// Input/output NHWC (MLX conv-native; the encoder/decoder wrappers
+    /// transpose once at their boundaries — Tier-2 layout pass).
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
-        var residual = hiddenStates.transposed(0, 2, 3, 1) // NHWC
+        var residual = hiddenStates
         var h = residual
         h = norm1(h.asType(.float32)).asType(.float32)
         h = silu(h)
@@ -44,7 +45,7 @@ final class Flux2ResnetBlock2D: Module {
             residual = convShortcut(residual)
         }
         h = h + residual
-        return h.transposed(0, 3, 1, 2)
+        return h
     }
 }
 
@@ -65,8 +66,9 @@ final class Flux2AttentionBlock: Module {
         super.init()
     }
 
+    /// Input/output NHWC.
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
-        var h = hiddenStates.transposed(0, 2, 3, 1)
+        let h = hiddenStates
         let batch = h.dim(0)
         let height = h.dim(1)
         let width = h.dim(2)
@@ -91,8 +93,7 @@ final class Flux2AttentionBlock: Module {
         }
         attended = attended.transposed(0, 2, 1, 3).reshaped([batch, height, width, channels])
         attended = toOut(attended)
-        h = h + attended
-        return h.transposed(0, 3, 1, 2)
+        return h + attended
     }
 }
 
@@ -132,12 +133,11 @@ final class Flux2Upsample2D: Module {
         super.init()
     }
 
+    /// Input/output NHWC.
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
-        var h = repeated(hiddenStates, count: 2, axis: 2)
-        h = repeated(h, count: 2, axis: 3)
-        h = h.transposed(0, 2, 3, 1)
-        h = conv(h)
-        return h.transposed(0, 3, 1, 2)
+        var h = repeated(hiddenStates, count: 2, axis: 1)
+        h = repeated(h, count: 2, axis: 2)
+        return conv(h)
     }
 }
 
@@ -151,14 +151,13 @@ final class Flux2Downsample2D: Module {
         super.init()
     }
 
+    /// Input/output NHWC.
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
-        // Pad bottom/right by 1 (NCHW)
-        var h = padded(
+        // Pad bottom/right by 1 (NHWC)
+        let h = padded(
             hiddenStates,
-            widths: [IntOrPair((0, 0)), IntOrPair((0, 0)), IntOrPair((0, 1)), IntOrPair((0, 1))])
-        h = h.transposed(0, 2, 3, 1)
-        h = conv(h)
-        return h.transposed(0, 3, 1, 2)
+            widths: [IntOrPair((0, 0)), IntOrPair((0, 1)), IntOrPair((0, 1)), IntOrPair((0, 0))])
+        return conv(h)
     }
 }
 
@@ -289,16 +288,14 @@ final class Flux2Encoder: Module {
         super.init()
     }
 
-    /// NCHW in/out
+    /// NCHW in/out at the boundary; NHWC end-to-end inside (one transpose each way).
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
         var h = hiddenStates.transposed(0, 2, 3, 1)
         h = convIn(h)
-        h = h.transposed(0, 3, 1, 2)
         for block in downBlocks {
             h = block(h)
         }
         h = midBlock(h)
-        h = h.transposed(0, 2, 3, 1)
         h = convNormOut(h.asType(.float32)).asType(.float32)
         h = silu(h)
         h = convOut(h)
@@ -347,10 +344,11 @@ final class Flux2Decoder: Module {
         super.init()
     }
 
+    /// NCHW in/out at the boundary; NHWC end-to-end inside (one transpose each
+    /// way — the per-block round-trips paid up to a 127 MB copy each at 1024²).
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
         var h = hiddenStates.transposed(0, 2, 3, 1)
         h = convIn(h)
-        h = h.transposed(0, 3, 1, 2)
         eval(h)
         Memory.clearCache()
         h = midBlock(h)
@@ -363,7 +361,6 @@ final class Flux2Decoder: Module {
             eval(h)
             Memory.clearCache()
         }
-        h = h.transposed(0, 2, 3, 1)
         h = convNormOut(h.asType(.float32)).asType(.float32)
         h = silu(h)
         h = convOut(h)
