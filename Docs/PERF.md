@@ -1092,6 +1092,7 @@ One variable at a time, each with its own A/B; pixel-changing promotions passed 
 | **Cache policy: interval-2 clears + 512 MiB clamp** (product) | **shipped default** | Post-streaming, the old every-block/256 MiB policy cost ~2% @1024² for an **identical** 3.00 GiB watermark. Byte-identical outputs (allocator-only). `mid` moves up to interval-4 / 1 GiB. |
 | **asyncEval per block** (`--attn-async-eval`) | **NO-GO** (bench knob retained) | +1.0% @1024² (GPU-bound; stalls already overlap); −0.9% @512² but watermark 2.57→2.83 GiB. Not worth it. |
 | **÷16-fold into quant scales** | **NO-GO — re-analyzed before implementation** | The pre-divide protects the **f16 input cast**, not just the accumulator: folding into weights leaves `x.f16` exposed to >65504 activations — the TV-static class. `ENGINE_RESEARCH.md` §4.9 stands corrected. |
+| **NHWC end-to-end VAE** | **shipped — clarity only, speed-neutral** | Blocks NHWC-native, one transpose per boundary. **Bit-exact on all four pipeline paths** (512/768/1024/identity hashes unchanged). Decode timing unchanged at every canvas: the old per-block transposes were **lazy views that canceled** before any op forced a copy — `ENGINE_RESEARCH.md` §4.11c's −10–25% estimate assumed materialized copies that never existed. |
 
 **Product path after Tier-2** (seed 42 fox, same-day chain vs day-start):
 
