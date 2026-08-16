@@ -18,6 +18,11 @@ final class GenerationModel {
         case ready
     }
 
+    enum StudioAction {
+        case generate
+        case edit
+    }
+
     static let foxPlaceholder =
         "A red fox in a snowy forest at sunrise, photorealistic, golden rim light, shallow depth of field."
 
@@ -36,6 +41,8 @@ final class GenerationModel {
     var isRunning = false
     var errorMessage: String?
     var saveMessage: String?
+    var runStartedAt: Date?
+    private(set) var lastAction: StudioAction?
     #if targetEnvironment(simulator)
     var gate: RunGate = .simulator
     #else
@@ -50,14 +57,35 @@ final class GenerationModel {
 
     var canEdit: Bool { canGenerate && lastImageURL != nil }
 
-    /// Device-only. Simulator is a UI preview — no gate banner.
-    var bannerText: String? {
+    /// Stage empty state: the gate story lives on the stage, not in a banner.
+    var emptyStateIcon: String {
         switch gate {
-        case .missingWeights:
-            return "Weights are not in the app container yet. See Docs/IOS.md."
-        case .simulator, .ready:
-            return nil
+        case .ready: return "sparkles"
+        case .missingWeights: return "arrow.down.circle"
+        case .simulator: return "iphone"
         }
+    }
+
+    var emptyStateTitle: String {
+        switch gate {
+        case .ready: return "Ready when you are"
+        case .missingWeights: return "Weights aren't on this iPhone yet"
+        case .simulator: return "Studio preview"
+        }
+    }
+
+    var emptyStateDetail: String {
+        switch gate {
+        case .ready: return "Generate makes a \(side)² print of the prompt above."
+        case .missingWeights: return "Sync the Klein pack from your Mac, then come back — Generate unlocks on its own."
+        case .simulator: return "The Simulator shows the studio only. Prints need a physical iPhone."
+        }
+    }
+
+    /// Monospaced trailer line; only the missing-weights state needs the path.
+    var emptyStateCaption: String? {
+        guard gate == .missingWeights else { return nil }
+        return expectedModelsDirectory.pathComponents.suffix(3).joined(separator: "/")
     }
 
     var phaseLabel: String? {
@@ -137,13 +165,23 @@ final class GenerationModel {
     func generate() {
         commitSeedText()
         guard canGenerate else { return }
+        lastAction = .generate
         startRun { await self.performGenerate() }
     }
 
     func editLast() {
         commitSeedText()
         guard canEdit else { return }
+        lastAction = .edit
         startRun { await self.performEdit() }
+    }
+
+    func retryLast() {
+        switch lastAction {
+        case .generate: generate()
+        case .edit: editLast()
+        case nil: break
+        }
     }
 
     func cancel() {
@@ -151,6 +189,7 @@ final class GenerationModel {
         runTask = nil
         isRunning = false
         phase = nil
+        runStartedAt = nil
     }
 
     func saveToPhotos() async {
@@ -310,6 +349,7 @@ final class GenerationModel {
         errorMessage = nil
         saveMessage = nil
         isRunning = true
+        runStartedAt = Date()
         phase = PipelineProgress(phase: .preparing)
         runTask?.cancel()
         runTask = Task { @MainActor in
@@ -456,5 +496,6 @@ final class GenerationModel {
             phase = nil
         }
         runTask = nil
+        runStartedAt = nil
     }
 }

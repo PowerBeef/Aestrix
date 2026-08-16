@@ -12,10 +12,6 @@ struct StudioView: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: ImarelloTheme.Space.lg) {
-            if let banner = model.bannerText {
-                WeightStatusView(message: banner, modelsPath: model.expectedModelsDirectory.path)
-            }
-
             StudioBrief(model: model, focus: $focus)
 
             ResultView(onPreviewTap: dismissKeyboard)
@@ -67,6 +63,14 @@ struct StudioView: View {
                     Text(model.phaseLabel ?? "Working…")
                         .font(.subheadline)
                         .foregroundStyle(ImarelloTheme.cream.opacity(0.72))
+                    if let started = model.runStartedAt {
+                        TimelineView(.periodic(from: started, by: 1)) { context in
+                            Text(elapsedLabel(from: started, to: context.date))
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(ImarelloTheme.cream.opacity(0.55))
+                                .accessibilityLabel("Elapsed \(elapsedLabel(from: started, to: context.date))")
+                        }
+                    }
                     Spacer(minLength: ImarelloTheme.Space.xs)
                     Button("Stop", role: .cancel) {
                         model.cancel()
@@ -77,11 +81,24 @@ struct StudioView: View {
             }
 
             if let error = model.errorMessage {
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(ImarelloTheme.copper)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Error: \(error)")
+                HStack(alignment: .firstTextBaseline, spacing: ImarelloTheme.Space.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(ImarelloTheme.copper)
+                        .accessibilityHidden(true)
+                    Text(error)
+                        .font(.callout)
+                        .foregroundStyle(ImarelloTheme.cream)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Error: \(error)")
+                    Spacer(minLength: ImarelloTheme.Space.xs)
+                    if model.lastAction != nil, !model.isRunning {
+                        Button("Try Again") {
+                            model.retryLast()
+                        }
+                        .buttonStyle(.glass)
+                        .accessibilityHint("Run the last generate or edit again")
+                    }
+                }
             }
 
             if let saved = model.saveMessage {
@@ -91,6 +108,12 @@ struct StudioView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func elapsedLabel(from start: Date, to now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        if seconds < 60 { return "· \(seconds) s" }
+        return "· \(seconds / 60) m \(seconds % 60) s"
     }
 }
 
@@ -129,6 +152,13 @@ private struct StudioBrief: View {
                     }
                 }
                 .controlSize(.large)
+            }
+
+            if model.side == 1024 {
+                Text("1024² prints take several minutes on iPhone")
+                    .font(.caption)
+                    .foregroundStyle(ImarelloTheme.cream.opacity(0.6))
+                    .padding(.leading, ImarelloTheme.Space.xxs)
             }
         }
     }
@@ -222,7 +252,7 @@ private struct StudioDock: View {
                 dismissKeyboard()
                 model.editLast()
             }
-            .accessibilityHint("Edit the last generated image. No photo import.")
+            .accessibilityHint("Re-runs the last print at \(model.lastSide) square, strength 0.8. No photo import.")
             .accessibilityLabel("Edit last")
         }
     }

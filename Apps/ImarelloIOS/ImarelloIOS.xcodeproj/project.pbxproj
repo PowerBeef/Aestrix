@@ -10,7 +10,6 @@
 		0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */; };
 		1165DFA5EB338D1AD8AD2882 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3C025ECF679CB2A4A60E6A /* RootView.swift */; };
 		1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58755645B76E510CF21B41DE /* ImarelloTheme.swift */; };
-		9E1B802657B41A29DF429E21 /* WeightStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAC6ECA2578C9C3C29265B6 /* WeightStatusView.swift */; };
 		A5AC8575E702DF6C13330356 /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D482C3DD3AB7F71F99071A24 /* ResultView.swift */; };
 		A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */; };
 		AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */; };
@@ -21,7 +20,6 @@
 /* Begin PBXFileReference section */
 		094826A3BD2A33F6FD78B2AF /* Aestrix */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Aestrix; path = ../..; sourceTree = SOURCE_ROOT; };
 		0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		1FAC6ECA2578C9C3C29265B6 /* WeightStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightStatusView.swift; sourceTree = "<group>"; };
 		53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ImarelloIOS.entitlements; sourceTree = "<group>"; };
 		58755645B76E510CF21B41DE /* ImarelloTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloTheme.swift; sourceTree = "<group>"; };
 		5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloIOSApp.swift; sourceTree = "<group>"; };
@@ -63,7 +61,6 @@
 				D482C3DD3AB7F71F99071A24 /* ResultView.swift */,
 				7F3C025ECF679CB2A4A60E6A /* RootView.swift */,
 				7B08685E00C996591992D850 /* StudioView.swift */,
-				1FAC6ECA2578C9C3C29265B6 /* WeightStatusView.swift */,
 			);
 			path = ImarelloIOS;
 			sourceTree = "<group>";
@@ -120,7 +117,7 @@
 					25896D23D78AD62B0ED8DCD9 = {
 						DevelopmentTeam = FK2D8X36G2;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1], \"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1], \"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1]]";
 					};
 				};
 			};
@@ -168,7 +165,6 @@
 				A5AC8575E702DF6C13330356 /* ResultView.swift in Sources */,
 				1165DFA5EB338D1AD8AD2882 /* RootView.swift in Sources */,
 				D1C8BD9991E84BA68001595B /* StudioView.swift in Sources */,
-				9E1B802657B41A29DF429E21 /* WeightStatusView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

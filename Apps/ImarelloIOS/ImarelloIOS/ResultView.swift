@@ -17,10 +17,13 @@ struct ResultView: View {
                     RoundedRectangle(cornerRadius: ImarelloTheme.Radius.stage, style: .continuous)
                         .fill(ImarelloTheme.stage)
                         .overlay {
+                            StageEmptyState()
+                        }
+                        .overlay {
                             RoundedRectangle(cornerRadius: ImarelloTheme.Radius.stage, style: .continuous)
                                 .strokeBorder(ImarelloTheme.copper.opacity(0.28), lineWidth: 1)
                         }
-                        .accessibilityLabel("Empty preview")
+                        .accessibilityElement(children: .combine)
                 }
             }
             .aspectRatio(1, contentMode: .fit)
@@ -65,5 +68,33 @@ struct ResultView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// The gate story lives on the stage: ready invites, missing-weights explains,
+/// Simulator says what this build can and cannot do.
+private struct StageEmptyState: View {
+    @Environment(GenerationModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: ImarelloTheme.Space.sm) {
+            Image(systemName: model.emptyStateIcon)
+                .font(.title)
+                .foregroundStyle(ImarelloTheme.copper)
+            Text(model.emptyStateTitle)
+                .font(.headline)
+                .foregroundStyle(ImarelloTheme.cream)
+            Text(model.emptyStateDetail)
+                .font(.subheadline)
+                .foregroundStyle(ImarelloTheme.cream.opacity(0.72))
+            if let caption = model.emptyStateCaption {
+                Text(caption)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(ImarelloTheme.cream.opacity(0.55))
+                    .lineLimit(2)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .padding(ImarelloTheme.Space.lg)
     }
 }

@@ -18,13 +18,16 @@ DEVICE="${DEVICE:-}"
 
 resolve_snapshot() {
   local name="$1"
+  local dir=""
   if [[ -d "$HOST_MODELS/$name" ]]; then
-    print -r -- "$HOST_MODELS/$name"
+    dir="$HOST_MODELS/$name"
   elif [[ -d "$LEGACY_MODELS/$name" ]]; then
-    print -r -- "$LEGACY_MODELS/$name"
+    dir="$LEGACY_MODELS/$name"
   else
     return 1
   fi
+  # devicectl cannot open a symlinked source dir — hand it the real path.
+  print -r -- "${dir:A}"
 }
 
 KLEIN_SRC="$(resolve_snapshot "$KLEIN" || true)"
@@ -37,16 +40,19 @@ if [[ -z "$KLEIN_SRC" || -z "$SMALL_SRC" ]]; then
 fi
 
 if [[ -z "$DEVICE" ]]; then
-  DEVICE="$(xcrun devicectl list devices --json-output /dev/stdout 2>/dev/null \
-    | python3 -c 'import json,sys
+  # devicectl mixes log lines into stdout; write JSON to a real file.
+  DEVICE_JSON="$(mktemp)"
+  xcrun devicectl list devices --json-output "$DEVICE_JSON" >/dev/null 2>&1 || true
+  DEVICE="$(python3 -c 'import json,sys
 d=json.load(sys.stdin)
 for dev in d.get("result",{}).get("devices",[]):
     p=dev.get("deviceProperties") or {}
     h=dev.get("hardwareProperties") or {}
     c=dev.get("connectionProperties") or {}
-    if h.get("reality")=="physical" and c.get("tunnelState")=="connected":
+    if h.get("reality")=="physical" and c.get("pairingState")=="paired":
         print(dev.get("identifier") or "")
-        break')"
+        break' < "$DEVICE_JSON")"
+  rm -f "$DEVICE_JSON"
 fi
 if [[ -z "$DEVICE" ]]; then
   echo "No connected physical iPhone. Pair one, then retry." >&2

@@ -114,8 +114,8 @@ for dev in d.get("result", {}).get("devices", []):
     old_h = dev.get("hardwareProperties") or {}
     old_c = dev.get("connectionProperties") or {}
     reality = hw.get("reality") or old_h.get("reality")
-    state = str(conn.get("state") or old_c.get("tunnelState") or "").lower()
-    if reality == "physical" and state not in ("disconnected", "unavailable"):
+    pairing = str(conn.get("pairingState") or old_c.get("pairingState") or "").lower()
+    if reality == "physical" and pairing == "paired":
         print(dev.get("identifier") or "")
         break
 PY
