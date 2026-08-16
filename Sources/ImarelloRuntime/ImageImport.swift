@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import Accelerate
 import MLX
 import ImarelloCore
 
@@ -14,6 +15,11 @@ enum ImageImport {
         height: Int
     ) throws -> MLXArray {
         let target = try loadCGImage(url: url, width: width, height: height)
+        return try loadNCHW(cgImage: target)
+    }
+
+    /// Same conversion from an already-decoded canvas-geometry image.
+    static func loadNCHW(cgImage target: CGImage) throws -> MLXArray {
         let w = target.width
         let h = target.height
         let bytesPerRow = w * 4
@@ -31,19 +37,33 @@ enum ImageImport {
             space: colorSpace,
             bitmapInfo: bitmapInfo.rawValue
         ) else {
-            throw ImarelloError.imageLoadFailed(path: url.path, reason: "CGContext failed")
+            throw ImarelloError.imageLoadFailed(path: "<cgimage>", reason: "CGContext failed")
         }
         ctx.draw(target, in: CGRect(x: 0, y: 0, width: w, height: h))
 
-        // HWC RGB float [0,1] then to [-1,1]
-        var floats = [Float](repeating: 0, count: 3 * h * w)
-        for y in 0 ..< h {
-            for x in 0 ..< w {
-                let i = y * w + x
-                let o = i * 4
-                floats[0 * h * w + i] = Float(rgba[o]) / 255.0 * 2 - 1      // R plane
-                floats[1 * h * w + i] = Float(rgba[o + 1]) / 255.0 * 2 - 1  // G
-                floats[2 * h * w + i] = Float(rgba[o + 2]) / 255.0 * 2 - 1  // B
+        // Deinterleave RGBA → planar RGB with vDSP. `f/255*2-1` is reproduced
+        // with the identical IEEE op sequence (÷ is a real divide; ×2 is exact,
+        // so the fused multiply-add cannot change the result) — bit-equal to
+        // the scalar loop it replaces, ~3 M iterations faster.
+        let pixelCount = h * w
+        var floats = [Float](repeating: 0, count: 3 * pixelCount)
+        rgba.withUnsafeBufferPointer { src in
+            floats.withUnsafeMutableBufferPointer { dst in
+                var two: Float = 2
+                var negOne: Float = -1
+                var s255: Float = 255
+                for c in 0 ..< 3 {
+                    vDSP_vfltu8(
+                        src.baseAddress! + c, 4,
+                        dst.baseAddress! + c * pixelCount, 1,
+                        vDSP_Length(pixelCount))
+                }
+                vDSP_vsdiv(
+                    dst.baseAddress!, 1, &s255, dst.baseAddress!, 1,
+                    vDSP_Length(3 * pixelCount))
+                vDSP_vsmsa(
+                    dst.baseAddress!, 1, &two, &negOne, dst.baseAddress!, 1,
+                    vDSP_Length(3 * pixelCount))
             }
         }
         return MLXArray(floats).reshaped([1, 3, h, w])

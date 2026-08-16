@@ -39,6 +39,10 @@ public final class Flux2VAE: Module {
         enc = enc.transposed(0, 3, 1, 2)
         let parts = split(enc, parts: 2, axis: 1)
         let mean = parts[0]
+        // FLUX.2 ships scale 1 / shift 0 — skip the no-op elementwise passes.
+        if Self.scalingFactor == 1, Self.shiftFactor == 0 {
+            return mean
+        }
         return (mean - Self.shiftFactor) * Self.scalingFactor
     }
 
@@ -59,7 +63,9 @@ public final class Flux2VAE: Module {
         if z.ndim == 5 {
             z = z[0..., 0..., 0, 0..., 0...]
         }
-        z = (z / Self.scalingFactor) + Self.shiftFactor
+        if Self.scalingFactor != 1 || Self.shiftFactor != 0 {
+            z = (z / Self.scalingFactor) + Self.shiftFactor
+        }
         z = z.transposed(0, 2, 3, 1)
         z = postQuantConv(z)
         z = z.transposed(0, 3, 1, 2)

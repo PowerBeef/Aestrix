@@ -169,16 +169,45 @@ enum AttentionUtils {
         return y2.reshaped(Array(x.shape.dropLast()) + [y2.dim(-1)])
     }
 
+    /// Compiled rescale halves of the f16 qmm sandwich. Same op order as the
+    /// previous inline version — compile fuses div+cast and cast+mul into one
+    /// kernel each, removing a full-size f32 temp per Linear call (that temp
+    /// chain was the entire 512² watermark headroom; ENGINE_RESEARCH.md §2.3).
+    private static let compiledPreScale: @Sendable (MLXArray, MLXArray) -> MLXArray = {
+        compile { (x: MLXArray, s: MLXArray) -> MLXArray in
+            (x / s).asType(.float16)
+        }
+    }()
+    private static let compiledPostScale: @Sendable (MLXArray, MLXArray) -> MLXArray = {
+        compile { (y: MLXArray, s: MLXArray) -> MLXArray in
+            y.asType(.float32) * s
+        }
+    }()
+    nonisolated(unsafe) private static var scaleArrayCache: [Float: MLXArray] = [:]
+    private static let scaleArrayLock = NSLock()
+    private static func scaleArray(_ value: Float) -> MLXArray {
+        scaleArrayLock.lock()
+        defer { scaleArrayLock.unlock() }
+        if let cached = scaleArrayCache[value] { return cached }
+        let arr = MLXArray(value)
+        eval(arr)
+        scaleArrayCache[value] = arr
+        return arr
+    }
+
     /// 4-bit GEMM in f16 when `linearF16` is on. Affine scales are bf16 in the
     /// hub pack; `QuantizedLinear` would `promote(f16, bf16) → f32` unless we
-    /// cast scales too. Residual dtype is the caller's problem (AdaLN stays f32).
+    /// cast scales too (TransformerWeights pre-casts them at load — bf16→f16 is
+    /// exact for this pack, min |scale| ≈ 1e-4 ≫ the f16 normal floor — so the
+    /// asType below is a free no-op guard). Residual dtype is the caller's
+    /// problem (AdaLN stays f32).
     private static func applyLinearCore(_ linear: Linear, _ x: MLXArray) -> MLXArray {
         guard AttentionTuning.current.linearF16, let q = linear as? QuantizedLinear else {
             return linear(x)
         }
         // Scale down so f16 accumulate does not overflow (raw f16 qmm → TV static).
-        let scale = AttentionTuning.current.linearF16Scale
-        let x16 = (x / scale).asType(.float16)
+        let scale = scaleArray(AttentionTuning.current.linearF16Scale)
+        let x16 = compiledPreScale(x, scale)
         var y = quantizedMM(
             x16,
             q.weight,
@@ -192,7 +221,7 @@ enum AttentionUtils {
         if let bias = q.bias {
             y = y + bias.asType(.float16)
         }
-        return y.asType(.float32) * scale
+        return compiledPostScale(y, scale)
     }
 
     /// Apply a sequence Linear in chunks to avoid huge [B, L, out] intermediates (e.g. fused QKV+MLP).

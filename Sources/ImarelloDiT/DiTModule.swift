@@ -85,6 +85,20 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
         return projected
     }
 
+    /// Hoist timestep-only conditioning for a known step schedule (once per generate).
+    public func precomputeStepConditioning(
+        timesteps: [MLXArray],
+        batch: Int,
+        dtype: DType,
+        guidance: MLXArray? = nil
+    ) throws -> [Flux2StepConditioning] {
+        guard let model, isLoaded else {
+            throw ImarelloError.moduleNotLoaded(moduleName)
+        }
+        return model.precomputeStepConditioning(
+            timesteps: timesteps, batch: batch, dtype: dtype, guidance: guidance)
+    }
+
     public func forward(
         hiddenStates: MLXArray,
         encoderHiddenStates: MLXArray,
@@ -94,6 +108,7 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
         guidance: MLXArray? = nil,
         imageRotaryEmb: (MLXArray, MLXArray)? = nil,
         contextIsProjected: Bool = false,
+        stepConditioning: Flux2StepConditioning? = nil,
         trace: PipelineTrace? = nil,
         stepIndex: Int? = nil
     ) throws -> MLXArray {
@@ -109,6 +124,7 @@ public final class DiTModule: LoadableModule, @unchecked Sendable {
             guidance: guidance,
             imageRotaryEmb: imageRotaryEmb,
             contextIsProjected: contextIsProjected,
+            stepConditioning: stepConditioning,
             trace: trace,
             stepIndex: stepIndex
         )

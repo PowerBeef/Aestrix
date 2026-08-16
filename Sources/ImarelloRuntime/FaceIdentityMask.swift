@@ -17,14 +17,13 @@ enum FaceIdentityMask {
     ///   - expand: Extra margin around the face box (fraction of box size).
     ///   - softEdge: Softness of falloff outside the expanded box (fraction of packed min side).
     static func softPackedMask(
-        imageURL: URL,
+        image cg: CGImage,
         width: Int,
         height: Int,
         expand: Float = 0.18,
         softEdge: Float = 0.12
     ) throws -> (mask: MLXArray, faceCount: Int) {
         let (packedH, packedW) = LatentOps.packedSpatial(width: width, height: height)
-        let cg = try ImageImport.loadCGImage(url: imageURL, width: width, height: height)
         let boxes = detectFaces(in: cg)
         guard let primary = boxes.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
             let zeros = [Float](repeating: 0, count: packedH * packedW)

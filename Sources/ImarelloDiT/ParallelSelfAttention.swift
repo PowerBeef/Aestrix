@@ -79,13 +79,26 @@ public final class Flux2ParallelSelfAttention: Module {
         let batch = query.dim(0)
         let seq = query.dim(2)
 
-        // Free proj graph before attention. Cache clear only on long sequences
-        // (same gate as the transformer's per-block clears).
+        // SwiGLU before attention: it halves 18432 → 9216, so the tensor held
+        // live across Steel FA is mlpOut (162 MiB @1024²), not mlpHidden (324).
+        let mlpOut = DiTOpProfile.time(
+            .ffn,
+            inputs: [mlpHidden],
+            sync: { [$0] }
+        ) {
+            mlpAct(mlpHidden)
+        }
+
+        // Free proj graph before attention. Cache clear only on long sequences,
+        // honoring the block clear interval (an interval of 2+ means "clear less",
+        // which previously skipped only the transformer-loop clears, not these).
         if AttentionTuning.current.qkvCheckpoint {
             if !DiTOpProfile.enabled {
-                eval(query, key, value, mlpHidden)
+                eval(query, key, value, mlpOut)
             }
-            if seq > AttentionTuning.current.blockCacheClearSeqThreshold {
+            if seq > AttentionTuning.current.blockCacheClearSeqThreshold,
+                AttentionTuning.current.blockCacheClearInterval <= 1
+            {
                 Memory.clearCache()
             }
         }
@@ -96,10 +109,9 @@ public final class Flux2ParallelSelfAttention: Module {
         )
         return DiTOpProfile.time(
             .ffn,
-            inputs: [attnOut, mlpHidden],
+            inputs: [attnOut, mlpOut],
             sync: { [$0] }
         ) {
-            let mlpOut = mlpAct(mlpHidden)
             let fused = concatenated([attnOut.asType(mlpOut.dtype), mlpOut], axis: -1)
             return AttentionUtils.linearChunkedSequence(toOut, fused)
         }

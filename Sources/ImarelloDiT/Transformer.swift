@@ -3,6 +3,16 @@ import MLX
 import MLXNN
 import ImarelloCore
 
+/// Timestep-only conditioning for one denoise step (see
+/// `Flux2Transformer.precomputeStepConditioning`).
+public struct Flux2StepConditioning {
+    public let temb: MLXArray
+    public let doubleImg: [(MLXArray, MLXArray, MLXArray)]
+    public let doubleTxt: [(MLXArray, MLXArray, MLXArray)]
+    public let single: (MLXArray, MLXArray, MLXArray)
+    public let outConditioning: (scale: MLXArray, shift: MLXArray)
+}
+
 /// FLUX.2 Klein MMDiT: 5 double + 20 single stream blocks.
 public final class Flux2Transformer: Module {
     public let innerDim: Int
@@ -102,6 +112,50 @@ public final class Flux2Transformer: Module {
         contextEmbedder(encoderHiddenStates)
     }
 
+    /// Precompute everything the forward derives purely from the timestep —
+    /// temb, the three modulation projections, and the AdaLN-out conditioning.
+    /// All step timesteps are known before the denoise loop; this removes
+    /// ~170 M params of quantized GEMV from every step. Same ops, same order,
+    /// as the in-forward path — byte-identical results.
+    public func precomputeStepConditioning(
+        timesteps: [MLXArray],
+        batch: Int,
+        dtype: DType,
+        guidance: MLXArray? = nil
+    ) -> [Flux2StepConditioning] {
+        timesteps.map { t in
+            var ts = t
+            if ts.ndim == 0 {
+                ts = MLXArray.full([batch], values: ts)
+            }
+            ts = ts.asType(dtype)
+            var g = guidance
+            if var gv = g {
+                if gv.ndim == 0 {
+                    gv = MLXArray.full([batch], values: gv)
+                }
+                gv = gv.asType(dtype)
+                g = gv
+            }
+            let temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
+            let cond = Flux2StepConditioning(
+                temb: temb,
+                doubleImg: doubleStreamModulationImg(temb),
+                doubleTxt: doubleStreamModulationTxt(temb),
+                single: singleStreamModulation(temb)[0],
+                outConditioning: normOut.conditioning(textEmbeddings: temb)
+            )
+            var toEval: [MLXArray] = [
+                cond.temb, cond.single.0, cond.single.1, cond.single.2,
+                cond.outConditioning.scale, cond.outConditioning.shift,
+            ]
+            toEval += cond.doubleImg.flatMap { [$0.0, $0.1, $0.2] }
+            toEval += cond.doubleTxt.flatMap { [$0.0, $0.1, $0.2] }
+            eval(toEval)
+            return cond
+        }
+    }
+
     /// Forward pass (fp32 activations recommended for stability).
     ///
     /// - Parameters:
@@ -121,6 +175,7 @@ public final class Flux2Transformer: Module {
         guidance: MLXArray? = nil,
         imageRotaryEmb: (MLXArray, MLXArray)? = nil,
         contextIsProjected: Bool = false,
+        stepConditioning: Flux2StepConditioning? = nil,
         trace: PipelineTrace? = nil,
         stepIndex: Int? = nil
     ) -> MLXArray {
@@ -145,22 +200,33 @@ public final class Flux2Transformer: Module {
             )
         }
 
-        var ts = timestep
-        if ts.ndim == 0 {
-            ts = MLXArray.full([hiddenStates.dim(0)], values: ts)
-        }
-        ts = ts.asType(hiddenStates.dtype)
-
-        var g = guidance
-        if var gv = g {
-            if gv.ndim == 0 {
-                gv = MLXArray.full([hiddenStates.dim(0)], values: gv)
+        // Timestep-only conditioning: hoisted per generate when provided.
+        let temb: MLXArray
+        let tembImg: [(MLXArray, MLXArray, MLXArray)]
+        let tembTxt: [(MLXArray, MLXArray, MLXArray)]
+        if let sc = stepConditioning {
+            temb = sc.temb
+            tembImg = sc.doubleImg
+            tembTxt = sc.doubleTxt
+        } else {
+            var ts = timestep
+            if ts.ndim == 0 {
+                ts = MLXArray.full([hiddenStates.dim(0)], values: ts)
             }
-            gv = gv.asType(hiddenStates.dtype)
-            g = gv
-        }
+            ts = ts.asType(hiddenStates.dtype)
 
-        let temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
+            var g = guidance
+            if var gv = g {
+                if gv.ndim == 0 {
+                    gv = MLXArray.full([hiddenStates.dim(0)], values: gv)
+                }
+                gv = gv.asType(hiddenStates.dtype)
+                g = gv
+            }
+            temb = timeGuidanceEmbed(ts, guidance: g).asType(.float32)
+            tembImg = doubleStreamModulationImg(temb)
+            tembTxt = doubleStreamModulationTxt(temb)
+        }
 
         var h = AttentionUtils.applyLinear(xEmbedder, hiddenStates)
         // Prompt→innerDim is invariant across denoise steps; pipeline hoists it.
@@ -169,9 +235,6 @@ public final class Flux2Transformer: Module {
             : contextEmbedder(encoderHiddenStates)
 
         let concatRope = imageRotaryEmb ?? prepareRotaryEmbeddings(imgIds: imgIds, txtIds: txtIds)
-
-        let tembImg = doubleStreamModulationImg(temb)
-        let tembTxt = doubleStreamModulationTxt(temb)
 
         // Per-block cache clears are only needed on large canvases (they made 1024² fit
         // on 8 GB); on small canvases they just thrash the Metal buffer pool.
@@ -216,7 +279,7 @@ public final class Flux2Transformer: Module {
         }
         sample("after_concat")
 
-        let tembSingle = singleStreamModulation(temb)[0]
+        let tembSingle = stepConditioning?.single ?? singleStreamModulation(temb)[0]
         let singleSample: Set<Int> = density == .max
             ? Set(0 ..< singleTransformerBlocks.count)
             : Set(ProbeDensity.defaultSingleBlockSampleIndices)
@@ -233,7 +296,11 @@ public final class Flux2Transformer: Module {
         }
 
         h = h[0..., txtLen..., 0...]
-        h = normOut(h, textEmbeddings: temb)
+        if let sc = stepConditioning {
+            h = normOut(h, conditioning: sc.outConditioning)
+        } else {
+            h = normOut(h, textEmbeddings: temb)
+        }
         h = AttentionUtils.applyLinear(projOut, h)
         eval(h)
         sample("after_proj")

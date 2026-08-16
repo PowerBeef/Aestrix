@@ -25,8 +25,9 @@ struct IdentityPreserveTests {
     func noFaceZeroMask() throws {
         let url = try writeSolidPNG(width: 128, height: 128, r: 40, g: 80, b: 200)
         defer { try? FileManager.default.removeItem(at: url) }
+        let cg = try ImageImport.loadCGImage(url: url, width: 128, height: 128)
         let (mask, count) = try FaceIdentityMask.softPackedMask(
-            imageURL: url, width: 128, height: 128)
+            image: cg, width: 128, height: 128)
         #expect(count == 0)
         #expect(mask.shape == [1, 64, 1])  // 128/16 = 8 → 8*8=64
         // All zeros
@@ -41,8 +42,9 @@ struct IdentityPreserveTests {
         guard FileManager.default.fileExists(atPath: demo.path) else {
             return  // skip if demo not in CWD
         }
+        let cg = try ImageImport.loadCGImage(url: demo, width: 512, height: 512)
         let (mask, count) = try FaceIdentityMask.softPackedMask(
-            imageURL: demo, width: 512, height: 512)
+            image: cg, width: 512, height: 512)
         // Best-effort: if Vision finds a face, mask has mass.
         if count > 0 {
             let flat = mask.asArray(Float.self)

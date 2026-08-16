@@ -33,7 +33,9 @@ public final class Flux2VAEDecoderOnly: Module {
         if z.ndim == 5 {
             z = z[0..., 0..., 0, 0..., 0...]
         }
-        z = (z / Flux2VAE.scalingFactor) + Flux2VAE.shiftFactor
+        if Flux2VAE.scalingFactor != 1 || Flux2VAE.shiftFactor != 0 {
+            z = (z / Flux2VAE.scalingFactor) + Flux2VAE.shiftFactor
+        }
         z = z.transposed(0, 2, 3, 1)
         z = postQuantConv(z)
         z = z.transposed(0, 3, 1, 2)

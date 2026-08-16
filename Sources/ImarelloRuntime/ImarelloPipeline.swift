@@ -45,12 +45,18 @@ public actor ImarelloPipeline {
         forceLarge || maxSide >= EvalCachePolicy.current.pipelineCacheClampMinSide
     }
 
-    private static func applyPreDenoiseCacheClamp() {
+    /// Clamp the Metal buffer pool for the denoise loop. Returns the previous
+    /// limit so callers can restore it — the clamp used to leak process-wide
+    /// (VAE decode and every later `session` generation inherited 256 MB).
+    private static func applyPreDenoiseCacheClamp() -> Int? {
         let policy = EvalCachePolicy.current
+        var previous: Int?
         if let limit = policy.denoiseCacheLimitBytes {
+            previous = Memory.cacheLimit
             Memory.cacheLimit = Int(limit)
         }
         Memory.clearCache()
+        return previous
     }
 
     public var hasLocalSnapshot: Bool { snapshot != nil }
@@ -333,13 +339,23 @@ public actor ImarelloPipeline {
                 }
                 let stepDts = LatentOps.eulerDts(sigmas: scheduler.sigmas)
                 eval(stepTimesteps)
+                // Timestep-only conditioning (temb + modulations + AdaLN-out) for
+                // every step, computed once instead of per forward.
+                let stepConditioning = try orchestrator.dit.precomputeStepConditioning(
+                    timesteps: stepTimesteps, batch: 1, dtype: .float32, guidance: guidance)
                 // High-res (768²+) on unified memory: drop Metal buffer pool after every
                 // step so activation temporaries don't accumulate (8 GB M2 OOMs at 1024²).
                 let largeCanvas = Self.isLargeCanvasForCache(
                     maxSide: max(request.width, request.height))
+                var restoreCacheLimit: Int?
                 if largeCanvas {
-                    Self.applyPreDenoiseCacheClamp()
+                    restoreCacheLimit = Self.applyPreDenoiseCacheClamp()
                     trace?.emit(.memorySample(label: "after_clear_pre_denoise"))
+                }
+                defer {
+                    if let restoreCacheLimit {
+                        Memory.cacheLimit = restoreCacheLimit
+                    }
                 }
                 if let trace, trace.density != .off {
                     trace.emit(.peakReset(label: "before_denoise"))
@@ -361,6 +377,7 @@ public actor ImarelloPipeline {
                         guidance: guidance,
                         imageRotaryEmb: rope,
                         contextIsProjected: true,
+                        stepConditioning: stepConditioning[step],
                         trace: trace,
                         stepIndex: step
                     )
@@ -504,12 +521,16 @@ public actor ImarelloPipeline {
             curve: identity.scheduleCurve
         )
 
+        // Decode + cover-scale the source once; face mask and VAE encode share it.
+        let sourceImage = try ImageImport.loadCGImage(
+            url: request.imageURL, width: canvas.width, height: canvas.height)
+
         // Optional face mask (CPU/Vision; before Metal-heavy stages).
         var faceMask: MLXArray?
         var faceCount = 0
         if identity.facePreserve || identity.cleanPullAlpha > 0 {
             let built = try FaceIdentityMask.softPackedMask(
-                imageURL: request.imageURL,
+                image: sourceImage,
                 width: canvas.width,
                 height: canvas.height
             )
@@ -528,8 +549,7 @@ public actor ImarelloPipeline {
         do {
             // --- Stage 0: VAE encode reference ---
             onProgress?(PipelineProgress(phase: .encodingImage))
-            let imageNCHW = try ImageImport.loadNCHW(
-                url: request.imageURL, width: canvas.width, height: canvas.height)
+            let imageNCHW = try ImageImport.loadNCHW(cgImage: sourceImage)
             eval(imageNCHW)
 
             trace?.emit(.stageBegin("load_vae"))
@@ -665,11 +685,19 @@ public actor ImarelloPipeline {
                 }
                 let stepDts = LatentOps.eulerDts(sigmas: sigmas)
                 eval(stepTimesteps)
+                let stepConditioning = try orchestrator.dit.precomputeStepConditioning(
+                    timesteps: stepTimesteps, batch: 1, dtype: .float32, guidance: guidance)
                 // Ref latents double image seq → treat as large canvas for cache discipline.
                 let largeCanvas = Self.isLargeCanvasForCache(
                     maxSide: max(canvas.width, canvas.height), forceLarge: useRef)
+                var restoreCacheLimit: Int?
                 if largeCanvas {
-                    Self.applyPreDenoiseCacheClamp()
+                    restoreCacheLimit = Self.applyPreDenoiseCacheClamp()
+                }
+                defer {
+                    if let restoreCacheLimit {
+                        Memory.cacheLimit = restoreCacheLimit
+                    }
                 }
                 trace?.emit(.stageBegin("denoise"))
                 for step in 0 ..< nSteps {
@@ -698,6 +726,7 @@ public actor ImarelloPipeline {
                         guidance: guidance,
                         imageRotaryEmb: rope,
                         contextIsProjected: true,
+                        stepConditioning: stepConditioning[step],
                         trace: trace,
                         stepIndex: step
                     )

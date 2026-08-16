@@ -14,11 +14,20 @@ public final class AdaLayerNormContinuous: Module {
         super.init()
     }
 
-    public func callAsFunction(_ x: MLXArray, textEmbeddings: MLXArray) -> MLXArray {
-        var te = linear(silu(textEmbeddings).asType(.float32))
+    /// Timestep-only half: hoistable out of the denoise loop.
+    public func conditioning(textEmbeddings: MLXArray) -> (scale: MLXArray, shift: MLXArray) {
+        let te = linear(silu(textEmbeddings).asType(.float32))
         // mflux: scale = te[:, 0:dim], shift = te[:, dim:2dim]
-        let scale = te[0..., 0..<embeddingDim]
-        let shift = te[0..., embeddingDim..<(2 * embeddingDim)]
-        return norm(x) * (1 + scale)[0..., .newAxis, 0...] + shift[0..., .newAxis, 0...]
+        return (te[0..., 0..<embeddingDim], te[0..., embeddingDim..<(2 * embeddingDim)])
+    }
+
+    public func callAsFunction(
+        _ x: MLXArray, conditioning c: (scale: MLXArray, shift: MLXArray)
+    ) -> MLXArray {
+        norm(x) * (1 + c.scale)[0..., .newAxis, 0...] + c.shift[0..., .newAxis, 0...]
+    }
+
+    public func callAsFunction(_ x: MLXArray, textEmbeddings: MLXArray) -> MLXArray {
+        callAsFunction(x, conditioning: conditioning(textEmbeddings: textEmbeddings))
     }
 }
