@@ -85,7 +85,7 @@ Definition of done for any generation claim: PNG written · pixel eval run · vi
 7. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`. Latents are packed `[B, H/16·W/16, 128]`; decode = BN denorm + unpatchify.
 8. **I2I strength**: full N-step schedule, color curve default, color/object edits **≥ 0.8**. Identity (Tier B): `--identity` = ref latents (`t=10`) + face mask + clean-pull + `identity` curve; people **0.85–0.9**. `Docs/I2I_STRENGTH.md`.
 9. **Prompt-embed disk cache is default on** (`~/Library/Caches/Imarello/embeds`); a hit skips the TE stage byte-identically; `--no-embed-cache` opts out.
-10. **Perf reference** (8 GB M2, 2026-08-16, product path = pad-512 + f16 qmm + Small Decoder): 512² e2e **24.4 s** / 1024² **79.0 s**; peak active ~2.05 GiB; watermark 2.54 / 3.63 GiB. Opt-in `--text-tokens auto`: 19.4 / 74.0 s. `Docs/PERF.md`.
+10. **Perf reference** (8 GB M2, 2026-08-16 post-Tier-1, product path = pad-512 + f16 qmm + Small Decoder): 512² e2e **23.2 s** / 1024² **73.5 s**; peak active ~2.05 GiB; watermark 2.57 / **3.07 GiB**. Opt-in `--text-tokens auto`: ~19 s @512² (1024² is now faster on the default). `Docs/PERF.md`.
 
 Correctness footguns and layer diagram: `Docs/ARCHITECTURE.md`.
 

@@ -98,7 +98,7 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --seed 42 --output out.png
 ```
 
-Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~24 s on an 8 GB M2).
+Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~23 s on an 8 GB M2).
 
 ```bash
 # Recolor / style — strength ≥ 0.8 for object color
@@ -134,10 +134,10 @@ Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 �
 
 | Canvas | Time | Denoise / step | Decode | MLX active | Watermark |
 |--------|-----:|---------------:|-------:|-----------:|----------:|
-| **512²** | **24.4 s** | 4.61 s | 1.05 s | 2.04 GiB | 2.54 GiB |
-| **1024²** | **79.0 s** | 17.20 s | 5.27 s | 2.05 GiB | 3.63 GiB |
+| **512²** | **23.2 s** | 4.42 s | 0.98 s | 2.06 GiB | 2.57 GiB |
+| **1024²** | **73.5 s** | 15.89 s | 4.87 s | 2.05 GiB | 3.07 GiB |
 
-`--text-tokens auto` (opt-in) trims pad tokens for speed (19.4 s / 74.0 s) but weakens prompt conditioning — it was reverted as the default on 2026-08-16. Same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+The 2026-08-16 Tier-1 engine work (fused qmm rescale, load-time scale precast, hoisted step conditioning, chunk-streamed single blocks) took 1024² from 79.0 → 73.5 s and its watermark from 3.63 → 3.07 GiB with **byte-identical** output — the pad-512 default is now faster at 1024² than the reverted `auto` path was. `--text-tokens auto` (opt-in) still trims for speed at 512² but weakens prompt conditioning; same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
 BFL **Small Decoder** is the default decode (−37% vs the klein AE). `--vae-variant full` restores klein. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 

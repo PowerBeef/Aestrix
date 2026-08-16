@@ -1,6 +1,8 @@
 # Engine research — deep analysis & optimization roadmap
 
-**Date:** 2026-08-16 · **Stack analyzed:** pad-512 + f16 scaled qmm + Small Decoder + Steel FA (the shipping product path) · **Machine of record:** 8 GB M2 Mac mini · **Status: research report — nothing here is implemented; the P9 speed-work pause is unchanged.**
+**Date:** 2026-08-16 · **Stack analyzed:** pad-512 + f16 scaled qmm + Small Decoder + Steel FA (the shipping product path) · **Machine of record:** 8 GB M2 Mac mini
+
+> **Status update (same day):** Tier 0 (all four quality bugs + harness fixes), the full Tier-1 basket, and §4.2's chunk-streamed single-stream block **shipped** on explicit request — byte-identical output, 512² 24.4→23.2 s, 1024² 79.0→**73.5 s**, 1024² watermark 3.63→**3.07 GiB**. Measured results and verification: `Docs/PERF.md` (2026-08-16 implementation entry). Tiers 2 (remaining), 3, and 4 are still open recommendations.
 
 This document is the product of a full engine read (every file in `ImarelloDiT`, `ImarelloText`, `ImarelloVAE`, `ImarelloRuntime`, `ImarelloWeights`), fresh measurements on the pad-512 product path (`outputs/engine-research-2026-08-16/`, reproduction commands in §7), a compiled ledger of every experiment already run (§6), and external research: MLX upstream source/releases, the 2025-26 few-step-acceleration literature, and the attention-sink / padded-conditioning literature (§8).
 

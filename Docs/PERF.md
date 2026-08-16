@@ -1055,4 +1055,26 @@ Product-path numbers (pad-512 + f16 qmm + Small Decoder, seed 42, fox):
 
 Opt-in `--text-tokens auto` remains the 19.4 s / 74.0 s speed path (tables above). Do not re-promote it without a vision A/B covering 1024² and human subjects across seeds. Reports: `outputs/investigation-2026-08-16/bench-newdefault-{512,1024}.json`.
 
-Process gaps to close: bench JSON does not persist `textTokens` / `attnLinearCompute` / `vaeVariant` (provenance lived only in filename labels), and default promotions need a 1024² + human-subject vision gate.
+Process gaps to close: bench JSON does not persist `textTokens` / `attnLinearCompute` / `vaeVariant` (provenance lived only in filename labels), and default promotions need a 1024² + human-subject vision gate. *(Provenance fields shipped later the same day.)*
+
+---
+
+## 2026-08-16 — Tier-0 fixes + Tier-1 optimizations shipped (byte-identical)
+
+Implementation of `ENGINE_RESEARCH.md` Tiers 0/1 plus the chunk-streamed single-stream block. Same-seed output is **bit-for-bit unchanged** (fox 512²/1024², fisherman 512², identity I2I hashes verified at every slice) except two deliberate quality fixes: the PNG-export range probe (bright-corner images no longer shadow-crushed — fisherman pixel technical jumped ~65 → ~83) and the Small Decoder's attention de-quantized back to BFL's F32.
+
+| Change | Verification |
+|---|---|
+| Reference-faithful Qwen tokenizer (NFC + regex pre-tokenizer + process-lifetime cache; embed cache → v2) | 21-case differential fixture vs HF `tokenizers`, byte-for-byte; eval prompts unchanged |
+| Fused qmm rescale (`compile`), load-time f16 scale precast (bitwise-exact, probed 121 M values; `context_embedder` excluded — its bf16 activations would flip promote to f32), hoisted temb/modulation/AdaLN-out, SwiGLU-before-attention, clearInterval honored in PSA, cacheLimit restored post-denoise, single source decode for identity, vDSP import, VAE no-op scale/shift skip | V-bit at both canvases |
+| Chunk-streamed single-stream block (proj/mlpHidden/to_out never materialize at full length; attention keeps full f16 Q/K/V; RoPE tables position-sliced) | V-bit at 512²/1024²/identity |
+| VAE-encoder checkpointing, MemoryProbe MLX sampler, res-ladder lock handoff, bench provenance fields | filtered suite 14/14 |
+
+**Measured (same-day A/B chain, seed 42 fox):**
+
+| Canvas | e2e before → after | denoise/step | watermark |
+|---|---|---|---|
+| 512² (W1T3) | 24.37 → **23.18 s** (−4.9%) | 4.61 → 4.42 s | 2.54 → 2.57 GiB (flat — predicted rescale-fusion memory win did not appear here) |
+| 1024² (W0T1) | 79.00 → **73.53 s** (−6.9%) | 17.20 → 15.89 s (−7.6%) | 3.63 → **3.07 GiB** (−15%) |
+
+The pad-512 default at 1024² is now **faster than the reverted `auto` path was** (73.5 vs 74.0 s) with full conditioning quality. Reports: `outputs/engine-research-2026-08-16/bench-tier1-512.json`, `bench-tier1-1024.json`, `bench-tier1s4-1024.json`.
