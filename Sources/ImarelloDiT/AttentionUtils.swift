@@ -104,8 +104,14 @@ enum AttentionUtils {
                 inputs: [query, key, value],
                 sync: { [$0] }
             ) {
+                // R3 EXPERIMENT: optional additive bias over joint keys; only
+                // applied when its length matches this call's key sequence.
+                var bias: MLXArray?
+                if let b = AttentionTuning.experimentalAttnBias, b.dim(3) == key.dim(2) {
+                    bias = b.asType(query.dtype)
+                }
                 var hidden = MetalFlashAttention.scaledDotProductAttention(
-                    query: query, key: key, value: value, scale: scale
+                    query: query, key: key, value: value, scale: scale, mask: bias
                 )
                 // [B, H, S, D] → [B, S, H*D]
                 hidden = hidden.transposed(0, 2, 1, 3)

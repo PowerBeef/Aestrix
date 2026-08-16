@@ -1,4 +1,5 @@
 import Foundation
+import MLX
 
 /// Process-wide DiT attention / projection chunk knobs (bench sweeps + product defaults).
 ///
@@ -91,6 +92,10 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
 
     /// Active knobs for the process. Mutate only when no DiT forward is in flight.
     nonisolated(unsafe) public static var current: AttentionTuning = .default
+
+    /// EXPERIMENT (ENGINE_RESEARCH.md §5.1 R3): additive bias over joint attention
+    /// keys, `[1,1,1,jointSeq]`, set per generate by the pipeline. nil = product.
+    nonisolated(unsafe) public static var experimentalAttnBias: MLXArray?
 
     public static func resetToDefault() {
         current = .default

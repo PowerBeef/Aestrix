@@ -46,6 +46,7 @@ public enum MetalFlashAttention {
         key: MLXArray,
         value: MLXArray,
         scale: Float,
+        mask: MLXArray? = nil,
         blockR: Int = blockR,
         blockC: Int = blockC
     ) -> MLXArray {
@@ -64,12 +65,13 @@ public enum MetalFlashAttention {
                 keys: key,
                 values: value,
                 scale: scale,
-                mask: nil
+                mask: mask
             )
             return out.dtype == outDtype ? out : out.asType(outDtype)
         }
 
         // --- Path 2: hybrid FA2 (steel matmul tiles) for unsupported head dims ---
+        precondition(mask == nil, "attention bias is only supported on the Steel path")
         return hybridBlockGEMM(
             query: query, key: key, value: value, scale: scale, blockC: blockC
         )

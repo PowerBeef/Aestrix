@@ -28,6 +28,14 @@ public struct T2IRequest: Sendable {
     /// Default **false** so library/bench behavior is unchanged; the CLI enables it.
     public var embedCache: Bool
 
+    /// EXPERIMENT (ENGINE_RESEARCH.md §5.1 R4): what the pad rows contain.
+    public enum PadContentMode: String, Sendable, Codable {
+        /// Prompt-conditioned pads (product behavior; how the model was distilled).
+        case prompt
+        /// Position-matched pads from an empty-prompt encode (content-vs-count test).
+        case clean
+    }
+
     public init(
         prompt: String,
         width: Int = 1024,
@@ -37,7 +45,10 @@ public struct T2IRequest: Sendable {
         seed: UInt64? = nil,
         outputURL: URL? = nil,
         textTokens: TextTokenMode = .full512,
-        embedCache: Bool = false
+        embedCache: Bool = false,
+        padContent: PadContentMode = .prompt,
+        padKeep: Int? = nil,
+        padBias: Bool = false
     ) {
         self.prompt = prompt
         self.width = width
@@ -48,7 +59,17 @@ public struct T2IRequest: Sendable {
         self.outputURL = outputURL
         self.textTokens = textTokens
         self.embedCache = embedCache
+        self.padContent = padContent
+        self.padKeep = padKeep
+        self.padBias = padBias
     }
+
+    /// EXPERIMENT knobs (ENGINE_RESEARCH.md §5.1). Defaults are product behavior.
+    public var padContent: PadContentMode
+    /// R3: trim the text window to real tokens + this many pads (needs `.full512`).
+    public var padKeep: Int?
+    /// R3: add `ln(removed/kept)` to kept-pad attention logits (denominator compensation).
+    public var padBias: Bool
 }
 
 public struct I2IRequest: Sendable {

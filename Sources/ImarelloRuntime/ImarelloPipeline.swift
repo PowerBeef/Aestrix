@@ -304,10 +304,60 @@ public actor ImarelloPipeline {
                 }
             }
 
+            // R4 EXPERIMENT: replace prompt-conditioned pads with position-matched
+            // pads from an empty-prompt encode (content-vs-count; §5.1).
+            if request.padContent == .clean, realTokens < promptEmbeds.dim(1) {
+                let cleanURL = request.embedCache
+                    ? PromptEmbedCache.entryURL(prompt: "", modelID: config.modelID)
+                    : nil
+                let cleanEmbeds: MLXArray
+                if let cleanURL, let cached = PromptEmbedCache.load(url: cleanURL) {
+                    cleanEmbeds = cached.embeds
+                } else {
+                    try await orchestrator.loadTextEncoderExclusive()
+                    let (embeds, real) = try orchestrator.textEncoder.encode("", trace: trace)
+                    cleanEmbeds = embeds
+                    if let cleanURL {
+                        PromptEmbedCache.store(embeds: embeds, realTokens: real, url: cleanURL)
+                    }
+                    try await orchestrator.unloadTextEncoderIfStaged()
+                }
+                promptEmbeds = concatenated(
+                    [
+                        promptEmbeds[0..., ..<realTokens, 0...],
+                        cleanEmbeds[0..., realTokens..., 0...],
+                    ], axis: 1)
+                eval(promptEmbeds)
+                trace?.note("pad_content=clean real=\(realTokens)", minDensity: .stages)
+            }
+
             // Default: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)
+            }
+
+            // R3 EXPERIMENT: keep only k pads after the real tokens, optionally with
+            // a denominator-compensation bias so total pad exp-mass is preserved.
+            var padBiasVector: MLXArray?
+            if let keep = request.padKeep, request.textTokens == .full512 {
+                let window = promptEmbeds.dim(1)
+                let padTotal = window - realTokens
+                let keepLen = min(window, max(8, ((realTokens + max(0, keep) + 7) / 8) * 8))
+                promptEmbeds = promptEmbeds[0..., ..<keepLen, 0...]
+                eval(promptEmbeds)
+                let keptPads = keepLen - realTokens
+                if request.padBias, keptPads > 0, padTotal > keptPads {
+                    let bias = Float(log(Double(padTotal) / Double(keptPads)))
+                    var vals = [Float](repeating: 0, count: keepLen + imageSeqLen)
+                    for i in realTokens ..< keepLen { vals[i] = bias }
+                    let vec = MLXArray(vals).reshaped([1, 1, 1, keepLen + imageSeqLen])
+                    eval(vec)
+                    padBiasVector = vec
+                }
+                trace?.note(
+                    "pad_keep=\(keptPads) bias=\(request.padBias ? "compensated" : "off")",
+                    minDensity: .stages)
             }
 
             let txtIds = LatentOps.textIds(length: promptEmbeds.dim(1))
@@ -343,6 +393,9 @@ public actor ImarelloPipeline {
                 // every step, computed once instead of per forward.
                 let stepConditioning = try orchestrator.dit.precomputeStepConditioning(
                     timesteps: stepTimesteps, batch: 1, dtype: .float32, guidance: guidance)
+                // R3 EXPERIMENT: joint-key attention bias for this generate only.
+                AttentionTuning.experimentalAttnBias = padBiasVector
+                defer { AttentionTuning.experimentalAttnBias = nil }
                 // High-res (768²+) on unified memory: drop Metal buffer pool after every
                 // step so activation temporaries don't accumulate (8 GB M2 OOMs at 1024²).
                 let largeCanvas = Self.isLargeCanvasForCache(

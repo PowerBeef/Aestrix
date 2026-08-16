@@ -1103,3 +1103,20 @@ One variable at a time, each with its own A/B; pixel-changing promotions passed 
 | 1024² (W0T1) | **71.0 s** (−10.1%) | 15.29 s (−11.1%) | 4.84 s | **3.00 GiB** (−17%) |
 
 Reports: `bench-jf16-{512,1024}.json`, `vae-untile-768.json`, `bench-mid-1024.json`, `bench-t2final-{512,1024}.json` under `outputs/engine-research-2026-08-16/`.
+
+---
+
+## 2026-08-16 — Partial-pad diagnostics (ENGINE_RESEARCH §5.1 R3/R4): mechanism resolved
+
+Experimental knobs landed on `t2i` (`--pad-content prompt|clean`, `--pad-keep N`, `--pad-bias`); defaults byte-identical. Drift instrument: LPIPS-lite vs the same-seed pad-512 baseline (`analyze-image --reference`), calibrated by two anchors — the accepted-neutral jf16 change (**0.001**) and the reverted auto trim (**0.474**, fisherman s42).
+
+| Variant | LPIPS vs baseline | Read |
+|---|---:|---|
+| jf16 promotion (accepted) | 0.001 | neutral scale |
+| **R4: clean pads, full 512 window** | **0.153–0.218** (4 prompts/seeds) | **lateral drift, vision-equal quality** (fisherman + fox checked) |
+| R3: keep 32 pads + ln(n/k) bias | 0.258 | coherent at 512² but halfway to auto damage |
+| R3: keep 32 pads, no bias | 0.280 | bias buys only ~8% — **mass hypothesis refuted** |
+| R3: keep 8 pads + bias | 0.323 | smooth count curve |
+| auto (keep ≈2, no bias) | 0.474 | known-bad anchor |
+
+**Verdicts.** (1) Pads are distributed **register capacity**, not pure softmax mass — no one-line bias licenses trimming, and the R1 bucket ladder would need ≥256-token budgets (surrendering most of the speed) to reach tolerable drift: **count-reduction is a poor trade; parked.** (2) Pad **content is swappable at equal quality** (R4): position-matched empty-prompt pads cost only lateral drift with the full 512-key softmax intact. **This licenses the product TE-splice**: encode real tokens only (mathematically exact under causal + tail-pad) + a cached clean-pad bank → `encode_te` ~2.1–2.7 s → ~0.4 s on every cache miss (≈ −8% e2e @512²), one-time same-seed gallery break, full promotion gate required (multi-seed × 1024² × human subjects). That splice is the next engine lever.

@@ -438,6 +438,15 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded product path) | auto (trim pad; faster, weaker conditioning). Docs/TEXT_TOKENS.md.")
     var textTokens: String = "512"
 
+    @Option(name: .long, help: "EXPERIMENT (ENGINE_RESEARCH §5.1 R4): pad content: prompt (default) | clean (splice empty-prompt pads).")
+    var padContent: String = "prompt"
+
+    @Option(name: .long, help: "EXPERIMENT (§5.1 R3): keep only N pads after the real tokens (needs --text-tokens 512).")
+    var padKeep: Int?
+
+    @Flag(name: .long, help: "EXPERIMENT (§5.1 R3): ln(removed/kept) bias on kept pads (with --pad-keep).")
+    var padBias: Bool = false
+
     @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
     var vaeVariant: String = "small-decoder"
 
@@ -478,6 +487,9 @@ struct T2I: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
+        guard let padContentMode = T2IRequest.PadContentMode(rawValue: padContent) else {
+            throw ValidationError("Unknown --pad-content '\(padContent)'; use prompt | clean")
+        }
         let outURL = output.map { URL(fileURLWithPath: $0) }
         let request = T2IRequest(
             prompt: prompt,
@@ -488,7 +500,10 @@ struct T2I: AsyncParsableCommand {
             seed: seed,
             outputURL: outURL,
             textTokens: textTokenMode,
-            embedCache: embedCache
+            embedCache: embedCache,
+            padContent: padContentMode,
+            padKeep: padKeep,
+            padBias: padBias
         )
         print(
             "t2i width=\(width) height=\(height) steps=\(steps) weights=\(preset.rawValue) vae=\(config.vaeDecoderVariant.rawValue) seed=\(seed.map(String.init) ?? "random") snapshot=\(await pipeline.snapshotPath ?? "?")"
