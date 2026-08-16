@@ -139,7 +139,7 @@ Then **Read the PNG** (multimodal Read tool) and complete the Phase-B checklist 
 .build/release/imarello bench-compare /tmp/baseline.json /tmp/candidate.json
 ```
 
-1024² T2I bench is OK on this host (~74 s, watermark 3.46 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 unless the user asks.
+1024² T2I bench is OK on this host (~71 s, watermark 3.00 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 unless the user asks. Never decode 1024² untiled (measured Metal abort).
 
 ---
 

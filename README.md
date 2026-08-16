@@ -186,8 +186,8 @@ let url = try await pipeline.generate(
 |--|--|
 | `ImarelloRuntime` | Staged pipeline, I2I / identity, embed cache |
 | `ImarelloText` | Qwen3 tap (layers 9/18/27 → 7680) |
-| `ImarelloDiT` | MMDiT 5+20, Steel fused FA, f16 QKV, scaled f16 4-bit Linear |
-| `ImarelloVAE` | Small Decoder default, klein encode-only, tiled cosine blend |
+| `ImarelloDiT` | MMDiT 5+20, Steel fused FA (joint-f16), scaled f16 4-bit Linear, chunk-streamed single blocks, hoisted step conditioning |
+| `ImarelloVAE` | Small Decoder default, klein encode-only, NHWC end-to-end, untiled ≤768² / tiled cosine blend at 1024² |
 | `ImarelloEval` / `ImarelloBench` | Pixel gates (incl. unstructured-garbage fail) · multi-trial harness |
 | `ImarelloCore` | Pins, scheduler, RoPE, policy |
 
@@ -211,7 +211,7 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 | macOS library + CLI | iOS 26 demo (`Apps/ImarelloIOS`) — **512² T2I on device**, studio UI v2; 1024² anatomy still open |
 | 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
 | T2I, strength I2I, `--identity` | `--text-tokens auto` speed path (opt-in) |
-| Steel FA · Small Decoder · f16 qmm · embed cache · Hub pin + CI floors | |
+| Steel FA · joint-f16 attention · f16 qmm · Small Decoder · untiled ≤768² decode · embed cache · Hub pin + CI floors | Partial-pad conditioning study ([Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) Tier 3) |
 
 Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
 
@@ -224,6 +224,7 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md)
 | [IOS.md](Docs/IOS.md) | iOS 26 demo — Simulator UI, `xcodebuild` + `devicectl`, device generate harness |
 | [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | Color vs identity strength |
 | [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 |
+| [ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) | Engine analysis, optimization ledger, open research tiers |
 
 ---
 

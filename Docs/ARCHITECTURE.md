@@ -29,7 +29,7 @@ mlx-swift
 | Attention heads | 24 |
 | Head dim | 128 → inner **3072** |
 | Joint attention dim | **7680** (3×2560 Qwen layers 9/18/27) |
-| Max text length | TE pad **512**; DiT default **auto** trim ([`TEXT_TOKENS.md`](TEXT_TOKENS.md)) |
+| Max text length | TE pad **512**; DiT default **pad-512** (`auto` trim is opt-in — [`TEXT_TOKENS.md`](TEXT_TOKENS.md)) |
 | Latent channels (VAE) | 32 → 128 after unshuffle |
 | RoPE axes | (32,32,32,32), θ=**2000** |
 | Default steps / guidance | **4** / **1.0** |

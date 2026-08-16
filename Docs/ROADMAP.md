@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-16 (engine research report landed — [`ENGINE_RESEARCH.md`](ENGINE_RESEARCH.md); `--text-tokens auto` default reverted; P7 1024² anatomy still open)  
+**Last updated:** 2026-08-16 ([`ENGINE_RESEARCH.md`](ENGINE_RESEARCH.md) Tiers 0–2 shipped: 512² 23.0 s / 1024² 71.0 s / watermark 3.00 GiB, on-device 11.6 s; Tier 3 partial-pad study is the next engine lever; P7 1024² anatomy + last-in-app I2I still open)  
 **Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
 **Backend / P9 leftovers are paused** — do not start TAEF2, ref-KV, Δ-DiT, `stagedAggressive`, or fused qmm+SwiGLU unless the user asks.  
 **Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  

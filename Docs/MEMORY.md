@@ -37,8 +37,12 @@ I2I adds VAE encode (then unload) before TE/DiT.
 | Staged TE → DiT → VAE | Done (default) |
 | DiT per-block `eval` + `clearCache` | Done |
 | **MLX Steel fused FA** (full Q, D∈{64,80,128}) | Done (product default for Klein) |
-| f16 QKV when seq > 512 | Done (512² image tokens; 2026-08-13 A/B) |
-| f16 scaled 4-bit Linear (`÷16`) | Done (product default 2026-08-15; `--attn-linear-compute f32` escape) |
+| f16 QKV from the **joint** sequence (all 25 blocks) | Done (2026-08-16 Tier-2; was per-stream `seq > 512`) |
+| f16 scaled 4-bit Linear (`÷16`, scales pre-cast f16 at load) | Done (product default 2026-08-15/16; `--attn-linear-compute f32` escape) |
+| Chunk-streamed single-stream blocks (proj/mlpHidden/to_out never full-length) | Done (2026-08-16; 1024² watermark 3.63 → 3.07 GiB) |
+| Timestep conditioning hoisted per generate (temb + modulations + AdaLN-out) | Done (2026-08-16) |
+| Untiled decode ≤ 768² (tile threshold 128) | Done (2026-08-16; decode −51% @768². **Untiled 1024² Metal-aborts** — keep tiling) |
+| NHWC end-to-end VAE (one transpose per boundary) | Done (2026-08-16; bit-exact, speed-neutral — old transposes were lazy views) |
 | Query-chunked SDPA | Fallback only (unsupported head dims) |
 | VAE D=512 query-chunked attention | Done (`VAEAttention`; `evalEachChunk` **off**; `--vae-attn-chunk 0` = MLXFast A/B) |
 | `EvalCachePolicy.product` | Done (default). `mid` is ≥16 GB **bench only** (`--eval-cache mid`). **No `.high`.** |
@@ -59,9 +63,9 @@ I2I adds VAE encode (then unload) before TE/DiT.
 
 | Module | ~Disk / load |
 |--------|----------------|
-| TE | 2.26 GB |
+| TE | 2.26 GB disk · **~1.7 GB materialized** (27 of 36 layers loaded; pruned tail never read — lazy safetensors) |
 | DiT | 2.18 GB |
 | VAE (klein pack) | 0.17 GB (encode-only ~67 MB) |
 | Small Decoder (default decode) | ~112 MB F32 (`FLUX.2-small-decoder`) |
 
-On 8 GB M2 after the product path (auto + Small Decoder + f16 qmm, 2026-08-15), **live peak active ≈ DiT weights (~2.04 GiB)** at both 512² and 1024²; watermark **2.38 GiB (512)** / **3.46 GiB (1024)**. Prefer **512² for interactive speed**, not because 1024² OOMs. See [`PERF.md`](PERF.md).
+On 8 GB M2 after the post-Tier-2 product path (pad-512 + f16 qmm + joint-f16 + Small Decoder, 2026-08-16), **live peak active ≈ DiT weights (~2.05 GiB)** at both 512² and 1024²; watermark **2.57 GiB (512)** / **3.00 GiB (1024)**. Prefer **512² for interactive speed**, not because 1024² OOMs. See [`PERF.md`](PERF.md).

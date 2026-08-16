@@ -60,7 +60,7 @@ Measured on Hub API (2026-08-10):
 
 | Component | Path | Approx size (4-bit) |
 |-----------|------|---------------------|
-| Text encoder (Qwen3-4B) | `text_encoder/*.safetensors` | **~2.26 GB** |
+| Text encoder (Qwen3-4B) | `text_encoder/*.safetensors` | **~2.26 GB** on disk (~1.7 GB materialized — 27 of 36 layers loaded) |
 | Transformer (MMDiT) | `transformer/*.safetensors` | **~2.18 GB** |
 | VAE | `vae/*.safetensors` | **~0.17 GB** |
 | Tokenizer | `tokenizer/*` | ~11 MB |
