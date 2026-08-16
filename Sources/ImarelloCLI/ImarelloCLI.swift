@@ -1032,13 +1032,16 @@ struct Bench: AsyncParsableCommand {
             attentionQueryChunkSize: attnChunkSize,
             attentionQueryChunkThreshold: attnChunkThreshold,
             attentionF16SeqThreshold: attnF16Threshold,
-            attentionLinearF16: linearF16,
+            attentionLinearF16: linearF16 ?? AttentionTuning.current.linearF16,
             attentionLinearChunkSize: attnLinearChunk,
             attentionLinearChunkThreshold: attnLinearThreshold,
             attentionBackend: attnBackend,
             attentionBlockClearSeqThreshold: attnBlockClearThreshold,
             attentionBlockClearInterval: attnBlockClearInterval,
-            textTokens: textTokens,
+            // Persist resolved values, not nil-means-default: quality-knob
+            // provenance must live in the report, not the filename label.
+            textTokens: textTokens ?? TextTokenMode.full512.rawValue,
+            vaeVariant: vaeVariant,
             opProfile: opProfile,
             imagePath: image,
             strength: strength,
@@ -1146,6 +1149,12 @@ struct Bench: AsyncParsableCommand {
         var childJSONs: [URL] = []
         print("res-ladder sides=\(sides) density=\(density.rawValue) (subprocess per rung)")
 
+        // The parent only spawns and waits from here on; hand the Metal lock to
+        // the serial children and mark this pid ignorable for their preflight.
+        HostPreflight.releaseForSubprocesses()
+        var childEnv = ProcessInfo.processInfo.environment
+        childEnv["IMARELLO_IGNORE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
+
         for side in sides {
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent("imarello-ladder-\(side)-\(UUID().uuidString).json")
@@ -1177,6 +1186,7 @@ struct Bench: AsyncParsableCommand {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: exe)
             proc.arguments = args
+            proc.environment = childEnv
             proc.standardOutput = FileHandle.standardOutput
             proc.standardError = FileHandle.standardError
             do {

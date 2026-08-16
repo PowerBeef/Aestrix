@@ -29,11 +29,18 @@ public final class MemoryProbe: @unchecked Sendable {
     private var samples: [MemorySample] = []
     private let lock = NSLock()
 
+    /// Installed by a module that links MLX (ImarelloRuntime) so ImarelloCore
+    /// itself stays MLX-free. Returns (activeBytes, cacheBytes).
+    public nonisolated(unsafe) static var mlxSampler: (@Sendable () -> (UInt64, UInt64))?
+
     public init() {}
 
     public func snapshot(label: String) -> MemorySample {
+        let mlx = Self.mlxSampler?() ?? (0, 0)
         let sample = MemorySample(
             label: label,
+            mlxActiveBytes: mlx.0,
+            mlxCacheBytes: mlx.1,
             processResidentBytes: Self.processResidentBytes()
         )
         lock.lock()

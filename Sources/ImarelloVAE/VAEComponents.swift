@@ -190,8 +190,17 @@ final class Flux2DownEncoderBlock2D: Module {
 
     func callAsFunction(_ hiddenStates: MLXArray) -> MLXArray {
         var h = hiddenStates
-        for r in resnets { h = r(h) }
-        for d in downsamplers { h = d(h) }
+        // Checkpoint like the decoder: without this a 1024² I2I encode builds
+        // the whole down-stack lazily (first block holds ~536 MB f32 tensors).
+        for r in resnets {
+            h = r(h)
+            eval(h)
+        }
+        for d in downsamplers {
+            h = d(h)
+            eval(h)
+        }
+        Memory.clearCache()
         return h
     }
 }

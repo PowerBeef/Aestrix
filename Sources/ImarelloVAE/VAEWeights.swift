@@ -88,7 +88,10 @@ public enum VAEWeights {
         remapped["bn.running_var"] = variance.asType(.float32)
         let nested = NestedDictionary<String, MLXArray>.unflattened(remapped)
         try model.update(parameters: nested, verify: [.shapeMismatch, .allModelKeysSet])
-        quantizeAttentionLinears(model)
+        // Keep BFL's F32 attention as shipped: quantizing the distilled decoder's
+        // one attention block saved ~1.8 MB at pure quality cost (Tier-0 fix,
+        // ENGINE_RESEARCH.md §3.3). The klein-pack loaders above still quantize —
+        // their packs are pre-quant and that is their shipped numerics.
         eval(model)
         return model
     }

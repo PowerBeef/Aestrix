@@ -51,6 +51,19 @@ public enum HostPreflight {
         }
     }
 
+    /// Hand the lock to serial child processes (res-ladder). The parent only
+    /// spawns and waits after this — it must not touch Metal again.
+    public static func releaseForSubprocesses() {
+        lockQueue.sync {
+            guard let handle = lockHandle else { return }
+            #if os(macOS)
+            flock(handle.fileDescriptor, LOCK_UN)
+            #endif
+            handle.closeFile()
+            lockHandle = nil
+        }
+    }
+
     public static func formatBytes(_ bytes: UInt64) -> String {
         let mb = Double(bytes) / 1_048_576.0
         if mb >= 1024 {
@@ -117,9 +130,12 @@ public enum HostPreflight {
     }
 
     static func parsePSForProduct(_ output: String, excluding selfPid: Int32) -> [Int32] {
-        output.split(whereSeparator: \.isNewline).compactMap { line -> Int32? in
+        // A res-ladder parent hands the lock to its children and marks itself
+        // ignorable — it only spawns and waits while a rung owns Metal.
+        let ignoredPid = ProcessInfo.processInfo.environment["IMARELLO_IGNORE_PID"].flatMap(Int32.init)
+        return output.split(whereSeparator: \.isNewline).compactMap { line -> Int32? in
             let parts = line.split(maxSplits: 1, omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
-            guard parts.count == 2, let pid = Int32(parts[0]), pid != selfPid else { return nil }
+            guard parts.count == 2, let pid = Int32(parts[0]), pid != selfPid, pid != ignoredPid else { return nil }
             let comm = String(parts[1])
             let base = (comm as NSString).lastPathComponent
             // Exact comm only — not `imarello-helper`. Also match leftover `aestrix` binaries.

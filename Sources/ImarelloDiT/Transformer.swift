@@ -133,12 +133,8 @@ public final class Flux2Transformer: Module {
             ComputeDTypeProbe.record("dit.in.timestep", timestep)
         }
 
-        func sample(_ suffix: String, block: Int? = nil, forceEval: Bool = false) {
+        func sample(_ suffix: String, block: Int? = nil) {
             guard let trace, density.instrumentsDiTBlocks else { return }
-            if forceEval {
-                // Materialize live graph so activeMemory reflects this region (dense diagnosis only).
-                eval(hiddenStates)
-            }
             trace.probe(
                 "\(prefix).\(suffix)",
                 phase: "dit",

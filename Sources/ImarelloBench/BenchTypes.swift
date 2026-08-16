@@ -62,8 +62,10 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionBlockClearSeqThreshold: Int?
     /// Clear cache every N blocks when per-block clears are active (nil = product default).
     public var attentionBlockClearInterval: Int?
-    /// Text token mode for T2I trials: "auto" (product default) | "512" (pad).
+    /// Text token mode for T2I trials: "512" (pad, product default) | "auto" (trim).
     public var textTokens: String?
+    /// VAE decode variant for provenance: "small-decoder" | "full".
+    public var vaeVariant: String?
     /// GPU-sync Steel FA vs FFN vs processQKV split (ranking only).
     public var opProfile: Bool
     /// Reference image for I2I / identity-I2I modes.
@@ -101,6 +103,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionBlockClearSeqThreshold: Int? = nil,
         attentionBlockClearInterval: Int? = nil,
         textTokens: String? = nil,
+        vaeVariant: String? = nil,
         opProfile: Bool = false,
         imagePath: String? = nil,
         strength: Float? = nil,
@@ -133,6 +136,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionBlockClearSeqThreshold = attentionBlockClearSeqThreshold
         self.attentionBlockClearInterval = attentionBlockClearInterval
         self.textTokens = textTokens
+        self.vaeVariant = vaeVariant
         self.opProfile = opProfile
         self.imagePath = imagePath
         self.strength = strength

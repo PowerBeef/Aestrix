@@ -8,8 +8,16 @@ import ImarelloCore
 
 /// Write MLX image tensors to PNG (macOS / iOS ImageIO).
 enum ImageExport {
-    /// - Parameter image: NCHW float RGB in roughly `[-1, 1]` (FLUX VAE convention) or `[0, 1]`.
-    static func writePNG(_ image: MLXArray, to url: URL) throws {
+    /// Value range of the incoming tensor. Callers know their range; sampling
+    /// pixels to guess it silently crushed shadows when the probed corner was bright.
+    enum PixelRange {
+        case negOneToOne
+        case zeroToOne
+    }
+
+    /// - Parameter image: NCHW float RGB.
+    /// - Parameter range: `[-1, 1]` (FLUX VAE convention, default) or `[0, 1]`.
+    static func writePNG(_ image: MLXArray, to url: URL, range: PixelRange = .negOneToOne) throws {
         var x = image
         if x.ndim == 4 {
             x = x[0]  // CHW
@@ -27,15 +35,7 @@ enum ImageExport {
         var floats = x.asArray(Float.self)
         let pixelCount = h * w
 
-        // FLUX VAE decode is in [-1, 1]. Probe a few samples (avoid full min scan).
-        let probe = min(256, floats.count)
-        var minProbe = Float.infinity
-        for i in 0 ..< probe {
-            minProbe = min(minProbe, floats[i])
-        }
-        let isNegOneToOne = minProbe < -0.05
-
-        if isNegOneToOne {
+        if range == .negOneToOne {
             var one: Float = 1
             var half: Float = 0.5
             vDSP_vsadd(floats, 1, &one, &floats, 1, vDSP_Length(floats.count))

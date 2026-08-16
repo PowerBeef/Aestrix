@@ -26,6 +26,10 @@ public final class StageOrchestrator: @unchecked Sendable {
         self.vae = vae
         self.memoryPolicy = memoryPolicy
         self.probe = probe
+        // ImarelloCore does not link MLX; give its probes real MLX numbers here.
+        if MemoryProbe.mlxSampler == nil {
+            MemoryProbe.mlxSampler = { (UInt64(Memory.activeMemory), UInt64(Memory.cacheMemory)) }
+        }
     }
 
     public func loadedModuleNames() -> [String] {
