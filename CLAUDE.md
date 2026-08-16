@@ -95,7 +95,7 @@ Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 
 - **Done**: P0–P6c (macOS library + CLI: T2I, I2I, identity I2I, eval workflow), P8 (polish, CI floors), P9 (perf harness; Small Decoder + f16 scaled qmm are product defaults; `--text-tokens auto` was reverted to opt-in 2026-08-16 after a vision regression).
 - **P9 leftover slices are paused** (TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`, fused qmm+SwiGLU). **Do not resume speed work unless asked.**
-- **Next phase: P7 iOS** (partial): 512² T2I verified on a physical iPhone; open items are 1024² vision-clean anatomy and last-in-app I2I eval.
+- **Next phase: P7 iOS** (partial): 512² T2I verified on a physical iPhone (re-passed 2026-08-16 on the pad-512 default, studio UI v2); open items are 1024² vision-clean anatomy and last-in-app I2I eval.
 - **Blocking process rule**: always address issues that surface (metallib, load failures, parity fails, failed eval gates, unexplained OOM) **before** starting the next phase.
 
 ## Tooling
@@ -131,7 +131,7 @@ Full recipe: `Docs/IOS.md`. Product locks unchanged.
 - **Simulator is UI-only** (MLX does not run; Generate is a chrome no-op). **Mac Catalyst is forbidden.** Physical iPhone runs T2I + last-in-app I2I.
 - Device build needs `-skipPackagePluginValidation` (mlx-swift ships a CUDA package plugin), `-allowProvisioningUpdates`, team `FK2D8X36G2`. Install/launch with `xcrun devicectl`. XcodeBuildMCP's device workflow is **not enabled** on this host — Simulator tools only.
 - Entitlements `increased-memory-limit` + `extended-virtual-addressing` are pinned via `project.yml` `SystemCapabilities`; after `project.yml` edits run `./Scripts/generate-ios-project.sh`. The wildcard profile silently strips them; hand-`codesign` extra keys fails install with `0xe8008015`.
-- Weights are never bundled. **Resync after every install** (`Scripts/sync-ios-device-weights.sh`) — a new `devicectl install` usually creates a new data container. If Generate throws `weightsNotFound` with no gate banner, the pipeline predates the copy — recreate it (`GenerationModel.ensureReady`).
+- Weights are never bundled. **Resync after every install** (`Scripts/sync-ios-device-weights.sh` — resolves symlinked host snapshots and detects any paired iPhone itself) — a new `devicectl install` usually creates a new data container. If Generate throws `weightsNotFound` while the stage looks ready, the pipeline predates the copy — recreate it (`GenerationModel.ensureReady`).
 - Drive device generates from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512² fox seed 42; `--width 1024` needs `--allow-1024`; new job id on every retry). **Never ask the user to tap Generate.**
 - 1024² same-seed is a **new noise tensor** (μ 1.15 vs 0.63); Klein 4-step can assemble a broken body plan while pixel PASSes — **vision anatomy is the gate**.
 

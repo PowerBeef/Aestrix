@@ -98,7 +98,7 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --seed 42 --output out.png
 ```
 
-Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~19 s on an 8 GB M2).
+Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~24 s on an 8 GB M2).
 
 ```bash
 # Recolor / style — strength ≥ 0.8 for object color
@@ -194,8 +194,8 @@ let url = try await pipeline.generate(
 Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md).
 
 ```bash
-# Filtered unit tests (no weights). Skip unfiltered `swift test` after a GPU abort.
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|HubPin|Metallib|EvalCachePolicy|TextTokenMode|DiTOpProfile'
+# Filtered unit tests (no weights). Never run unfiltered `swift test` (Metal FA tests can hang).
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness'
 
 .build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
   --json /tmp/bench.json
@@ -208,10 +208,10 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 
 | Shipping | In progress / parked |
 |----------|----------------------|
-| macOS library + CLI | iOS 26 demo (`Apps/ImarelloIOS`) — **512² T2I on device**; 1024² anatomy still open |
+| macOS library + CLI | iOS 26 demo (`Apps/ImarelloIOS`) — **512² T2I on device**, studio UI v2; 1024² anatomy still open |
 | 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
-| T2I, strength I2I, `--identity` | |
-| Steel FA · Small Decoder · auto tokens · f16 qmm · embed cache · Hub pin + CI floors | |
+| T2I, strength I2I, `--identity` | `--text-tokens auto` speed path (opt-in) |
+| Steel FA · Small Decoder · f16 qmm · embed cache · Hub pin + CI floors | |
 
 Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
 
@@ -229,7 +229,7 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md)
 
 ## iOS 26 demo
 
-`Apps/ImarelloIOS` is a phone studio (prompt, 512 / 1024, last-image edit). It links the same staged `ImarelloRuntime`.
+`Apps/ImarelloIOS` is a phone studio (prompt, 512 / 1024, last-image edit). It links the same staged `ImarelloRuntime`. The stage tells the gate story itself — ready, weights-missing, or Simulator preview — with a live elapsed timer and a Try Again action while running.
 
 - **Simulator** is UI only — MLX has no Simulator Metal. Generate is a no-op.
 - **Physical iPhone** is the generate host. Build with `xcodebuild` (`-skipPackagePluginValidation`) and install with `devicectl`. No Mac Catalyst.

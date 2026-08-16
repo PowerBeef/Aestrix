@@ -1,6 +1,6 @@
 # Imarello iOS 26 demo
 
-**Status (2026-08-16):** `Apps/ImarelloIOS` runs staged Klein 4B on a physical iPhone (Debug, Apple Development). Simulator remains UI-only. **512² T2I smoke passed** (fox, seed 42; pixel PASS + vision pass). Device jobs: `Scripts/ios-device-harness.sh`. **1024² T2I** runs but can fail vision anatomy (Klein 4-step / μ=1.15 / 4096 tokens — not a seed-commit bug). Weights are **not** in the bundle; **resync after every `devicectl install`**. Profile `app.imarello.demo` signs both kernel entitlements. Metallib resolution walks the `.app` for `mlx-swift_Cmlx.bundle`.
+**Status (2026-08-16):** `Apps/ImarelloIOS` runs staged Klein 4B on a physical iPhone (Debug, Apple Development). Simulator remains UI-only. **512² T2I smoke re-passed on the pad-512 default** (fox, seed 42; pixel PASS + vision pass) after the studio UI cleanup: the gate story now lives on the stage (ready / weights-missing / Simulator empty states — no banner), with an elapsed timer, Try Again on errors, and a 1024² duration caption. Device jobs: `Scripts/ios-device-harness.sh`. **1024² T2I** runs but can fail vision anatomy (Klein 4-step / μ=1.15 / 4096 tokens — not a seed-commit bug). Weights are **not** in the bundle; **resync after every `devicectl install`**. Profile `app.imarello.demo` signs both kernel entitlements. Metallib resolution walks the `.app` for `mlx-swift_Cmlx.bundle`.
 
 The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agent map: [`../CLAUDE.md`](../CLAUDE.md) § P7 iOS.
 
@@ -8,7 +8,7 @@ The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agen
 
 | Surface | What works |
 |---------|------------|
-| **iOS Simulator** | UI preview only (no gate banner). **MLX does not run.** Generate is a chrome no-op. |
+| **iOS Simulator** | UI preview only — the stage shows a "Studio preview" empty state. **MLX does not run.** Generate is a chrome no-op. |
 | **Physical iPhone** | App installs and launches. T2I + last-in-app I2I once weights + entitlements are right. |
 | **Mac Catalyst** | Not supported. Do not add a Mac destination. |
 
@@ -71,13 +71,13 @@ On first launch the app looks in its sandbox `Caches/Imarello/models/` for:
 - `mlx-community--FLUX.2-Klein-4B-4bit` @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da`
 - `black-forest-labs--FLUX.2-small-decoder` @ `a3efc24f613ef42d9428af62fdbd6f5fd8856c4a`
 
-Download on a Mac (same as the CLI), then copy into the app container after the first install so the container exists. Helper notes: `Scripts/sync-ios-device-weights.sh`. Pins: [`WEIGHTS.md`](WEIGHTS.md).
+Download on a Mac (same as the CLI), then copy into the app container after the first install so the container exists. Helper: `Scripts/sync-ios-device-weights.sh`. Pins: [`WEIGHTS.md`](WEIGHTS.md).
 
-Missing Klein 4-bit on the Mac cache blocks the copy. Small Decoder alone is not enough. If the Mac path is a **symlink** into `~/Library/Caches/Aestrix/models/…`, copy the **real** directories (the phone cannot follow that symlink).
+Missing Klein 4-bit on the Mac cache blocks the copy. Small Decoder alone is not enough. The sync script **resolves symlinked snapshot dirs itself** (e.g. `Imarello/models` links into `~/Library/Caches/Aestrix/models/…` — devicectl cannot open a symlinked source) and auto-detects any **paired** physical iPhone (an idle CoreDevice tunnel reads `disconnected`; that is fine). Both fixed 2026-08-16; `DEVICE=<coredevice-id>` still overrides.
 
 A new `devicectl device install app` often creates a **new data container**. The previous `models/` tree is gone. Run the sync script again before Generate.
 
-`ImarelloPipeline.snapshot` is set in `init`. If the app created a pipeline **before** the copy, Generate can show **no banner** and still throw `weightsNotFound` at the Klein path. `GenerationModel.ensureReady()` now rebuilds the pipeline when `hasLocalSnapshot` is false.
+`ImarelloPipeline.snapshot` is set in `init`. If the app created a pipeline **before** the copy, Generate can look ready on the stage and still throw `weightsNotFound` at the Klein path. `GenerationModel.ensureReady()` rebuilds the pipeline when `hasLocalSnapshot` is false.
 
 ## First generate (after weights + entitlements)
 
@@ -100,12 +100,14 @@ Xcode compiles mlx-swift Cmlx Metal into `Imarello.app/mlx-swift_Cmlx.bundle/def
 Agents cannot tap **Generate**. Drive one Klein job by dropping JSON into the app container; the app runs the same pipeline as the dock button, then the Mac pulls the PNG and optionally pixel-evals it. **Not** XCUITest. Simulator jobs are written `skipped` (no fake Klein).
 
 ```bash
-# Default: fox prompt, 512², seed 42. Does not rebuild the app.
+# Default: fox prompt, 512², seed 42, --text-tokens 512 (the product default). Does not rebuild the app.
 ./Scripts/ios-device-harness.sh --eval --fail-on-pixel-gate
 
 # 1024 is opt-in (minutes on device; one Metal owner)
 ./Scripts/ios-device-harness.sh --width 1024 --allow-1024 --eval
 ```
+
+Device auto-detection accepts any paired physical iPhone (same fix as the sync script); `DEVICE=` overrides.
 
 The app polls `Library/Caches/Imarello/jobs/inbox/` every 2s while active. Results land in `jobs/done/{id}.json`; PNGs stay under `Caches/Imarello/outputs/`. Copied artifacts: `/tmp/imarello-ios-eval/{id}/`.
 
