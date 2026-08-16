@@ -8,7 +8,7 @@ The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agen
 
 | Surface | What works |
 |---------|------------|
-| **iOS Simulator** | UI preview only — the stage shows a "Studio preview" empty state. **MLX does not run.** Generate is a chrome no-op. |
+| **iOS Simulator** | UI preview only — the stage shows a "Simulator preview" empty state and the status row says `PREVIEW · Klein develops on device`. **MLX does not run.** Develop is a chrome no-op. |
 | **Physical iPhone** | App installs and launches. T2I + last-in-app I2I once weights + entitlements are right. |
 | **Mac Catalyst** | Not supported. Do not add a Mac destination. |
 
@@ -77,7 +77,7 @@ Missing Klein 4-bit on the Mac cache blocks the copy. Small Decoder alone is not
 
 A new `devicectl device install app` often creates a **new data container**. The previous `models/` tree is gone. Run the sync script again before Generate.
 
-`ImarelloPipeline.snapshot` is set in `init`. If the app created a pipeline **before** the copy, Generate can look ready on the stage and still throw `weightsNotFound` at the Klein path. `GenerationModel.ensureReady()` rebuilds the pipeline when `hasLocalSnapshot` is false.
+`ImarelloPipeline.snapshot` is set in `init`. If the app created a pipeline **before** the copy, Generate can look ready on the stage and still throw `weightsNotFound` at the Klein path. `GenerationEngine.ensureReady()` rebuilds the pipeline when `hasLocalSnapshot` is false.
 
 ## First generate (after weights + entitlements)
 
@@ -87,7 +87,7 @@ A new `devicectl device install app` often creates a **new data container**. The
 4. Export the PNG and run [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) on the Mac.
 5. 1024² only after 512 succeeds. Same seed ≠ the 512 image scaled up (different noise shape + scheduler μ). Vision-check anatomy — pixel can PASS a headless chimera.
 
-Edit uses the last in-app PNG at strength 0.8. No `--identity` in this demo. Seed field: number-pad **Done**, commit on Generate; caption `{side} · seed {n}` is what actually ran.
+Edit runs from **any print in history** at strength 0.8 (stage it from the viewer). No `--identity` in this demo. Seed field: number-pad **Done**, committed before every develop; caption `{side} · seed {n}` is what actually ran.
 
 ## Metallib
 
@@ -115,6 +115,25 @@ Copy the job to **`…/jobs/inbox/{id}.json`**. Copying onto `…/jobs/inbox` wh
 
 Pixel eval is not a vision pass — open the PNG (`EVAL_WORKFLOW.md`). Do not run a generate matrix on the phone in v1.
 
-## Simulator UI
+## Studio UI (rebuilt 2026-08-16)
 
-Impeccable `layout` + axiom Liquid Glass (Regular, not Clear). Verify with `xcui` + AXe (`describe-ui`, tap **by label**, `axe screenshot`). Do not fake Klein generate on the Simulator.
+The app was rebuilt from the ground up as a **two-page spread**, replacing the old single-column form (`RootView` / `StudioView` / `ResultView` / `GenerationModel` are gone).
+
+| Page | What it owns |
+|------|--------------|
+| **Stage** | The current print full-bleed (blurred overscan of the same print fills the screen behind it), a header with the Mark, the plate chip (`512² · seed 42`) and a grid button to the sheet, one glass **status row**, and the prompt bar with the gold **Develop** pill |
+| **Contact Sheet** | Every print in a 2 pt film grid (`EDIT` badge on I2I), tap → **viewer**: pinch/double-tap zoom, swipe between prints, Edit · Share · Save · Delete |
+
+Swipe between pages, or use the header buttons. Layers:
+
+| File | Role |
+|------|------|
+| `GenerationEngine.swift` | Gate, `ensureReady` (rebuilds the pipeline when `hasLocalSnapshot` flips), T2I / I2I calls |
+| `HarnessService.swift` | Inbox poll → claim → run → result. **Behavior-frozen** — the harness contract lives here |
+| `PrintStore.swift` | Persistent history: `prints-index.json` + `outputs/`, thumbnails, adoption of unindexed PNGs |
+| `StudioModel.swift` | Plate (prompt/side/seed), staged edit, run lifecycle, darkroom phase copy |
+| `StudioRootView` / `StudioPage` / `ContactSheetPage` / `PrintViewer` / `StatusRow` / `PromptBar` / `PlateSheet` | The spread |
+
+One **status row** speaks for every state — caption, gate, progress + elapsed, staged edit, error + Try Again — so nothing improvises its own chrome. **Edit from any print**: the viewer's Edit stages that print (`EDIT · 0.8` in the row, the pill flips to `Edit`); the next develop runs I2I from it at the locked strength. Ground is darkroom near-black (`StudioBackground` / `StageGround`), accent iris-gold, ink cream, Liquid Glass **Regular** with `glassProminent` on the Develop pill only.
+
+Verify with `xcui` + AXe (`describe-ui`, tap **by label**, `axe screenshot`) or XcodeBuildMCP `snapshot_ui`. Do not fake Klein generate on the Simulator.
