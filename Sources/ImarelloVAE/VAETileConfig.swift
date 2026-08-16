@@ -22,7 +22,11 @@ public struct VAETileConfig: Sendable, Equatable, Codable {
     public var noneGrid: Int
 
     public init(
-        enabledThreshold: Int = 96,
+        /// 128 (2026-08-16 Tier-2): 768² decodes untiled — the 96 threshold made it
+        /// pay 2.25× redundant decode for tensors that fit easily (−51% measured,
+        /// no blend seams). 1024² keeps tiling: the untiled decode was measured to
+        /// Metal-abort on the 8 GB host (imarello-2026-08-16-104942.ips).
+        enabledThreshold: Int = 128,
         /// Prefer ~2 tiles on 128² unpatchified latents (1024² image): 72+16 → starts [0,56].
         tileSize: Int = 72,
         overlap: Int = 16,
@@ -37,6 +41,10 @@ public struct VAETileConfig: Sendable, Equatable, Codable {
     }
 
     public static let `default` = VAETileConfig()
+
+    /// Active config for product decode calls. Mutate only between generations
+    /// (bench sweeps / CLI overrides).
+    nonisolated(unsafe) public static var current: VAETileConfig = .default
 
     /// Legacy hard 2×2 without feather (pre–overlap path).
     public static let hard2x2 = VAETileConfig(

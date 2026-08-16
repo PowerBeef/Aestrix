@@ -36,6 +36,15 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     /// **true** (bounds lazy-graph peak). Must be **false** to trace a block under
     /// `MLX.compile` (eval inside a traced function breaks compilation) — spike use only.
     public var qkvCheckpoint: Bool
+    /// When > 0, per-block checkpoints use `asyncEval` (schedule without a CPU stall)
+    /// with a blocking `eval` every N blocks to cap graph depth. 0 = blocking every
+    /// block (pre-Tier-2 behavior). Numerics identical; watermark must be re-gated.
+    public var asyncEvalInterval: Int
+    /// Decide the attention store dtype from the **joint** sequence (txt+img) instead of
+    /// per stream. Double-stream text (seq 512) currently lands f32 and drags the whole
+    /// joint QKV back to f32 through concat/SDPA promotion — 5 of 25 blocks run f32
+    /// Steel plus six wasted casts per block. Pixel-changing: gate on eval + vision.
+    public var jointSeqF16: Bool
 
     public init(
         queryChunkThreshold: Int = 1536,
@@ -51,8 +60,15 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         backend: AttentionBackend = .mlx,
         metalFAMinSeq: Int = 1024,
         blockCacheClearSeqThreshold: Int = 1536,
-        blockCacheClearInterval: Int = 1,
-        qkvCheckpoint: Bool = true
+        /// 2 (2026-08-16 Tier-2, with EvalCachePolicy.product): every-block clears
+        /// cost ~2% at 1024² post-streaming with no watermark benefit.
+        blockCacheClearInterval: Int = 2,
+        qkvCheckpoint: Bool = true,
+        asyncEvalInterval: Int = 0,
+        /// Product default **true** (2026-08-16 Tier-2): −1.3% e2e @1024², watermark
+        /// −0.07 GiB, eval-regression 15/15 + vision pass. `false` restores per-stream
+        /// dtype (f32 double-stream attention).
+        jointSeqF16: Bool = true
     ) {
         self.queryChunkThreshold = queryChunkThreshold
         self.queryChunkSize = queryChunkSize
@@ -66,6 +82,8 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         self.blockCacheClearSeqThreshold = blockCacheClearSeqThreshold
         self.blockCacheClearInterval = max(1, blockCacheClearInterval)
         self.qkvCheckpoint = qkvCheckpoint
+        self.asyncEvalInterval = max(0, asyncEvalInterval)
+        self.jointSeqF16 = jointSeqF16
     }
 
     /// Product defaults.

@@ -77,7 +77,7 @@ public final class Flux2VAE: Module {
     /// Decode packed DiT latents [B, C*4, H, W] using BN denorm + unpatchify.
     public func decodePackedLatents(
         _ packed: MLXArray,
-        tileConfig: VAETileConfig = .default
+        tileConfig: VAETileConfig = .current
     ) -> MLXArray {
         var p = packed
         if p.ndim == 5 {

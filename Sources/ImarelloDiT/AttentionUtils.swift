@@ -12,7 +12,8 @@ enum AttentionUtils {
         normQ: RMSNorm,
         normK: RMSNorm,
         numHeads: Int,
-        headDim: Int
+        headDim: Int,
+        forcedDType: DType? = nil
     ) -> (MLXArray, MLXArray, MLXArray) {
         let batch = hiddenStates.dim(0)
         let seq = hiddenStates.dim(1)
@@ -41,7 +42,7 @@ enum AttentionUtils {
 
             // Prefer f16 for long sequences after f32 RMSNorm (memory).
             let f16Thr = AttentionTuning.current.f16SeqThreshold
-            let attnDType: DType = seq > f16Thr ? .float16 : query.dtype
+            let attnDType: DType = forcedDType ?? (seq > f16Thr ? .float16 : query.dtype)
             query = normQ(query.asType(.float32)).asType(attnDType)
             key = normK(key.asType(.float32)).asType(attnDType)
             value = value.asType(attnDType)

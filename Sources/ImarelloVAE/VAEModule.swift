@@ -130,7 +130,7 @@ public final class VAEModule: LoadableModule, @unchecked Sendable {
 
     public func decodePacked(
         _ packed: MLXArray,
-        tileConfig: VAETileConfig = .default
+        tileConfig: VAETileConfig = .current
     ) throws -> MLXArray {
         if let model, isLoaded { return model.decodePackedLatents(packed, tileConfig: tileConfig) }
         if let decodeOnlyModel, isLoaded {

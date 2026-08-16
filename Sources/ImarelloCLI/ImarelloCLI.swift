@@ -924,6 +924,15 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Clear cache every N blocks when per-block clears are active (default 1).")
     var attnBlockClearInterval: Int?
 
+    @Option(name: .long, help: "asyncEval per DiT block with a hard eval every N blocks (0 = blocking).")
+    var attnAsyncEval: Int?
+
+    @Flag(name: .long, help: "Decide attention store dtype from the joint sequence (f16 double blocks).")
+    var attnJointF16: Bool = false
+
+    @Option(name: .long, help: "VAE tile enable threshold in latent px (96 default; 136 = untiled ≤1024²).")
+    var vaeTileThreshold: Int?
+
     @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default, pad) | auto (trim). Docs/TEXT_TOKENS.md.")
     var textTokens: String?
 
@@ -1038,6 +1047,9 @@ struct Bench: AsyncParsableCommand {
             attentionBackend: attnBackend,
             attentionBlockClearSeqThreshold: attnBlockClearThreshold,
             attentionBlockClearInterval: attnBlockClearInterval,
+            attentionAsyncEvalInterval: attnAsyncEval,
+            attentionJointSeqF16: attnJointF16 ? true : nil,
+            vaeTileThreshold: vaeTileThreshold,
             // Persist resolved values, not nil-means-default: quality-knob
             // provenance must live in the report, not the filename label.
             textTokens: textTokens ?? TextTokenMode.full512.rawValue,

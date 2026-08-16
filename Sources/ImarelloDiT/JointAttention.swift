@@ -47,17 +47,30 @@ public final class Flux2Attention: Module {
         imageRotaryEmb: (MLXArray, MLXArray)?
     ) -> (MLXArray, MLXArray) {
         let txtLen = encoderHiddenStates.dim(1)
+        // Optionally decide the store dtype from the JOINT sequence: per-stream the
+        // text side (512, not > threshold) lands f32, and concat + SDPA promotion
+        // then drags the whole joint QKV back to f32 (six wasted casts per block,
+        // f32 Steel for the 5 double blocks). Joint-based, both streams agree.
+        let forcedDType: DType?
+        if AttentionTuning.current.jointSeqF16 {
+            let jointSeq = hiddenStates.dim(1) + txtLen
+            forcedDType = jointSeq > AttentionTuning.current.f16SeqThreshold ? .float16 : .float32
+        } else {
+            forcedDType = nil
+        }
         var (query, key, value) = AttentionUtils.processQKV(
             hiddenStates: hiddenStates,
             toQ: toQ, toK: toK, toV: toV,
             normQ: normQ, normK: normK,
-            numHeads: heads, headDim: dimHead
+            numHeads: heads, headDim: dimHead,
+            forcedDType: forcedDType
         )
         let (encQ, encK, encV) = AttentionUtils.processQKV(
             hiddenStates: encoderHiddenStates,
             toQ: addQProj, toK: addKProj, toV: addVProj,
             normQ: normAddedQ, normK: normAddedK,
-            numHeads: heads, headDim: dimHead
+            numHeads: heads, headDim: dimHead,
+            forcedDType: forcedDType
         )
         // Concat text then image on sequence axis (axis 2 in B,H,S,D), then RoPE.
         (query, key, value) = DiTOpProfile.time(

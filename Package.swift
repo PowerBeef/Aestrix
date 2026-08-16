@@ -97,6 +97,7 @@ let package = Package(
                 "ImarelloCore",
                 "ImarelloRuntime",
                 "ImarelloDiT",
+                "ImarelloVAE",
                 "ImarelloEval",
                 .product(name: "MLX", package: "mlx-swift"),
             ]

@@ -11,9 +11,12 @@ public struct EvalCachePolicy: Sendable, Equatable, Codable {
     public var clearCacheAfterDenoiseStep: Bool
 
     public init(
-        blockCacheClearInterval: Int = 1,
+        /// 2 (2026-08-16 Tier-2): with the chunk-streamed single blocks bounding
+        /// transients, every-block clears + the 256 MiB clamp cost ~2% at 1024²
+        /// for an identical watermark (measured 3.00 GiB either way).
+        blockCacheClearInterval: Int = 2,
         pipelineCacheClampMinSide: Int = 768,
-        denoiseCacheLimitBytes: UInt64? = 256 * 1_024 * 1_024,
+        denoiseCacheLimitBytes: UInt64? = 512 * 1_024 * 1_024,
         clearCacheAfterDenoiseStep: Bool = true
     ) {
         self.blockCacheClearInterval = max(1, blockCacheClearInterval)
@@ -23,9 +26,10 @@ public struct EvalCachePolicy: Sendable, Equatable, Codable {
     }
 
     public static let product = EvalCachePolicy()
+    /// Next relaxation step beyond product (≥16 GB bench hosts only).
     public static let mid = EvalCachePolicy(
-        blockCacheClearInterval: 2,
-        denoiseCacheLimitBytes: 512 * 1_024 * 1_024
+        blockCacheClearInterval: 4,
+        denoiseCacheLimitBytes: 1_024 * 1_024 * 1_024
     )
 
     public static func named(_ raw: String) -> EvalCachePolicy? {

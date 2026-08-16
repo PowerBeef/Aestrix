@@ -2,6 +2,7 @@ import Foundation
 import ImarelloCore
 import ImarelloRuntime
 import ImarelloDiT
+import ImarelloVAE
 import ImarelloEval
 
 /// Runs multi-trial generation / micro-benchmarks with full stage + memory metrics.
@@ -31,7 +32,14 @@ public actor BenchRunner {
         } else {
             t.blockCacheClearInterval = EvalCachePolicy.current.blockCacheClearInterval
         }
+        if let v = config.attentionAsyncEvalInterval { t.asyncEvalInterval = max(0, v) }
+        if let v = config.attentionJointSeqF16 { t.jointSeqF16 = v }
         AttentionTuning.current = t
+        if let v = config.vaeTileThreshold {
+            VAETileConfig.current.enabledThreshold = max(1, v)
+        } else {
+            VAETileConfig.current = .default
+        }
     }
 
     public func run() async throws -> BenchReport {

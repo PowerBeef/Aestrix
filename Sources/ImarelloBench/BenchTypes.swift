@@ -62,6 +62,12 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionBlockClearSeqThreshold: Int?
     /// Clear cache every N blocks when per-block clears are active (nil = product default).
     public var attentionBlockClearInterval: Int?
+    /// asyncEval per block with a blocking eval every N blocks (nil/0 = blocking every block).
+    public var attentionAsyncEvalInterval: Int?
+    /// Decide attention store dtype from the joint sequence (nil = per-stream product default).
+    public var attentionJointSeqF16: Bool?
+    /// Override the VAE tile enable threshold in latent px (nil = product default 96).
+    public var vaeTileThreshold: Int?
     /// Text token mode for T2I trials: "512" (pad, product default) | "auto" (trim).
     public var textTokens: String?
     /// VAE decode variant for provenance: "small-decoder" | "full".
@@ -102,6 +108,9 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionBackend: String? = nil,
         attentionBlockClearSeqThreshold: Int? = nil,
         attentionBlockClearInterval: Int? = nil,
+        attentionAsyncEvalInterval: Int? = nil,
+        attentionJointSeqF16: Bool? = nil,
+        vaeTileThreshold: Int? = nil,
         textTokens: String? = nil,
         vaeVariant: String? = nil,
         opProfile: Bool = false,
@@ -135,6 +144,9 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionBackend = attentionBackend
         self.attentionBlockClearSeqThreshold = attentionBlockClearSeqThreshold
         self.attentionBlockClearInterval = attentionBlockClearInterval
+        self.attentionAsyncEvalInterval = attentionAsyncEvalInterval
+        self.attentionJointSeqF16 = attentionJointSeqF16
+        self.vaeTileThreshold = vaeTileThreshold
         self.textTokens = textTokens
         self.vaeVariant = vaeVariant
         self.opProfile = opProfile

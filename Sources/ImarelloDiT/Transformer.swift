@@ -254,6 +254,7 @@ public final class Flux2Transformer: Module {
         }
         sample("after_embed")
 
+        let asyncN = tuning.asyncEvalInterval
         for (bi, block) in transformerBlocks.enumerated() {
             let out = block(
                 hiddenStates: h,
@@ -264,7 +265,12 @@ public final class Flux2Transformer: Module {
             )
             e = out.encoder
             h = out.hidden
-            eval(h, e)
+            if asyncN > 0 {
+                asyncEval(h, e)
+                if (bi + 1) % asyncN == 0 { eval(h, e) }
+            } else {
+                eval(h, e)
+            }
             if clearPerBlock, (bi + 1) % clearInterval == 0 {
                 Memory.clearCache()
             }
@@ -286,7 +292,12 @@ public final class Flux2Transformer: Module {
         for (bi, block) in singleTransformerBlocks.enumerated() {
             h = block(h, tembModParams: tembSingle, imageRotaryEmb: concatRope)
             // Always checkpoint single-stream (L is largest after concat).
-            eval(h)
+            if asyncN > 0 {
+                asyncEval(h)
+                if (bi + 1) % asyncN == 0 { eval(h) }
+            } else {
+                eval(h)
+            }
             if clearPerBlock, (bi + 1) % clearInterval == 0 {
                 Memory.clearCache()
             }
