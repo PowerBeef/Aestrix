@@ -38,7 +38,7 @@ A from-scratch native Swift + MLX runtime (not a wrapper or a server round-trip)
 ## Brand Commitments
 
 - Name **Imarello**; the official mark is the 3D cream/gold iris (`Mark` asset, `Docs/assets/readme/imarello-mark.*`).
-- Palette commitment: espresso ground, iris-gold/copper accent, cream ink (existing colorsets `StudioBackground`, `StageGround`, `AccentColor`, `Cream`). Dark-first.
+- Palette commitment: **darkroom near-black ground**, iris-gold/copper accent, cream ink (colorsets `StudioBackground`, `StageGround`, `AccentColor`, `Cream`). Dark-first. The ground was espresso until 2026-08-16; the owner rejected the brown — prints have to be the only warm thing on screen.
 - **Liquid Glass Regular** (never Clear); prominent/tinted glass on the primary action only.
 - Voice (confirmed): the **darkroom/atelier register** — generations are **prints**, the canvas is the **stage**, capture settings are the **plate**. Used consistently in labels and VoiceOver, without becoming cute or obscuring function.
 
@@ -54,4 +54,4 @@ A from-scratch native Swift + MLX runtime (not a wrapper or a server round-trip)
 2. **Iteration speed over ceremony** — the loop prompt → print → tweak must never gain a step that isn't earning its keep.
 3. **Honest gates** — never fake generation (Simulator), never hide why a control is disabled, never invent progress.
 4. **No hidden physics** — strength 0.8, sizes, seeds, and which print actually ran are always visible truths.
-5. **One brand, precisely** — espresso/iris-gold/cream and the darkroom register, executed in details rather than decoration.
+5. **One brand, precisely** — darkroom black / iris-gold / cream and the darkroom register, executed in details rather than decoration.
