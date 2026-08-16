@@ -208,7 +208,7 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 
 | Shipping | In progress / parked |
 |----------|----------------------|
-| macOS library + CLI | iOS 26 demo (`Apps/ImarelloIOS`) — **512² T2I on device**, studio UI v2; 1024² anatomy still open |
+| macOS library + CLI | iOS 26 studio (`Apps/ImarelloIOS`) — **512² T2I and I2I on device**, rebuilt two-page UI; 1024² anatomy still open |
 | 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
 | T2I, strength I2I, `--identity` | `--text-tokens auto` speed path (opt-in) |
 | Steel FA · joint-f16 attention · f16 qmm · Small Decoder · untiled ≤768² decode · embed cache · Hub pin + CI floors | Partial-pad conditioning study ([Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) Tier 3) |
@@ -228,14 +228,19 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md)
 
 ---
 
-## iOS 26 demo
+## iOS 26 studio
 
-`Apps/ImarelloIOS` is a phone studio (prompt, 512 / 1024, last-image edit). It links the same staged `ImarelloRuntime`. The stage tells the gate story itself — ready, weights-missing, or Simulator preview — with a live elapsed timer and a Try Again action while running.
+`Apps/ImarelloIOS` is a phone studio on the same staged `ImarelloRuntime`, rebuilt as **two full-bleed pages** you swipe between:
 
-- **Simulator** is UI only — MLX has no Simulator Metal. Generate is a no-op.
+- **Stage** — your print fills the screen; a plate chip carries `512² · seed 42`, one glass status row speaks for every state (gate, progress + elapsed, staged edit, error + Try Again), and a gold **Develop** pill runs it.
+- **Contact Sheet** — every print you have made, in a film grid. Tap one to open the viewer: zoom, swipe, Share, Save, Delete — and **Edit**, which develops a new print from *that* one at strength 0.8.
+
+Prints persist across launches. Design system: [Apps/ImarelloIOS/DESIGN.md](Apps/ImarelloIOS/DESIGN.md).
+
+- **Simulator** is UI only — MLX has no Simulator Metal. Develop is a no-op.
 - **Physical iPhone** is the generate host. Build with `xcodebuild` (`-skipPackagePluginValidation`) and install with `devicectl`. No Mac Catalyst.
 - Weights stay out of the bundle (`Caches/Imarello/models/`). Resync after every install (`Scripts/sync-ios-device-weights.sh`).
-- Drive a device generate from the Mac with `Scripts/ios-device-harness.sh` (default 512²). Do not tap Generate from an agent. See [Docs/IOS.md](Docs/IOS.md).
+- Drive a device generate from the Mac with `Scripts/ios-device-harness.sh` (default 512²). Do not tap Develop from an agent. See [Docs/IOS.md](Docs/IOS.md).
 
 ## License
 

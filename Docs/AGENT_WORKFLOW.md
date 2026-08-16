@@ -26,7 +26,8 @@ How to work on Imarello with Claude Code: which docs to read, which skills, MCP 
 | Qwen3 TE port, tokenizer, chat template | **`mlx-swift-lm`** |
 | Swift 6 actors / `MLXArray` is not `Sendable` | **`axiom:axiom-concurrency`** |
 | Apple framework APIs, Swift diagnostics | **`axiom:axiom-apple-docs`** (Xcode-bundled for-LLM docs) |
-| iOS 26 UI, Liquid Glass, HIG | **`axiom:axiom-swiftui`**, **`axiom:axiom-design`**; UI critique/polish passes: **`impeccable:impeccable`** |
+| iOS 26 UI, Liquid Glass, HIG | **`axiom:axiom-swiftui`**, **`axiom:axiom-design`**; design work (new surfaces, critique, polish): **`impeccable:impeccable`** — the studio's direction contract lives atop `StudioRootView.swift`, the system in [`../Apps/ImarelloIOS/DESIGN.md`](../Apps/ImarelloIOS/DESIGN.md), the product record in [`../PRODUCT.md`](../PRODUCT.md). A ground-up rebuild ends with the finish-reviewer agent and the documenter agent, not with a screenshot. |
+| Driving the Simulator UI (screenshots, taps, a11y tree, Dynamic Type) | XcodeBuildMCP (`build_run_sim`, `snapshot_ui`, `screenshot`) + `xcui` (`tap`, `swipe`, `a11y set`) and `xcrun simctl ui <udid> content_size …`. **Never** run a Simulator build while a device build or `imarello` generate is running — the first `swift test` of the rebuild hung at 0% CPU under exactly that contention (2026-08-16). |
 | Unit tests, Swift Testing patterns | **`axiom:axiom-testing`** |
 | App-side memory / jank | **`axiom:axiom-performance`** — **speed claims** still go through [`PERF.md`](PERF.md) + `imarello bench` |
 | Hub download, pin, inspect | **`huggingface-skills:hf-cli`** (`hf`) |
@@ -100,7 +101,7 @@ swift build -c release && ./Scripts/ensure-metallib.sh
 Do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts).
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness|Qwen'
 ```
 
 MLX-gated numerics (Metal owner rules apply): `IMARELLO_MLX_TESTS=1 swift test --filter ImarelloDiTTests`.
@@ -162,15 +163,15 @@ This machine is 8 GB unified (`Mac14,3`). An IDE agent + `swift build` / Metal c
 
 Full recipe: [`IOS.md`](IOS.md). Short version:
 
-1. Simulator = UI only. `Generate` is a no-op. Do not fake Klein. Verify UI with `axiom:simulator-tester` / XcodeBuildMCP sim tools.
+1. Simulator = UI only. **Develop** is a no-op. Do not fake Klein. Verify UI with `axiom:simulator-tester` / XcodeBuildMCP sim tools (`build_run_sim`, `snapshot_ui`, `screenshot`) + `xcui`.
 2. After `project.yml` edits: `./Scripts/generate-ios-project.sh`.
 3. Device build needs `-skipPackagePluginValidation`, `-allowProvisioningUpdates`, team `FK2D8X36G2`.
 4. Install / launch with `xcrun devicectl device install app` / `process launch`. **Resync weights after every install** (new data container).
 5. Profile is **`iOS Team Provisioning Profile: app.imarello.demo`** (both kernel entitlements). Do not hand-resign extra keys (`0xe8008015`).
 6. Weights stay on disk (`Caches/Imarello/models/`), never in the bundle. `Scripts/sync-ios-device-weights.sh` resolves symlinked host snapshots and detects any paired iPhone itself (`DEVICE=` overrides).
-7. Drive generate from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512²). Do not ask the user to tap Generate. `--width 1024` needs `--allow-1024`. New job id on every retry.
+7. Drive generate from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512²; `--mode i2i` edits the last print). Do not ask the user to tap Develop. `--width 1024` needs `--allow-1024`. New job id on every retry.
 8. First generate is **512²**. Eval the PNG on the Mac (`EVAL_WORKFLOW.md`). 1024² same seed is a different sample; vision-check anatomy.
-9. If Generate says `weightsNotFound` while the stage shows the ready state, the pipeline was created before the copy — recreate it (`hasLocalSnapshot`).
+9. If a run throws `weightsNotFound` while the stage shows the ready state, the pipeline was created before the copy — recreate it (`GenerationEngine.ensureReady` / `hasLocalSnapshot`).
 
 ---
 

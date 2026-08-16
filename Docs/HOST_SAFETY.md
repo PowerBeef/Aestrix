@@ -29,7 +29,7 @@ pgrep -x imarello || true     # none (second instance is refused)
 
 ## Agent defaults
 
-See **CLAUDE.md → Host safety** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents.
+See **CLAUDE.md → Host safety** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents — and run the test suite **alone**: a filtered run backgrounded alongside Simulator builds hung at 0 % CPU for 25 min (2026-08-16), then passed on a quiet machine.
 
 1024² T2I is measured-safe on this host (product path ~**71 s**, watermark **3.00 GiB**, post-Tier-2). Default smokes stay **512²**. Do not start a 4-trial `identity-i2i` at 1024 unless asked. **Never decode 1024² untiled** — measured Metal abort (`imarello-2026-08-16-104942.ips`); the VAE tile threshold (128) is load-bearing there.
 

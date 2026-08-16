@@ -31,7 +31,7 @@ An extra Hub file or a longer first-run `hf download` is **not** a reason to hid
 
 This machine is **8 GB unified** (`Mac14,3`). Agents + `swift build`/`swift test` + `MTLCompilerService` + a resident DiT (~2 GiB) starved **WindowServer** for 127 s and triggered a **watchdog kernel panic** (2026-08-13). `imarello` Metal command-buffer aborts (VAE decode) are process crashes that can worsen compositor stalls.
 
-1. **One Metal owner.** Do not run `imarello` generate/bench/compile-spike while Xcode, `xcodebuild` (including an iphoneos mlx-swift compile), another `imarello`, or a second IDE is compiling Metal. **Never fan out Metal-owning subagents, workflows, or background Bash jobs in parallel** — generation, benches, and Metal compiles are strictly serial on this host.
+1. **One Metal owner.** Do not run `imarello` generate/bench/compile-spike while Xcode, `xcodebuild` (including an iphoneos mlx-swift compile), another `imarello`, or a second IDE is compiling Metal. **Never fan out Metal-owning subagents, workflows, or background Bash jobs in parallel** — generation, benches, and Metal compiles are strictly serial on this host. This includes `swift test`: a filtered run left in the background while Simulator builds ran **hung at 0% CPU for 25 min** (2026-08-16); it passed cleanly on a quiet machine. Run the suite alone.
 2. **Default to filtered unit tests and 512² smokes.** 1024² T2I bench is OK when asked (~71 s, watermark 3.00 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 (joint ~8704) unless the user explicitly wants it. **Never decode 1024² untiled** — measured Metal abort on this host.
 3. **Never** `MLX.compile` the full DiT; **never** `dit-compile-spike` on this host without `--force` on an idle machine.
 4. **Never** reintroduce VAE D=512 `evalEachChunk` or `EvalCachePolicy.high` (deliberately absent from this tree). `EvalCachePolicy.mid` is a ≥16 GB bench flag only; this host stays on `product`.
@@ -43,7 +43,7 @@ CLI: `HostPreflight` takes `~/Library/Caches/Imarello/imarello.lock` and refuses
 **Tests — never run unfiltered `swift test`** (Metal FA tests have hung after GPU aborts):
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness|Qwen'
 ```
 
 MLX-gated numeric tests are opt-in: `IMARELLO_MLX_TESTS=1 swift test --filter ImarelloDiTTests` (Metal owner rules apply).
@@ -95,7 +95,7 @@ Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 
 - **Done**: P0–P6c (macOS library + CLI: T2I, I2I, identity I2I, eval workflow), P8 (polish, CI floors), P9 (perf harness; Small Decoder + f16 scaled qmm are product defaults; `--text-tokens auto` was reverted to opt-in 2026-08-16 after a vision regression), and the **2026-08-16 engine pass** (`Docs/ENGINE_RESEARCH.md` Tiers 0–2: quality fixes, reference-faithful tokenizer, byte-identical optimizations, joint-f16 attention, untiled 768² decode — 512² 23.0 s / 1024² 71.0 s / watermark 3.00 GiB).
 - **P9 leftover slices are paused** (TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`, fused qmm+SwiGLU). **Do not resume speed work unless asked.**
-- **Next phase: P7 iOS** (partial): 512² T2I verified on a physical iPhone (re-passed 2026-08-16 on the pad-512 default, studio UI v2); open items are 1024² vision-clean anatomy and last-in-app I2I eval.
+- **Current phase: P7 iOS** (partial): the studio was **rebuilt from the ground up 2026-08-16** (two-page spread; services split out of `GenerationModel`; persistent print history; edit from any print). 512² T2I **and** I2I both pass pixel + vision on a physical iPhone on that build — the in-app I2I acceptance item is closed. Only open item: **1024² vision-clean anatomy**.
 - **Blocking process rule**: always address issues that surface (metallib, load failures, parity fails, failed eval gates, unexplained OOM) **before** starting the next phase.
 
 ## Tooling
@@ -128,11 +128,12 @@ Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 
 Full recipe: `Docs/IOS.md`. Product locks unchanged.
 
-- **Simulator is UI-only** (MLX does not run; Generate is a chrome no-op). **Mac Catalyst is forbidden.** Physical iPhone runs T2I + last-in-app I2I.
+- **Simulator is UI-only** (MLX does not run; Develop is a chrome no-op — never fake Klein there). **Mac Catalyst is forbidden.** Physical iPhone runs T2I + I2I (both pass pixel + vision on device, 2026-08-16).
+- **App shape** (rebuilt 2026-08-16): two full-bleed pages — Stage and Contact Sheet — over four services: `GenerationEngine` (pipeline), `HarnessService` (**frozen** harness contract — do not change paths or the job/result schema), `PrintStore` (persistent history: `prints-index.json` + `outputs/`), `StudioModel` (UI state). Views are `StudioRootView` / `StudioPage` / `ContactSheetPage` / `PrintViewer` / `StatusRow` / `PromptBar` / `PlateSheet`. Design system: `Apps/ImarelloIOS/DESIGN.md`; product record: `PRODUCT.md`. Edit runs from **any** print in history at the locked strength 0.8. One status row carries every state — do not add a second instrument voice.
 - Device build needs `-skipPackagePluginValidation` (mlx-swift ships a CUDA package plugin), `-allowProvisioningUpdates`, team `FK2D8X36G2`. Install/launch with `xcrun devicectl`. XcodeBuildMCP's device workflow is **not enabled** on this host — Simulator tools only.
 - Entitlements `increased-memory-limit` + `extended-virtual-addressing` are pinned via `project.yml` `SystemCapabilities`; after `project.yml` edits run `./Scripts/generate-ios-project.sh`. The wildcard profile silently strips them; hand-`codesign` extra keys fails install with `0xe8008015`.
 - Weights are never bundled. **Resync after every install** (`Scripts/sync-ios-device-weights.sh` — resolves symlinked host snapshots and detects any paired iPhone itself) — a new `devicectl install` usually creates a new data container. If Generate throws `weightsNotFound` while the stage looks ready, the pipeline predates the copy — recreate it (`GenerationEngine.ensureReady`).
-- Drive device generates from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512² fox seed 42; `--width 1024` needs `--allow-1024`; new job id on every retry). **Never ask the user to tap Generate.**
+- Drive device generates from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512² fox seed 42; `--mode i2i` edits the last print; `--width 1024` needs `--allow-1024`; new job id on every retry). **Never ask the user to tap Develop.**
 - 1024² same-seed is a **new noise tensor** (μ 1.15 vs 0.63); Klein 4-step can assemble a broken body plan while pixel PASSes — **vision anatomy is the gate**.
 
 ## Coding conventions
