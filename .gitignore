@@ -21,7 +21,7 @@ models/
 # Local agent noise (vendored skills stay tracked)
 .claude/*
 !.claude/skills/
-.impeccable/
+/.impeccable/
 
 # Generated samples / local artifacts (do not ship)
 outputs/
@@ -32,5 +32,3 @@ outputs/
 Tools/Metal/*.air
 Tools/Metal/*.metallib
 
-# Impeccable workspace scratch (review shots, question logs)
-.impeccable/

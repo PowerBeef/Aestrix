@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-16T00:00:00Z",
+  "title": "Design System: Imarello iOS Studio",
+  "extensions": {
+    "colorMeta": {
+      "stage-ground": {
+        "role": "neutral",
+        "displayName": "Stage Ground",
+        "canonical": "sRGB(0.051, 0.047, 0.043)",
+        "source": "Assets.xcassets/StageGround.colorset",
+        "tonalRamp": ["#050505", "#0D0C0B", "#191716", "#2A2724", "#413C37", "#6B635B", "#A79C91", "#D8D0C6"]
+      },
+      "studio-canvas": {
+        "role": "neutral",
+        "displayName": "Studio Canvas",
+        "canonical": "sRGB(0.098, 0.090, 0.086)",
+        "source": "Assets.xcassets/StudioBackground.colorset",
+        "tonalRamp": ["#0A0908", "#141211", "#191716", "#26221F", "#3D3733", "#665D56", "#A0958B", "#D5CCC3"]
+      },
+      "enlarger-black": {
+        "role": "neutral",
+        "displayName": "Enlarger Black",
+        "canonical": "sRGB(0.024, 0.027, 0.031)",
+        "source": "ImarelloTheme.enlarger",
+        "tonalRamp": ["#030304", "#060708", "#0E1013", "#1B1E22", "#2F343A", "#585F68", "#929AA4", "#CBD1D8"]
+      },
+      "iris-gold": {
+        "role": "primary",
+        "displayName": "Iris Gold",
+        "canonical": "sRGB(0.941, 0.690, 0.227)",
+        "source": "Assets.xcassets/AccentColor.colorset",
+        "tonalRamp": ["#241800", "#3E2C05", "#5E4409", "#835F0E", "#AC7D16", "#D49A1F", "#F0B03A", "#F8D68F"]
+      },
+      "cream-ink": {
+        "role": "neutral",
+        "displayName": "Cream Ink",
+        "canonical": "sRGB(0.957, 0.910, 0.839)",
+        "source": "Assets.xcassets/Cream.colorset",
+        "tonalRamp": ["#241F17", "#3B342A", "#564D40", "#75695A", "#978A79", "#BBAE9D", "#DCD1C0", "#F4E8D6"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The Contact Sheet page title. The only 22pt type in the app." },
+      "headline": { "displayName": "Headline", "purpose": "Empty-state headlines on the Stage and the Sheet." },
+      "title": { "displayName": "Title", "purpose": "The Imarello wordmark beside the mark; dropped at accessibility sizes." },
+      "reading": { "displayName": "Instrument Reading", "purpose": "Every instrument value: status readings, captions, elapsed time. Cream ink, tabular digits." },
+      "body": { "displayName": "Body", "purpose": "Prompt text and empty-state subtitles." },
+      "caption": { "displayName": "Caption", "purpose": "Plate chip readout, prompt echo, error messages." },
+      "label": { "displayName": "Instrument Label", "purpose": "Uppercase kerned state tags and counts. Machine state only, never a phrase or a heading." }
+    },
+    "shadows": [],
+    "materials": [
+      { "name": "glass-regular", "value": "SwiftUI .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))", "purpose": "Every surface that floats over a print: status row, prompt field, viewer caption card, viewer action bar." },
+      { "name": "glass-button", "value": "SwiftUI .buttonStyle(.glass)", "purpose": "Secondary capsule controls: plate chip, grid button, back chevron, viewer close." },
+      { "name": "glass-prominent", "value": "SwiftUI .buttonStyle(.glassProminent) with .tint(iris-gold)", "purpose": "The Develop pill. Exactly one element in the app uses it." },
+      { "name": "stage-overscan", "value": "same image, scaledToFill + blur(radius: 48) + stage-ground overlay at 0.55 opacity", "purpose": "Fills the letterbox behind an uncropped print so the room is made of the print itself." },
+      { "name": "running-wash", "value": "black at 0.35 opacity, easeInOut 0.3s", "purpose": "Dims the print while a run is in flight; the only opacity-based state signal." }
+    ],
+    "motion": [
+      { "name": "snappy", "value": "SwiftUI .snappy", "purpose": "Page changes, status-row cell flips, zoom snap-back and double-tap zoom." },
+      { "name": "cell-flip", "value": ".transition(.push(from: .bottom))", "purpose": "How one status-row reading replaces another." },
+      { "name": "numeric-text", "value": ".contentTransition(.numericText())", "purpose": "Step counts and elapsed seconds roll rather than cut." },
+      { "name": "wash-fade", "value": ".easeInOut(duration: 0.3)", "purpose": "Cross-fade of the running wash over the print." }
+    ],
+    "haptics": [
+      { "name": "run-start", "value": ".sensoryFeedback(.impact(weight: .medium))", "purpose": "A thud when a run starts." },
+      { "name": "print-landed", "value": ".sensoryFeedback(.success)", "purpose": "A success tap when a new print lands on the sheet." }
+    ],
+    "layoutMeta": [
+      { "name": "film-gutter", "value": "2px", "purpose": "The Contact Sheet grid gutter; edge to edge, no page margin." },
+      { "name": "grid-cell-min", "value": "110px", "purpose": "Adaptive square cell minimum on the Contact Sheet." },
+      { "name": "dynamic-type-cap", "value": "DynamicTypeSize.accessibility2", "purpose": "Chrome cap. The print itself is never capped." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Develop Pill",
+      "kind": "button",
+      "refersTo": "button-develop",
+      "description": "The primary action. A gold capsule labelled with a verb — Develop / Edit / Stop — never a glyph.",
+      "html": "<button class=\"ds-btn-develop\">Develop</button>",
+      "css": ".ds-btn-develop { background: #F0B03A; color: #0D0C0B; font: 600 15px/1.2 -apple-system, 'SF Pro Text', system-ui, sans-serif; min-height: 50px; padding: 0 16px; border: none; border-radius: 999px; cursor: pointer; transition: filter 0.2s, transform 0.15s; } .ds-btn-develop:hover { filter: brightness(1.08); } .ds-btn-develop:focus-visible { outline: 2px solid #F4E8D6; outline-offset: 3px; } .ds-btn-develop:active { transform: scale(0.97); } .ds-btn-develop:disabled { opacity: 0.4; cursor: default; }"
+    },
+    {
+      "name": "Glass Control",
+      "kind": "button",
+      "refersTo": "button-glass",
+      "description": "Secondary capsule control on Liquid Glass: plate chip, grid button, back chevron, viewer close.",
+      "html": "<button class=\"ds-btn-glass\">512&sup2; &middot; seed 42</button>",
+      "css": ".ds-btn-glass { background: rgba(255,255,255,0.10); backdrop-filter: blur(24px) saturate(140%); color: #F0B03A; font: 500 13px/1.2 -apple-system, 'SF Pro Text', system-ui, sans-serif; font-variant-numeric: tabular-nums; height: 38px; padding: 0 12px; border: none; border-radius: 999px; cursor: pointer; transition: background 0.2s; } .ds-btn-glass:hover { background: rgba(255,255,255,0.16); } .ds-btn-glass:focus-visible { outline: 2px solid #F0B03A; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Row",
+      "kind": "card",
+      "refersTo": "card-status",
+      "description": "The one instrument grammar: a fixed uppercase state tag, one cream reading, an optional trailing action. Every state flips through this row.",
+      "html": "<div class=\"ds-status\"><span class=\"ds-status-tag\">Preview</span><span class=\"ds-status-reading\">Klein develops on device</span></div>",
+      "css": ".ds-status { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: rgba(255,255,255,0.10); backdrop-filter: blur(24px) saturate(140%); } .ds-status-tag { font: 600 11px/1.2 -apple-system, 'SF Pro Text', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 1.1px; color: rgba(244,232,214,0.6); white-space: nowrap; } .ds-status-reading { flex: 1; font: 500 15px/1.3 -apple-system, 'SF Pro Text', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #F4E8D6; }"
+    },
+    {
+      "name": "Prompt Field",
+      "kind": "input",
+      "refersTo": "input-prompt",
+      "description": "Glass prompt field, 1-3 lines. No stroke, no focus glow — the glass is the field.",
+      "html": "<textarea class=\"ds-input-prompt\" rows=\"2\" placeholder=\"Describe the print…\"></textarea>",
+      "css": ".ds-input-prompt { width: 100%; resize: none; padding: 12px 16px; border: none; border-radius: 16px; background: rgba(255,255,255,0.10); backdrop-filter: blur(24px) saturate(140%); color: #F4E8D6; font: 400 15px/1.35 -apple-system, 'SF Pro Text', system-ui, sans-serif; } .ds-input-prompt::placeholder { color: rgba(244,232,214,0.45); } .ds-input-prompt:focus { outline: none; background: rgba(255,255,255,0.14); }"
+    },
+    {
+      "name": "Contact Sheet Cell",
+      "kind": "card",
+      "refersTo": "chip-edit-badge",
+      "description": "A square, hard-clipped print on a 2px film gutter, with an EDIT badge when the print came from an i2i run.",
+      "html": "<figure class=\"ds-sheet-cell\"><img src=\"\" alt=\"\" /><span class=\"ds-badge-edit\">Edit</span></figure>",
+      "css": ".ds-sheet-cell { position: relative; margin: 0; aspect-ratio: 1; overflow: hidden; border-radius: 0; background: #26222 0; cursor: pointer; } .ds-sheet-cell img { width: 100%; height: 100%; object-fit: cover; display: block; } .ds-badge-edit { position: absolute; left: 4px; bottom: 4px; padding: 2px 5px; border-radius: 999px; background: rgba(0,0,0,0.55); color: #F4E8D6; font: 600 10px/1.2 -apple-system, 'SF Pro Text', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.8px; }"
+    },
+    {
+      "name": "Viewer Action Bar",
+      "kind": "nav",
+      "refersTo": "button-glass",
+      "description": "Four equal-width actions in one glass bar, each an icon over its word. No symbol carries a verb alone.",
+      "html": "<div class=\"ds-actions\"><button class=\"ds-action\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"currentColor\"><path d=\"M12 2l1.6 4.4L18 8l-4.4 1.6L12 14l-1.6-4.4L6 8l4.4-1.6L12 2zm6 10l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5z\"/></svg><span>Edit</span></button><button class=\"ds-action\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 16V4M8 8l4-4 4 4M5 16v3a1 1 0 001 1h12a1 1 0 001-1v-3\"/></svg><span>Share</span></button><button class=\"ds-action\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 4v12M8 12l4 4 4-4M5 16v3a1 1 0 001 1h12a1 1 0 001-1v-3\"/></svg><span>Save</span></button><button class=\"ds-action ds-action-destructive\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6\"/></svg><span>Delete</span></button></div>",
+      "css": ".ds-actions { display: flex; gap: 12px; padding: 12px 8px; border-radius: 16px; background: rgba(255,255,255,0.10); backdrop-filter: blur(24px) saturate(140%); } .ds-action { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; color: #F0B03A; cursor: pointer; font: 500 11px/1.2 -apple-system, 'SF Pro Text', system-ui, sans-serif; transition: opacity 0.15s; } .ds-action:hover { opacity: 0.75; } .ds-action:focus-visible { outline: 2px solid #F0B03A; outline-offset: 4px; border-radius: 8px; } .ds-action-destructive { color: #FF6961; }"
+    },
+    {
+      "name": "Stage",
+      "kind": "custom",
+      "refersTo": "card-status",
+      "description": "The signature surface: an uncropped print, full-bleed, with a blurred overscan of itself filling the letterbox.",
+      "html": "<div class=\"ds-stage\"><div class=\"ds-stage-overscan\"></div><img class=\"ds-stage-print\" src=\"\" alt=\"\" /></div>",
+      "css": ".ds-stage { position: relative; width: 100%; aspect-ratio: 9/16; overflow: hidden; background: #0D0C0B; } .ds-stage-overscan { position: absolute; inset: 0; background: inherit center/cover; filter: blur(48px); } .ds-stage-overscan::after { content: ''; position: absolute; inset: 0; background: rgba(13,12,11,0.55); } .ds-stage-print { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Darkroom Bench",
+    "overview": "This is a darkroom, not a form. The room is dark so that the thing being made is the only lit object in it; every control is an instrument on the bench beside the print, never a panel the print has to make room for. The two pages of the spread — the Stage and the Contact Sheet — are both full-bleed and both single-purpose, swiped like camera modes rather than navigated like a tab bar.\n\nThe character is quiet, dark, and instrumental. Chrome is near-monochrome: near-black grounds, cream ink, one gold accent, and Liquid Glass for anything that floats over an image. Warmth is reserved. The generated print supplies all of the color the screen has, and the chrome deliberately supplies none — the ground was espresso brown until 2026-08-16 and was rejected exactly because a brown room competed with the prints for warmth. The register is consistent and functional, not cute: generations are prints, the canvas is the stage, capture settings are the plate, running is developing.\n\nDensity is low on the Stage (three floating instruments over an uncropped print) and maximal on the Contact Sheet (a 2 pt film grid edge to edge). That contrast is the system: the Stage is one print treated as precious, the Sheet is every print treated as a strip of film.",
+    "keyCharacteristics": [
+      "Dark-first, always; the app pins .preferredColorScheme(.dark) and has no light mode.",
+      "The print is the only warm, saturated thing on screen.",
+      "Chrome floats on Liquid Glass Regular; only one element is prominent glass.",
+      "One radius (16 pt) for every rectangular surface; capsules for every control.",
+      "No shadows anywhere; depth comes from glass and a blurred overscan of the print itself.",
+      "Instrument labels are uppercase, kerned, and secondary; readings are cream and tabular."
+    ],
+    "rules": [
+      { "name": "The Only Warm Thing Rule", "body": "The print supplies the warmth; the room does not. Chrome stays on the near-black / cream / gold set — no brown, no tinted surface, no colored card. If a new surface needs warmth, it needs a print behind it instead.", "section": "colors" },
+      { "name": "The One Gold Rule", "body": "Gold means \"act.\" It appears on the Develop pill, on glass control labels, and on nothing that is merely information. A gold status readout, a gold divider, or a gold heading is out of system.", "section": "colors" },
+      { "name": "The Room Ramp Rule", "body": "Three grounds, three rooms: Stage #0D0C0B, Contact Sheet #191716, viewer #060708. Depth of focus goes with darkness — the more singular the content, the blacker the room.", "section": "colors" },
+      { "name": "The Engraved Label Rule", "body": "Uppercase + kerning + secondary is reserved for machine state and counts — the engraving on an instrument. It is never applied to a phrase, a heading, or a piece of marketing copy above a title.", "section": "typography" },
+      { "name": "The Tabular Reading Rule", "body": "Any number that changes while you watch it (step counts, elapsed seconds, seeds, canvas sizes) is set in monospaced digits with .contentTransition(.numericText()). Numbers change value, not width.", "section": "typography" },
+      { "name": "The Content-Owns-The-Screen Rule", "body": "Every page is full-bleed and single-purpose. Instruments float over the content; content never gets pushed into a card to make room for a control.", "section": "layout" },
+      { "name": "The Decoration Yields First Rule", "body": "When space runs out, decoration disappears before function shrinks. The wordmark goes at accessibility sizes; the plate chip does not.", "section": "layout" },
+      { "name": "The Glass-Only Rule", "body": "Anything that floats over the print is Liquid Glass Regular, never a tinted or opaque card. If a surface can't be glass, it belongs on the ground instead.", "section": "elevation" },
+      { "name": "The Single Prominent Rule", "body": "Exactly one element in the app is .glassProminent: the Develop pill. Prominence is how the primary action is identified — a second prominent control would erase it.", "section": "elevation" },
+      { "name": "The Square Print Rule", "body": "Prints are never rounded, never inset in a card, never given a border. The chrome is soft; the image is not.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do let the print be the only saturated, warm thing on screen; keep new chrome on near-black, cream, and gold.",
+      "Do float every over-image surface on Liquid Glass Regular at 16 pt continuous radius.",
+      "Do route every new state — progress, error, confirmation, staging — through the existing status row's flip-cell grammar instead of adding a banner, toast, or alert.",
+      "Do label the primary action with a verb in words (\"Develop\", \"Edit\", \"Stop\"), sized to fit.",
+      "Do set every changing number in monospaced digits with a numeric-text transition.",
+      "Do cap new chrome at DynamicTypeSize.accessibility2 and let decoration drop out before function shrinks.",
+      "Do keep the darkroom register (print, stage, plate, develop) in labels and VoiceOver, and keep it functional."
+    ],
+    "donts": [
+      "Don't add a shadow. The system has none; depth is glass and the blurred overscan of the print.",
+      "Don't make a second control .glassProminent. There is exactly one prominent element and it is the Develop pill.",
+      "Don't round, inset, or border a print. Thumbnails are square and hard-clipped on a 2 pt gutter.",
+      "Don't use gold for information — no gold headings, readouts, dividers, or backgrounds behind text.",
+      "Don't reintroduce a warm ground (the espresso brown was tried and rejected on 2026-08-16).",
+      "Don't put a navigation affordance on top of the print; page-switching lives in the header.",
+      "Don't ship a light appearance or an unpinned color scheme; the app is dark-first by construction.",
+      "Don't let a symbol carry a verb alone in the viewer — actions are icon over word."
+    ]
+  }
+}
