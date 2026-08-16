@@ -11,7 +11,9 @@ import ImarelloText
 /// the chat-template version, so template or weight changes invalidate old entries.
 enum PromptEmbedCache {
     /// Bump when `QwenChatTemplate` or tap/concat behavior changes.
-    private static let formatVersion = "v1"
+    /// v2: tokenizer gained NFC + the reference pre-tokenizer (2026-08-16) —
+    /// ids changed for digit/punctuation prompts, so v1 embeds must miss.
+    private static let formatVersion = "v2"
 
     struct Entry {
         let embeds: MLXArray

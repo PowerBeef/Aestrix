@@ -128,6 +128,9 @@ let package = Package(
             dependencies: [
                 "ImarelloText",
                 "ImarelloCore",
+            ],
+            resources: [
+                .copy("Fixtures")
             ]
         ),
         .testTarget(

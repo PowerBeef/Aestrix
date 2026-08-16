@@ -14,6 +14,22 @@ public final class QwenTokenizer: @unchecked Sendable {
     public let byteEncoder: [UInt8: Character]
     public let byteDecoder: [Character: UInt8]
 
+    /// Qwen2/Qwen3 pre-tokenizer split (tokenizer.json `Split` + `ByteLevel(use_regex:false)`).
+    /// `\s`/`\S` are spelled out as Oniguruma's White_Space (`[\t-\r\x{0085}\p{Z}]`) —
+    /// ICU's `\s` misses U+000B and U+0085 and would silently diverge from HF.
+    private static let preTokenizePattern =
+        "(?i:'s|'t|'re|'ve|'m|'ll|'d)"
+        + "|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+"
+        + "|\\p{N}"
+        + "| ?[^\\t-\\r\\x{0085}\\p{Z}\\p{L}\\p{N}]+[\\r\\n]*"
+        + "|[\\t-\\r\\x{0085}\\p{Z}]*[\\r\\n]+"
+        + "|[\\t-\\r\\x{0085}\\p{Z}]+(?![^\\t-\\r\\x{0085}\\p{Z}])"
+        + "|[\\t-\\r\\x{0085}\\p{Z}]+"
+    private static let preTokenizer: NSRegularExpression = {
+        // swiftlint:disable:next force_try — pattern is a compile-time constant
+        try! NSRegularExpression(pattern: preTokenizePattern, options: [])
+    }()
+
     public init(
         vocab: [String: Int],
         merges: [(String, String)],
@@ -49,8 +65,29 @@ public final class QwenTokenizer: @unchecked Sendable {
         self.byteDecoder = dec
     }
 
+    /// Process-lifetime cache: parsing the 11 MB tokenizer.json and building
+    /// ~450 K dictionary entries per TE load is host work worth doing once.
+    nonisolated(unsafe) private static var loadCache: [String: QwenTokenizer] = [:]
+    private static let loadCacheLock = NSLock()
+
     /// Load from a snapshot `tokenizer/` directory (`tokenizer.json` + optional config).
+    /// Cached for the process lifetime, keyed by directory path.
     public static func load(from directory: URL) throws -> QwenTokenizer {
+        let key = directory.standardizedFileURL.path
+        loadCacheLock.lock()
+        if let cached = loadCache[key] {
+            loadCacheLock.unlock()
+            return cached
+        }
+        loadCacheLock.unlock()
+        let parsed = try parse(from: directory)
+        loadCacheLock.lock()
+        loadCache[key] = parsed
+        loadCacheLock.unlock()
+        return parsed
+    }
+
+    private static func parse(from directory: URL) throws -> QwenTokenizer {
         let jsonURL = directory.appendingPathComponent("tokenizer.json")
         let data = try Data(contentsOf: jsonURL)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -202,12 +239,42 @@ public final class QwenTokenizer: @unchecked Sendable {
         return result
     }
 
+    /// Reference pipeline for a non-special segment: NFC normalize, regex
+    /// pre-tokenize, then byte-level BPE per piece. BPE never merges across
+    /// pieces — skipping the split let merges cross word boundaries (e.g.
+    /// "a  b" fused the double space, digits fused into multi-digit tokens).
     private func bpeEncode(_ text: String) -> [Int] {
         if text.isEmpty { return [] }
-        let utf8 = Array(text.utf8)
-        var word: [String] = utf8.map { String(byteEncoder[$0]!) }
-        word = applyBPE(word)
-        return word.compactMap { vocab[$0] }
+        let normalized = text.precomposedStringWithCanonicalMapping
+        var ids: [Int] = []
+        for piece in Self.preTokenize(normalized) {
+            let utf8 = Array(piece.utf8)
+            var word: [String] = utf8.map { String(byteEncoder[$0]!) }
+            word = applyBPE(word)
+            ids.append(contentsOf: word.compactMap { vocab[$0] })
+        }
+        return ids
+    }
+
+    static func preTokenize(_ text: String) -> [String] {
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var pieces: [String] = []
+        var cursor = 0
+        preTokenizer.enumerateMatches(in: text, options: [], range: full) { match, _, _ in
+            guard let match else { return }
+            let r = match.range
+            if r.location > cursor {
+                // `Isolated` behavior: unmatched spans become their own pieces.
+                pieces.append(ns.substring(with: NSRange(location: cursor, length: r.location - cursor)))
+            }
+            pieces.append(ns.substring(with: r))
+            cursor = r.location + r.length
+        }
+        if cursor < ns.length {
+            pieces.append(ns.substring(from: cursor))
+        }
+        return pieces
     }
 
     private func applyBPE(_ tokens: [String]) -> [String] {
