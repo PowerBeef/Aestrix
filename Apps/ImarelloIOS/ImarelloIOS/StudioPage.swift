@@ -6,6 +6,7 @@ struct StudioPage: View {
     @Environment(StudioModel.self) private var model
     @Environment(PrintStore.self) private var store
     @Environment(GenerationEngine.self) private var engine
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     let openSheet: () -> Void
     let openViewer: (PrintRecord) -> Void
@@ -26,6 +27,9 @@ struct StudioPage: View {
             }
             .padding(.horizontal, ImarelloTheme.Space.md)
             .padding(.vertical, ImarelloTheme.Space.xs)
+            // The print is the content; this is the instrument panel around it.
+            // Past accessibility2 the controls stop fitting the glass at all.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         }
         .sheet(isPresented: $showPlate) {
             PlateSheet()
@@ -120,9 +124,14 @@ struct StudioPage: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: ImarelloTheme.Size.mark, height: ImarelloTheme.Size.mark)
-                Text("Imarello")
-                    .font(.headline)
-                    .foregroundStyle(ImarelloTheme.cream)
+                // At accessibility sizes the wordmark would only ever show a
+                // fragment; the Mark carries the brand on its own.
+                if !typeSize.isAccessibilitySize {
+                    Text("Imarello")
+                        .font(.headline)
+                        .foregroundStyle(ImarelloTheme.cream)
+                        .lineLimit(1)
+                }
             }
             .accessibilityHidden(true)
 
@@ -134,10 +143,15 @@ struct StudioPage: View {
                 Text(model.plateSummary)
                     .font(.footnote.weight(.medium))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .padding(.horizontal, ImarelloTheme.Space.sm)
                     .frame(height: ImarelloTheme.Size.headerControl)
             }
             .buttonStyle(.glass)
+            // The chip is functional; the wordmark beside it is decoration and
+            // gives up its width first at large text sizes.
+            .layoutPriority(1)
             .accessibilityLabel("Plate: \(model.side) by \(model.side), seed \(model.seed)")
             .accessibilityHint("Opens size and seed controls")
 

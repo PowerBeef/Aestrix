@@ -49,6 +49,7 @@ struct StatusRow: View {
                 .fixedSize()
 
             reading
+                .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             trailingAction

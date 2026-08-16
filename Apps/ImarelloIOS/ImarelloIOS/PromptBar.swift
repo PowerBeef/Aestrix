@@ -40,7 +40,9 @@ struct PromptBar: View {
             } label: {
                 Text(shutterTitle)
                     .font(.subheadline.weight(.semibold))
-                    .frame(height: ImarelloTheme.Size.shutter)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(minHeight: ImarelloTheme.Size.shutter)
                     .padding(.horizontal, ImarelloTheme.Space.md)
                     .contentTransition(.identity)
             }
