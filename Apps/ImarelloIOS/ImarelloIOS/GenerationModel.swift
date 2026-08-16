@@ -24,9 +24,14 @@ final class GenerationModel {
     var prompt = GenerationModel.foxPlaceholder
     var side = 512
     var seed: UInt64 = 42
+    /// Editable digits for the seed field. `TextField(value:format:)` does not
+    /// write back while a number pad is focused, so Generate can run the old seed.
+    var seedText = "42"
     var lastImage: UIImage?
     var lastImageURL: URL?
     var lastSide = 512
+    /// Seed that produced `lastImage`. Nil until a generate/edit finishes.
+    var lastSeed: UInt64?
     var phase: PipelineProgress?
     var isRunning = false
     var errorMessage: String?
@@ -90,14 +95,53 @@ final class GenerationModel {
         let small = ModelPaths.resolveSmallDecoderIfPresent(config: config)
         gate = (klein != nil && small != nil) ? .ready : .missingWeights
         #endif
+        try? DeviceHarnessPaths.ensureDirectories()
+    }
+
+    /// Claim at most one inbox job. Safe to call from `.task` / `scenePhase`.
+    func pollHarnessInbox() {
+        guard !isRunning else { return }
+        do {
+            try DeviceHarnessPaths.ensureDirectories()
+            let inbox = try FileManager.default.contentsOfDirectory(
+                at: DeviceHarnessPaths.inbox(),
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            guard let url = inbox.first else { return }
+            try claimAndRunHarnessJob(at: url)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Parse the seed field into `seed`. Call before generate/edit and when the
+    /// number pad resigns — otherwise the last committed value is what runs.
+    @discardableResult
+    func commitSeedText() -> UInt64 {
+        let digits = seedText.filter(\.isNumber)
+        if let value = UInt64(digits), !digits.isEmpty {
+            seed = value
+        }
+        seedText = String(seed)
+        return seed
+    }
+
+    func randomizeSeed() {
+        seed = UInt64.random(in: 0...9_999_999)
+        seedText = String(seed)
     }
 
     func generate() {
+        commitSeedText()
         guard canGenerate else { return }
         startRun { await self.performGenerate() }
     }
 
     func editLast() {
+        commitSeedText()
         guard canEdit else { return }
         startRun { await self.performEdit() }
     }
@@ -125,6 +169,141 @@ final class GenerationModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func claimAndRunHarnessJob(at inboxURL: URL) throws {
+        let data = try Data(contentsOf: inboxURL)
+        let job = try DeviceHarnessPaths.jsonDecoder.decode(DeviceHarnessJob.self, from: data)
+        let running = DeviceHarnessPaths.runningFile(id: job.id)
+        try? FileManager.default.removeItem(at: running)
+        try FileManager.default.moveItem(at: inboxURL, to: running)
+
+        #if targetEnvironment(simulator)
+        try writeHarnessResult(.skippedSimulator(job: job))
+        try? FileManager.default.removeItem(at: running)
+        #else
+        prompt = job.prompt
+        side = job.width
+        seed = job.seed
+        seedText = String(job.seed)
+        startRun { await self.performHarnessJob(job, runningURL: running) }
+        #endif
+    }
+
+    #if !targetEnvironment(simulator)
+    private func performHarnessJob(_ job: DeviceHarnessJob, runningURL: URL) async {
+        let started = Date()
+        let iso = ISO8601DateFormatter().string(from: started)
+        defer {
+            finishRun()
+            try? FileManager.default.removeItem(at: runningURL)
+        }
+        do {
+            try job.validate(hasLastImage: lastImageURL != nil)
+            try Task.checkCancellation()
+            try await ensureReady()
+            let metalNote = MetallibVerification.resolveFromBundles()
+                .map { MetallibVerification.verify(url: $0).note }
+
+            let url: URL
+            switch job.mode {
+            case .t2i:
+                let out = try outputURL(prefix: "t2i")
+                url = try await pipelineOrThrow().generate(
+                    T2IRequest(
+                        prompt: job.prompt,
+                        width: job.width,
+                        height: job.height,
+                        steps: job.steps,
+                        seed: job.seed,
+                        outputURL: out,
+                        textTokens: job.textTokens,
+                        embedCache: true
+                    ),
+                    onProgress: { progress in
+                        Task { @MainActor in
+                            self.phase = progress
+                        }
+                    }
+                )
+            case .i2i:
+                guard let source = lastImageURL else {
+                    throw ImarelloError.imageLoadFailed(
+                        path: "<last-in-app>",
+                        reason: "i2i harness job needs a last generated PNG"
+                    )
+                }
+                let out = try outputURL(prefix: "i2i")
+                url = try await pipelineOrThrow().edit(
+                    I2IRequest(
+                        prompt: job.prompt,
+                        imageURL: source,
+                        strength: job.strength,
+                        width: job.width,
+                        height: job.height,
+                        steps: job.steps,
+                        seed: job.seed,
+                        outputURL: out,
+                        identity: .disabled,
+                        textTokens: job.textTokens,
+                        embedCache: true
+                    ),
+                    onProgress: { progress in
+                        Task { @MainActor in
+                            self.phase = progress
+                        }
+                    }
+                )
+            }
+            applyResult(url: url, side: job.width)
+            try writeHarnessResult(
+                DeviceHarnessResult(
+                    id: job.id,
+                    status: .ok,
+                    pngRelativePath: DeviceHarnessPaths.pngContainerPath(filename: url.lastPathComponent),
+                    width: job.width,
+                    height: job.height,
+                    seed: job.seed,
+                    elapsedSec: Date().timeIntervalSince(started),
+                    startedAt: iso,
+                    metallibNote: metalNote
+                )
+            )
+        } catch is CancellationError {
+            try? writeHarnessResult(
+                DeviceHarnessResult(
+                    id: job.id,
+                    status: .failed,
+                    error: "cancelled",
+                    width: job.width,
+                    height: job.height,
+                    seed: job.seed,
+                    elapsedSec: Date().timeIntervalSince(started),
+                    startedAt: iso
+                )
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            try? writeHarnessResult(
+                DeviceHarnessResult(
+                    id: job.id,
+                    status: .failed,
+                    error: error.localizedDescription,
+                    width: job.width,
+                    height: job.height,
+                    seed: job.seed,
+                    elapsedSec: Date().timeIntervalSince(started),
+                    startedAt: iso
+                )
+            )
+        }
+    }
+    #endif
+
+    private func writeHarnessResult(_ result: DeviceHarnessResult) throws {
+        try DeviceHarnessPaths.ensureDirectories()
+        let data = try DeviceHarnessPaths.jsonEncoder.encode(result)
+        try data.write(to: DeviceHarnessPaths.doneFile(id: result.id), options: .atomic)
     }
 
     private func startRun(_ work: @escaping @MainActor () async -> Void) {
@@ -217,17 +396,32 @@ final class GenerationModel {
     }
 
     private func ensureReady() async throws {
+        refreshGate()
+        // Pipeline.snapshot is fixed at init. A harness/Generate before the
+        // weight copy leaves a resident actor with snapshot == nil even after
+        // files appear and the gate flips to .ready.
+        if let existing = pipeline, await existing.hasLocalSnapshot == false {
+            pipeline = nil
+        }
         if pipeline == nil {
             pipeline = ImarelloPipeline(config: .autoDetectingTier())
         }
-        if let metal = MetallibVerification.resolveFromBundles() {
-            let check = MetallibVerification.verify(url: metal)
-            if !check.productReady {
-                throw ImarelloError.notImplemented("MLX metallib is not product-ready: \(check.note)")
-            }
+        guard let metal = MetallibVerification.resolveFromBundles() else {
+            throw ImarelloError.notImplemented(
+                "MLX metallib missing from the app bundle (no mlx-swift Cmlx library)"
+            )
         }
-        refreshGate()
+        let check = MetallibVerification.verify(url: metal)
+        if !check.productReady {
+            throw ImarelloError.notImplemented("MLX metallib is not product-ready: \(check.note)")
+        }
         guard gate == .ready else {
+            throw ImarelloError.weightsNotFound(
+                modelID: WeightPreset.bits4.defaultModelID,
+                path: expectedModelsDirectory.path
+            )
+        }
+        if await pipeline?.hasLocalSnapshot != true {
             throw ImarelloError.weightsNotFound(
                 modelID: WeightPreset.bits4.defaultModelID,
                 path: expectedModelsDirectory.path
@@ -246,6 +440,7 @@ final class GenerationModel {
         lastImageURL = url
         lastImage = UIImage(contentsOfFile: url.path)
         lastSide = side
+        lastSeed = seed
     }
 
     private func outputURL(prefix: String) throws -> URL {

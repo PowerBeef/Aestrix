@@ -1,6 +1,6 @@
 # Imarello iOS 26 demo
 
-**Status (2026-08-15):** `Apps/ImarelloIOS` is installed and launches on a physical iPhone (Debug, Apple Development). Simulator remains UI-only. **On-device generate is not done yet** — pinned Klein 4-bit weights are not in the app container, and the wildcard team profile strips the memory entitlements from the signed binary.
+**Status (2026-08-16):** `Apps/ImarelloIOS` runs staged Klein 4B on a physical iPhone (Debug, Apple Development). Simulator remains UI-only. **512² T2I smoke passed** (fox, seed 42; pixel PASS + vision pass). Device jobs: `Scripts/ios-device-harness.sh`. **1024² T2I** runs but can fail vision anatomy (Klein 4-step / μ=1.15 / 4096 tokens — not a seed-commit bug). Weights are **not** in the bundle; **resync after every `devicectl install`**. Profile `app.imarello.demo` signs both kernel entitlements. Metallib resolution walks the `.app` for `mlx-swift_Cmlx.bundle`.
 
 The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agent map: [`../AGENTS.md`](../AGENTS.md) § P7.
 
@@ -58,7 +58,7 @@ If SpringBoard will not open the icon: **Settings → General → VPN & Device M
 - `com.apple.developer.kernel.increased-memory-limit` — higher jetsam limit on supported iPhones; still run if extra RAM is refused
 - `com.apple.developer.kernel.extended-virtual-addressing` — larger VA for mapping 4-bit weights / DiT
 
-The Simulator ignores both. On device, automatic signing currently picks the wildcard `iOS Team Provisioning Profile: *` and **drops those keys** from the merged `.xcent`. Hand-`codesign` of extra keys without a matching profile fails install (`0xe8008015`). Fix before a real 512² generate: explicit App ID `app.imarello.demo` whose development profile includes both kernel entitlements.
+The Simulator ignores both. On device, pin **`SystemCapabilities`** in `project.yml` so XcodeGen keeps the keys, and sign with **`iOS Team Provisioning Profile: app.imarello.demo`**. The wildcard `iOS Team Provisioning Profile: *` **drops** those keys. Hand-`codesign` of extra keys without a matching profile fails install (`0xe8008015`).
 
 Save-to-Photos uses **add-only** photo access. There is no photo picker and no file import.
 
@@ -73,7 +73,11 @@ On first launch the app looks in its sandbox `Caches/Imarello/models/` for:
 
 Download on a Mac (same as the CLI), then copy into the app container after the first install so the container exists. Helper notes: `Scripts/sync-ios-device-weights.sh`. Pins: [`WEIGHTS.md`](WEIGHTS.md).
 
-Missing Klein 4-bit on the Mac cache blocks the copy. Small Decoder alone is not enough.
+Missing Klein 4-bit on the Mac cache blocks the copy. Small Decoder alone is not enough. If the Mac path is a **symlink** into `~/Library/Caches/Aestrix/models/…`, copy the **real** directories (the phone cannot follow that symlink).
+
+A new `devicectl device install app` often creates a **new data container**. The previous `models/` tree is gone. Run the sync script again before Generate.
+
+`ImarelloPipeline.snapshot` is set in `init`. If the app created a pipeline **before** the copy, Generate can show **no banner** and still throw `weightsNotFound` at the Klein path. `GenerationModel.ensureReady()` now rebuilds the pipeline when `hasLocalSnapshot` is false.
 
 ## First generate (after weights + entitlements)
 
@@ -81,13 +85,33 @@ Missing Klein 4-bit on the Mac cache blocks the copy. Small Decoder alone is not
 2. Copy both snapshots into `Caches/Imarello/models/`.
 3. **512² T2I first.** One Metal owner.
 4. Export the PNG and run [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) on the Mac.
-5. 1024² only after 512 succeeds.
+5. 1024² only after 512 succeeds. Same seed ≠ the 512 image scaled up (different noise shape + scheduler μ). Vision-check anatomy — pixel can PASS a headless chimera.
 
-Edit uses the last in-app PNG at strength 0.8. No `--identity` in this demo.
+Edit uses the last in-app PNG at strength 0.8. No `--identity` in this demo. Seed field: number-pad **Done**, commit on Generate; caption `{side} · seed {n}` is what actually ran.
 
 ## Metallib
 
-Xcode + mlx-swift resources provide the Metal library (not `Scripts/ensure-metallib.sh`, which is the SPM CLI). The app refuses generate if the bundled metallib is a stub or missing Steel symbols (`MetallibVerification.resolveFromBundles()`).
+Xcode compiles mlx-swift Cmlx Metal into `Imarello.app/mlx-swift_Cmlx.bundle/default.metallib` (~3–4 MB, Steel + RMSNorm). That is a **resource** bundle (`BNDL`), not a loaded framework — it does not appear in `Bundle.allBundles`. Asking every loaded bundle for `default.metallib` either hits a UIKit/SwiftUI stub (~157 KB) or finds nothing. The resolver walks the `.app` wrapper on disk (same path Cmlx `try_load_bundle` uses). `Scripts/ensure-metallib.sh` is macOS-only (`-sdk macosx`) and must not be copied onto the phone.
+
+4-bit `affine_qmm` is JIT in mlx-swift 0.31.6 and is not required in the file.
+
+## Device harness (generate + Mac eval)
+
+Agents cannot tap **Generate**. Drive one Klein job by dropping JSON into the app container; the app runs the same pipeline as the dock button, then the Mac pulls the PNG and optionally pixel-evals it. **Not** XCUITest. Simulator jobs are written `skipped` (no fake Klein).
+
+```bash
+# Default: fox prompt, 512², seed 42. Does not rebuild the app.
+./Scripts/ios-device-harness.sh --eval --fail-on-pixel-gate
+
+# 1024 is opt-in (minutes on device; one Metal owner)
+./Scripts/ios-device-harness.sh --width 1024 --allow-1024 --eval
+```
+
+The app polls `Library/Caches/Imarello/jobs/inbox/` every 2s while active. Results land in `jobs/done/{id}.json`; PNGs stay under `Caches/Imarello/outputs/`. Copied artifacts: `/tmp/imarello-ios-eval/{id}/`.
+
+Copy the job to **`…/jobs/inbox/{id}.json`**. Copying onto `…/jobs/inbox` when that name is missing (or is already a file) **replaces the inbox directory with the JSON** and the job never runs. Use a **new `--id`** on retry so a leftover `done/{id}.json` is not treated as the new result.
+
+Pixel eval is not a vision pass — open the PNG (`EVAL_WORKFLOW.md`). Do not run a generate matrix on the phone in v1.
 
 ## Simulator UI
 

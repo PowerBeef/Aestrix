@@ -26,6 +26,12 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: ImarelloIOS
+    attributes:
+      SystemCapabilities:
+        com.apple.IncreasedMemoryLimit:
+          enabled: 1
+        com.apple.ExtendedVirtualAddressing:
+          enabled: 1
     entitlements:
       path: ImarelloIOS/ImarelloIOS.entitlements
       properties:

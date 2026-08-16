@@ -208,7 +208,7 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 
 | Shipping | In progress / parked |
 |----------|----------------------|
-| macOS library + CLI | iOS 26 demo (`Apps/ImarelloIOS`) — installs on device; generate after weights |
+| macOS library + CLI | iOS 26 demo (`Apps/ImarelloIOS`) — **512² T2I on device**; 1024² anatomy still open |
 | 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
 | T2I, strength I2I, `--identity` | |
 | Steel FA · Small Decoder · auto tokens · f16 qmm · embed cache · Hub pin + CI floors | |
@@ -221,7 +221,7 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md)
 | [PERF.md](Docs/PERF.md) | Benchmarks and pressure probes |
 | [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Pixel + vision quality gate |
 | [AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md) | Skills, MCP servers, host-safe loops |
-| [IOS.md](Docs/IOS.md) | iOS 26 demo — Simulator UI, `xcodebuild` + `devicectl` device install |
+| [IOS.md](Docs/IOS.md) | iOS 26 demo — Simulator UI, `xcodebuild` + `devicectl`, device generate harness |
 | [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | Color vs identity strength |
 | [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 |
 
@@ -233,7 +233,8 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md)
 
 - **Simulator** is UI only — MLX has no Simulator Metal. Generate is a no-op.
 - **Physical iPhone** is the generate host. Build with `xcodebuild` (`-skipPackagePluginValidation`) and install with `devicectl`. No Mac Catalyst.
-- Weights stay out of the bundle (`Caches/Imarello/models/`). See [Docs/IOS.md](Docs/IOS.md).
+- Weights stay out of the bundle (`Caches/Imarello/models/`). Resync after every install (`Scripts/sync-ios-device-weights.sh`).
+- Drive a device generate from the Mac with `Scripts/ios-device-harness.sh` (default 512²). Do not tap Generate from an agent. See [Docs/IOS.md](Docs/IOS.md).
 
 ## License
 

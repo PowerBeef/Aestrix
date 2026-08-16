@@ -1,8 +1,13 @@
 import SwiftUI
 
+private enum StudioFocus: Hashable {
+    case prompt
+    case seed
+}
+
 struct StudioView: View {
     @Environment(GenerationModel.self) private var model
-    @FocusState private var promptFocused: Bool
+    @FocusState private var focus: StudioFocus?
 
     var body: some View {
         @Bindable var model = model
@@ -11,9 +16,9 @@ struct StudioView: View {
                 WeightStatusView(message: banner, modelsPath: model.expectedModelsDirectory.path)
             }
 
-            StudioBrief(model: model, promptFocused: $promptFocused)
+            StudioBrief(model: model, focus: $focus)
 
-            ResultView()
+            ResultView(onPreviewTap: dismissKeyboard)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if showsStatus {
@@ -25,9 +30,27 @@ struct StudioView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(ImarelloTheme.canvas.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            StudioDock(model: model, promptFocused: $promptFocused)
+            StudioDock(model: model, dismissKeyboard: dismissKeyboard)
         }
-        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { dismissKeyboard() }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(ImarelloTheme.copper)
+                    .accessibilityLabel("Dismiss keyboard")
+            }
+        }
+        .onChange(of: focus) { _, newFocus in
+            if newFocus != .seed {
+                model.commitSeedText()
+            }
+        }
+    }
+
+    private func dismissKeyboard() {
+        model.commitSeedText()
+        focus = nil
     }
 
     private var showsStatus: Bool {
@@ -73,7 +96,7 @@ struct StudioView: View {
 
 private struct StudioBrief: View {
     @Bindable var model: GenerationModel
-    @FocusState.Binding var promptFocused: Bool
+    @FocusState.Binding var focus: StudioFocus?
     @ScaledMetric(relativeTo: .body) private var seedWidth = ImarelloTheme.Size.seedDigits
     @State private var instrumentHeight: CGFloat = 0
 
@@ -86,7 +109,7 @@ private struct StudioBrief: View {
                     .textFieldStyle(.plain)
                     .foregroundStyle(ImarelloTheme.cream)
                     .tint(ImarelloTheme.copper)
-                    .focused($promptFocused)
+                    .focused($focus, equals: .prompt)
                     .accessibilityLabel("Prompt")
             }
 
@@ -120,23 +143,31 @@ private struct StudioBrief: View {
         .tint(ImarelloTheme.copper)
         .accessibilityLabel("Canvas size")
         .frame(maxWidth: .infinity)
+        .onChange(of: model.side) { _, _ in
+            model.commitSeedText()
+            focus = nil
+        }
     }
 
     private var seedCluster: some View {
         HStack(spacing: ImarelloTheme.Space.xs) {
-            TextField("Seed", value: $model.seed, format: .number.grouping(.never))
+            TextField("Seed", text: $model.seedText)
                 .font(.body.monospacedDigit())
                 .controlSize(.large)
                 .keyboardType(.numberPad)
+                .textContentType(.none)
                 .multilineTextAlignment(.trailing)
                 .textFieldStyle(.plain)
                 .foregroundStyle(ImarelloTheme.cream)
                 .tint(ImarelloTheme.copper)
+                .focused($focus, equals: .seed)
                 .accessibilityLabel("Seed")
+                .accessibilityValue(model.seedText)
                 .frame(minWidth: seedWidth)
 
             Button("Random") {
-                model.seed = UInt64.random(in: 0...9_999_999)
+                model.randomizeSeed()
+                focus = nil
             }
             .font(.body.weight(.semibold))
             .controlSize(.large)
@@ -154,7 +185,7 @@ private struct StudioBrief: View {
 
 private struct StudioDock: View {
     @Bindable var model: GenerationModel
-    @FocusState.Binding var promptFocused: Bool
+    var dismissKeyboard: () -> Void
 
     var body: some View {
         GlassEffectContainer(spacing: ImarelloTheme.Space.sm) {
@@ -177,7 +208,7 @@ private struct StudioDock: View {
                 tinted: true,
                 disabled: !model.canGenerate
             ) {
-                promptFocused = false
+                dismissKeyboard()
                 model.generate()
             }
             .accessibilityHint("Create a new image from the prompt")
@@ -188,7 +219,7 @@ private struct StudioDock: View {
                 tinted: false,
                 disabled: !model.canEdit
             ) {
-                promptFocused = false
+                dismissKeyboard()
                 model.editLast()
             }
             .accessibilityHint("Edit the last generated image. No photo import.")

@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-15 (P7 app installed on a physical iPhone; generate waits on weights + entitlements profile)  
+**Last updated:** 2026-08-16 (P7 512² T2I + device harness; 1024² anatomy still open)  
 **Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
 **Backend / P9 leftovers are paused** — do not start TAEF2, ref-KV, Δ-DiT, `stagedAggressive`, or fused qmm+SwiGLU unless the user asks.  
 **Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
@@ -41,7 +41,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `partial` — iOS 26 app **installed and launches** on a physical iPhone. Simulator = UI only (no MLX). **Generate blocked** on pinned weights in the app container + an explicit App ID profile (wildcard profile strips kernel entitlements) |
+| **Status** | `partial` — iOS 26 app runs staged Klein 4B on a physical iPhone. Simulator = UI only (no MLX). **512² T2I smoke passed** (fox, seed 42). Device harness can drop jobs without a UI tap. **1024² T2I** can fail vision anatomy (Klein 4-step / μ=1.15). Last-in-app I2I not eval’d |
 | **Goal** | Ship an iOS 26 app (or host) that links `ImarelloRuntime` and runs staged T2I (+ I2I) on-device |
 | **Depends on** | macOS path stable (done); full metallib packaging for app targets; device memory tiers |
 
@@ -51,11 +51,14 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] Metallib check via `MetallibVerification.resolveFromBundles()` (Xcode + mlx-swift resources)  
 - [x] On-device snapshot path documented (`Docs/IOS.md`, app `Caches/Imarello/models`)  
 - [x] Debug `iphoneos` build + `devicectl` install/launch on a physical iPhone  
-- [ ] Single 512² T2I smoke on that iPhone (needs Klein 4-bit in the container + kernel entitlements in the signed binary)  
+- [x] Single 512² T2I smoke on that iPhone (fox, seed 42, 2026-08-15)  
 - [x] Tier-aware config (`ImarelloConfig.autoDetectingTier()`, staged) — 512 / 1024 UI  
 - [x] Basic UI: prompt, generate, progress, share/save  
 - [x] In-app I2I of last result (no photo picker / import)  
-- [ ] Eval notes for device outputs (pixel harness on host Mac from exported PNG)
+- [x] Eval notes for device 512² T2I (`/tmp/imarello-ios-eval/t2i-1786850093.png`; pixel PASS, vision pass; `color_mismatch` waived)  
+- [x] Device generate harness (`Scripts/ios-device-harness.sh` + `DeviceHarnessJob`)  
+- [ ] 1024² T2I vision-clean on device (anatomy; same seed ≠ 512 upscale)  
+- [ ] Last-in-app I2I eval on device
 
 **Resume notes**
 
@@ -66,7 +69,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 **Suggested next step**
 
-Phone is available and the app launches. Next: explicit App ID so `increased-memory-limit` + `extended-virtual-addressing` survive codesign; `hf download` the Klein 4-bit pin if missing on the Mac; `Scripts/sync-ios-device-weights.sh`; **512² T2I**; eval the PNG on the Mac. Do not generate on the Simulator. Recipe: [`IOS.md`](IOS.md).  
+512² T2I works. Drive device generates with `Scripts/ios-device-harness.sh` (resync weights after install; new job `--id` on retry). 1024² quality is an open vision issue. Do not generate on the Simulator. Recipe: [`IOS.md`](IOS.md).  
 
 ---
 

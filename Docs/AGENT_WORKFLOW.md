@@ -149,10 +149,12 @@ Full recipe: [`IOS.md`](IOS.md). Short version:
 1. Simulator = UI only. `Generate` is a no-op. Do not fake Klein.
 2. After `project.yml` edits: `./Scripts/generate-ios-project.sh`.
 3. Device build needs `-skipPackagePluginValidation`, `-allowProvisioningUpdates`, team `FK2D8X36G2`.
-4. Install / launch with `xcrun devicectl device install app` / `process launch`.
-5. Wildcard team profile **strips** kernel memory entitlements. Do not hand-resign extra keys (`0xe8008015`). Need an explicit App ID before 512² generate.
-6. Weights stay on disk (`Caches/Imarello/models/`), never in the bundle. `Scripts/sync-ios-device-weights.sh`.
-7. First generate is **512²**. Eval the PNG on the Mac.
+4. Install / launch with `xcrun devicectl device install app` / `process launch`. **Resync weights after every install** (new data container).
+5. Profile is **`iOS Team Provisioning Profile: app.imarello.demo`** (both kernel entitlements). Do not hand-resign extra keys (`0xe8008015`).
+6. Weights stay on disk (`Caches/Imarello/models/`), never in the bundle. `Scripts/sync-ios-device-weights.sh` — copy the real snapshot dirs, not a host symlink.
+7. Drive generate from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512²). Do not ask the user to tap Generate. `--width 1024` needs `--allow-1024`.
+8. First generate is **512²**. Eval the PNG on the Mac (`EVAL_WORKFLOW.md`). 1024² same seed is a different sample; vision-check anatomy.
+9. If Generate says `weightsNotFound` but there is no gate banner, the pipeline was created before the copy — recreate it (`hasLocalSnapshot`).
 
 ---
 

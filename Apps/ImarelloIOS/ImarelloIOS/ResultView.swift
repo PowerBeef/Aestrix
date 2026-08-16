@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ResultView: View {
     @Environment(GenerationModel.self) private var model
+    var onPreviewTap: (() -> Void)?
 
     var body: some View {
         VStack(spacing: ImarelloTheme.Space.xs) {
@@ -25,6 +26,15 @@ struct ResultView: View {
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .shadow(color: ImarelloTheme.stage.opacity(0.55), radius: ImarelloTheme.Space.md, x: 0, y: ImarelloTheme.Space.xs)
+            .contentShape(Rectangle())
+            .onTapGesture { onPreviewTap?() }
+
+            if let seed = model.lastSeed, model.lastImage != nil {
+                Text("\(model.lastSide) · seed \(seed)")
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(ImarelloTheme.cream.opacity(0.72))
+                    .accessibilityLabel("Generated at \(model.lastSide) with seed \(seed)")
+            }
 
             if let url = model.lastImageURL {
                 GlassEffectContainer(spacing: ImarelloTheme.Space.sm) {

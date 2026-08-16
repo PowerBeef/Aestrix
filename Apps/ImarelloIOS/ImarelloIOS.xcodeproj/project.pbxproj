@@ -120,6 +120,7 @@
 					25896D23D78AD62B0ED8DCD9 = {
 						DevelopmentTeam = FK2D8X36G2;
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = "[\"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1], \"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1]]";
 					};
 				};
 			};

@@ -97,7 +97,7 @@ BFL skills cover **prompting/product behavior**, not DiT/VAE math. MLX skills co
 | 0–6 + Eval | **Done** | macOS library + CLI (T2I, I2I, eval workflow) |
 | **P6c Identity I2I** | **Done** | Ref latents (`t=10`), Vision face mask, clean-pull, schedule curves; `imarello i2i --identity` |
 | **P9 Performance harness** | **Done** — leftover slices **paused** | `ImarelloBench`; Steel FA + tiled VAE + context hoist; **Small Decoder** + **auto** + **f16 scaled qmm** are product defaults. Glue fusion parked. **Do not resume speed work unless asked.** |
-| **P7 iOS host** | **Partial** | `Apps/ImarelloIOS` installed on a physical iPhone. Simulator = UI only. **Generate waits on weights + an explicit App ID profile** (wildcard team profile strips kernel entitlements). [`Docs/IOS.md`](Docs/IOS.md) |
+| **P7 iOS host** | **Partial** | `Apps/ImarelloIOS` runs staged Klein on a physical iPhone. Simulator = UI only. **512² T2I smoke passed** (fox, seed 42). Device jobs: `Scripts/ios-device-harness.sh`. 1024² T2I can assemble a broken body plan (vision). [`Docs/IOS.md`](Docs/IOS.md) |
 | **P8 macOS polish** | **Done** | Hub pin, eval-floors CI, eval-regression, [`Docs/I2I_STRENGTH.md`](Docs/I2I_STRENGTH.md) |
 | Out of v1 | Tracked only | Multi-ref (>1 image), CFG, LoRA, bf16 — see roadmap |
 
@@ -133,7 +133,7 @@ CLI: `HostPreflight` takes `~/Library/Caches/Imarello/imarello.lock` and refuses
 **Tests:** do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts). Prefer:
 
 ```bash
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness'
 ```
 
 ---
@@ -235,7 +235,8 @@ Do **not** claim “blue mug works” from metrics alone without opening the ima
 | `Scripts/ci-eval-floors.sh` | Hub pins + synthetic golden floors (no weights; GitHub Actions) |
 | `Scripts/ensure-metallib.sh` | Build/install full Metal library (SPM CLI only — not the iOS app) |
 | `Scripts/generate-ios-project.sh` | XcodeGen → `Apps/ImarelloIOS/ImarelloIOS.xcodeproj` |
-| `Scripts/sync-ios-device-weights.sh` | Notes for copying pinned snapshots into the iPhone app container |
+| `Scripts/sync-ios-device-weights.sh` | Copy pinned snapshots into the iPhone app container |
+| `Scripts/ios-device-harness.sh` | Drop a T2I/I2I job on the phone, pull PNG, optional pixel eval |
 
 ## P7 iOS host (agent workflow)
 
@@ -266,13 +267,19 @@ xcrun devicectl device process launch --device <coredevice-id|name> app.imarello
 
 mlx-swift’s CUDA package plugin will fail Xcode validation without **`-skipPackagePluginValidation`**.
 
-**Entitlements:** `Apps/ImarelloIOS/ImarelloIOS/ImarelloIOS.entitlements` has `increased-memory-limit` and `extended-virtual-addressing` (public Booleans). Automatic signing currently uses the wildcard `iOS Team Provisioning Profile: *` and **strips those keys** from the signed `.xcent`. Do **not** hand-`codesign` extra keys onto the `.app` — install then fails with `0xe8008015` (profile mismatch). Need an **explicit App ID** profile before a real 512² generate. Simulator ignores both keys.
+**Entitlements:** `ImarelloIOS.entitlements` + `project.yml` `SystemCapabilities` so XcodeGen keeps `increased-memory-limit` and `extended-virtual-addressing`. Signing uses **`iOS Team Provisioning Profile: app.imarello.demo`** (both kernel keys in the `.xcent`). Do **not** hand-`codesign` extra keys — install fails `0xe8008015`. Simulator ignores both keys.
 
-**Weights:** never ship the ~5 GB pack in the bundle. Device looks in the sandbox `Caches/Imarello/models/` for the two pins in [`Docs/WEIGHTS.md`](Docs/WEIGHTS.md). Copy from the Mac cache (`Scripts/sync-ios-device-weights.sh`). First device session: **512² T2I**, then eval the PNG on the Mac (`EVAL_WORKFLOW.md`). 1024² only after 512 succeeds.
+**Weights:** never ship the ~5 GB pack in the bundle. Device path: sandbox `Caches/Imarello/models/` for the two pins in [`Docs/WEIGHTS.md`](Docs/WEIGHTS.md). Copy with `Scripts/sync-ios-device-weights.sh` (follow the host symlink — copy the real Aestrix/Imarello snapshot dirs). **A new `devicectl install` often gets a new data container** — resync weights after every install. First generate: **512²**, then eval the PNG on the Mac. 1024² only after 512 succeeds.
 
-**UI:** Impeccable `layout` + `axiom-design` / `axiom-swiftui` (Liquid Glass Regular, not Clear; `glassProminent` tint on the primary only — dock capsules are matched 52 pt fills). Simulator verification: `xcui doctor` → `axe describe-ui` → tap **by label** → `axe screenshot` (or `devicectl device capture screenshot` when that subcommand exists). Do not sleep-and-rescreenshot.
+**Device generate from the Mac:** do **not** ask the user to tap Generate. `./Scripts/ios-device-harness.sh --eval` (default 512² fox seed 42). `--width 1024` requires `--allow-1024`. Copy the job to `Library/Caches/Imarello/jobs/inbox/{id}.json` (copying onto `…/inbox` as a directory name can replace the folder with a file). Use a **new job id** on retry so a stale `done/{id}.json` is not treated as the result. Pixel eval is not a vision pass.
 
-**Metallib:** the iOS app uses Xcode + mlx-swift bundled resources (`MetallibVerification.resolveFromBundles()`). Do not run `Scripts/ensure-metallib.sh` for the app target.
+**Pipeline after weight copy:** `ImarelloPipeline.snapshot` is fixed at `init`. If Generate/harness ran *before* the copy, recreate the pipeline when `hasLocalSnapshot` is false (`GenerationModel.ensureReady`). Otherwise the UI shows no banner and still throws `weightsNotFound` at the Klein path.
+
+**UI:** Impeccable `layout` + `axiom-design` / `axiom-swiftui` (Liquid Glass Regular, not Clear; `glassProminent` tint on the primary only — dock capsules are matched 52 pt fills). Seed field is a string + number-pad **Done** bar; commit before generate. Caption under the preview is `{side} · seed {n}` for the PNG that actually ran. Simulator verification: `xcui` + AXe. Do not sleep-and-rescreenshot.
+
+**Metallib:** Xcode embeds `mlx-swift_Cmlx.bundle/default.metallib` (~3–4 MB, Steel + RMSNorm). That bundle is **not** in `Bundle.allBundles` until loaded. `MetallibVerification.resolveFromBundles()` walks the `.app` on disk. A UIKit/SwiftUI `default.metallib` (~157 KB) is a stub — do not treat it as MLX. `affine_qmm` is JIT in mlx-swift 0.31.6 and is not required in the file. Do not run `Scripts/ensure-metallib.sh` for the app (`-sdk macosx` only).
+
+**1024² quality:** same seed as 512 is a **new noise tensor** (4096 vs 1024 packed tokens; scheduler μ 1.15 vs 0.63). Klein 4-step at 1024 can assemble a broken body plan (e.g. headless rear-view fox). Pixel may PASS. Vision anatomy is the gate. Same seed ≠ the 512 fox, larger.
 
 ## Out of scope (v1)
 
