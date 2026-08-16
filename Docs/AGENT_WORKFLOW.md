@@ -75,14 +75,14 @@ Ignore for Imarello: `claude-in-chrome`, `chrome-devtools`, `vercel`, `gmail`, `
 | Knob | Default | Escape hatch |
 |------|---------|--------------|
 | Weights | **4-bit** Klein 4B only | None for users. No 3-bit product path. No user bf16. |
-| Text tokens | `--text-tokens auto` | `--text-tokens 512` (byte-stable gallery) |
+| Text tokens | `--text-tokens 512` (pad) | `--text-tokens auto` (opt-in trim; faster, weaker conditioning) |
 | VAE decode | BFL **Small Decoder** | `--vae-variant full` (klein AE decoder) |
 | I2I encode | Always klein `encodeOnly` | Do not load `full_encoder_small_decoder.safetensors` |
 | 4-bit Linear | Scaled f16 `quantizedMM` (`÷16`) | `--attn-linear-compute f32` |
 | Canvas | **1024²** | `--width` / `--height` (512 for smokes) |
 | Steps / guidance | 4 / 1.0 | Distilled path; no negatives |
 
-Pins and download: [`WEIGHTS.md`](WEIGHTS.md). Numbers: [`PERF.md`](PERF.md) (8 GB M2, 2026-08-15: 512² **19.4 s** / 1024² **74.0 s**).
+Pins and download: [`WEIGHTS.md`](WEIGHTS.md). Numbers: [`PERF.md`](PERF.md) (8 GB M2, 2026-08-16 pad-512 defaults: 512² **24.4 s** / 1024² **79.0 s**).
 
 ---
 

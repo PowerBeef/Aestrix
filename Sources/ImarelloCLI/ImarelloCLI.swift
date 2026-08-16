@@ -162,8 +162,8 @@ struct Info: AsyncParsableCommand {
         print("  max_side: \(config.maxSide)")
         print("  memory_policy: \(config.memoryPolicy.rawValue)")
         print("  eval_cache: \(EvalCachePolicy.current.profileName)")
-        print("  text_tokens: auto (default)")
-        print("  text_tokens_512: pad reference; Docs/TEXT_TOKENS.md")
+        print("  text_tokens: 512 (default)")
+        print("  text_tokens_auto: opt-in trim (faster, weaker conditioning); Docs/TEXT_TOKENS.md")
         let smallReady = ModelPaths.resolveSmallDecoderIfPresent(config: config) != nil
         print("  vae_decoder: \(config.vaeDecoderVariant.rawValue) (default)")
         print("  small_decoder_ready: \(smallReady)")
@@ -435,8 +435,8 @@ struct T2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Exit 2 if pixel quality gate fails (use with --analyze).")
     var failOnPixelGate: Bool = false
 
-    @Option(name: .long, help: "Text tokens to DiT: auto (default, trim pad) | 512 (padded gallery path). Docs/TEXT_TOKENS.md.")
-    var textTokens: String = "auto"
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded product path) | auto (trim pad; faster, weaker conditioning). Docs/TEXT_TOKENS.md.")
+    var textTokens: String = "512"
 
     @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
     var vaeVariant: String = "small-decoder"
@@ -597,8 +597,8 @@ struct I2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Exit 2 if pixel quality gate fails (use with --analyze).")
     var failOnPixelGate: Bool = false
 
-    @Option(name: .long, help: "Text tokens to DiT: auto (default, trim pad) | 512 (padded gallery path). Docs/TEXT_TOKENS.md.")
-    var textTokens: String = "auto"
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded product path) | auto (trim pad; faster, weaker conditioning). Docs/TEXT_TOKENS.md.")
+    var textTokens: String = "512"
 
     @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack). Encoder stays the klein AE.")
     var vaeVariant: String = "small-decoder"
@@ -924,7 +924,7 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Clear cache every N blocks when per-block clears are active (default 1).")
     var attnBlockClearInterval: Int?
 
-    @Option(name: .long, help: "Text tokens to DiT for t2i trials: auto (default) | 512 (pad). Docs/TEXT_TOKENS.md.")
+    @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default, pad) | auto (trim). Docs/TEXT_TOKENS.md.")
     var textTokens: String?
 
     @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")

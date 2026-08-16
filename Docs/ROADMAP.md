@@ -1,6 +1,6 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-16 (P7 512² T2I + device harness; 1024² anatomy still open)  
+**Last updated:** 2026-08-16 (`--text-tokens auto` default reverted after quality regression; P7 1024² anatomy still open)  
 **Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
 **Backend / P9 leftovers are paused** — do not start TAEF2, ref-KV, Δ-DiT, `stagedAggressive`, or fused qmm+SwiGLU unless the user asks.  
 **Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
@@ -129,7 +129,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 - [x] 2026-08-11 pass P1: size-gated per-block `clearCache` + collapsed QKV evals + single-eval chunked Linear — denoise/step **−7.3%** @ 512², **−3.9%** @ 1024²  
 - [x] 2026-08-11 pass P4+P5: slice-local tiled-VAE stitch + cached masks, `VAELoadMode.encodeOnly` (I2I stage-0), identity `--ref-downsample`, compiled RoPE/AdaLN — cumulative **−11.8% e2e @ 512²**, **−3.7% @ 1024²**, watermark flat  
 - [x] `--text-tokens auto` trim — e2e **−32%** @ 512², ~−10% denoise/step @ 1024²  
-- [x] **P9 Slice A (2026-08-15):** `--text-tokens auto` is the **product default** — eval 15/15 + identity I2I face lock. `--text-tokens 512` is the pad gallery path. [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md)  
+- [x] **P9 Slice A (2026-08-15):** `--text-tokens auto` promoted to default — eval 15/15 + identity I2I face lock. *(Reverted 2026-08-16 — vision regression; see decision log.)* [`Docs/TEXT_TOKENS.md`](TEXT_TOKENS.md)  
 - [x] Prompt-embed disk cache (default on) — TE stage skipped on hit (**−4 s** @ 512², byte-identical)  
 - [x] `imarello session` warm mode (resident policy, ≥16 GB RAM gate) — no win on 8 GB (gate validated); orchestrator loads made idempotent  
 - [x] f16 Q/K/V threshold retest @ 1024² — f16 ~7% faster, same peaks  
@@ -147,7 +147,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 
 | Slice | Status | Item | Notes |
 |-------|--------|------|-------|
-| **A** | **done** (default) | `--text-tokens auto` | Product default. Pad-512 via `--text-tokens 512`. [`TEXT_TOKENS.md`](TEXT_TOKENS.md). |
+| **A** | **done** (opt-in) | `--text-tokens auto` | Opt-in speed path; default for one day, reverted 2026-08-16 (conditioning regression). [`TEXT_TOKENS.md`](TEXT_TOKENS.md). |
 | **B** | **done** (default) | BFL **FLUX.2 Small Decoder** as product decode | 512 + **1024** T2I quality PASS. Decode **−37%**. Default **small-decoder**; `--vae-variant full` for klein. Encoder stays klein. |
 | **C** | **done** (park glue) | Profile Steel FA vs FFN vs `processQKV` glue | 512² + 1024²: Linear+FFN own the step; `qkv_rope` ~5%. Do not fuse QK-Norm+RoPE. [`PERF.md`](PERF.md) Slice C. |
 | — | `paused` | TAEF2 (or Small Decoder @ 256/384) `--preview` | Interactive only; never ship as export. |
@@ -205,12 +205,12 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-13 | Pin mlx-community Klein 4-bit Hub revision `1cebb9b45c21ece14a42615b16bf5fa4de9b56da`; CI eval floors on GitHub Actions |
 | 2026-08-13 | P8 I2I strength-curve recipes (`Docs/I2I_STRENGTH.md`); macOS polish backlog complete |
 | 2026-08-13 | Port quarantine leftovers on main: Steel metallib check, VAE D=512 chunked SDPA (`evalEachChunk` off), `EvalCachePolicy.mid` bench-only |
-| 2026-08-14 | P9 Slice A: `--text-tokens auto` first-class opt-in; pad-512 still default that day. *(Superseded 2026-08-15 — `auto` is the product default.)* |
+| 2026-08-14 | P9 Slice A: `--text-tokens auto` first-class opt-in; pad-512 still default that day. |
 | 2026-08-14 | P9 Slice B: BFL Small Decoder as `--vae-variant small-decoder`. 512² decode −37%. Full AE still default that day. *(Superseded 2026-08-15 — Small Decoder is the product default.)* |
 | 2026-08-15 | I2I encoder lock: always klein `encodeOnly`. Do not load `full_encoder_small_decoder.safetensors`. 512² mug + identity smokes with Small Decoder decode PASS. |
 | 2026-08-15 | Small Decoder 1024² T2I quality pass: 6/6 pixel PASS, vision match vs full AE, decode −37%. |
 | 2026-08-15 | **Promote Small Decoder to product default.** `--vae-variant full` is the klein-pack escape hatch. Missing snapshot fails with `hf download` hint. |
-| 2026-08-15 | `--text-tokens auto` identity I2I A/B (512², seed 7): face lock holds; outfit *cut* can drift. **Promoted to product default.** `--text-tokens 512` is the pad gallery path. |
+| 2026-08-15 | `--text-tokens auto` identity I2I A/B (512², seed 7): face lock holds; outfit *cut* can drift. **Promoted to product default.** *(Reverted 2026-08-16.)* |
 | 2026-08-15 | P9 Slice C: Linear+FFN own 87% / 75% of a 512² / 1024² step; `qkv_rope` ~5%. **Park fused QK-Norm+RoPE / compile-glue.** |
 | 2026-08-15 | **f16 scaled 4-bit Linear is the product default.** Raw f16 qmm → noise (pixel harness missed it). ×16 pre-scale restores images; 512² denoise **−6.5%**. `--attn-linear-compute f32` escape. |
 | 2026-08-15 | Pixel harness **`unstructured_garbage` hard fail** (white noise + VAE-decoded rainbow speckle). Catches the unscaled-f16 miss. Schema 1.4. |
@@ -220,3 +220,6 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | 2026-08-15 | Docs freeze: [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md) (skills / MCP / host-safe loops). **P9 leftover speed work paused.** Next product phase is **P7**. |
 | 2026-08-15 | P7 started: `Apps/ImarelloIOS` iOS 26 demo. Simulator is UI-only (MLX has no Simulator Metal). No Catalyst. [`IOS.md`](IOS.md). |
 | 2026-08-15 | P7 Debug build installed on a physical iPhone via `xcodebuild` + `devicectl`. Generate still blocked: weights not in the container; wildcard team profile strips kernel entitlements. |
+| 2026-08-16 | **`--text-tokens auto` default REVERTED** after user-reported quality degradation. Bisect (fisherman s42/s7, fox 512/1024, identity I2I s7) convicted `auto`: no text mask in joint attention → trimming the 512 pad weakens conditioning (illegible faces, averted subjects; f32 1024² fox was a headless chimera). f16 qmm and Small Decoder exonerated (byte-near-identical A/Bs). Pad-512 default restored across CLI, library requests, session, bench, iOS app, and device harness; byte-identity vs pad runs verified; eval-regression 15/15 + vision PASS. [`TEXT_TOKENS.md`](TEXT_TOKENS.md). |
+| 2026-08-16 | Product-path numbers re-measured (pad-512 + f16 qmm + Small Decoder): 512² e2e **24.4 s** (W1T3), 1024² **79.0 s** (W0T1); watermark 2.54 / 3.63 GiB. Opt-in `auto` remains 19.4 / 74.0 s. |
+| 2026-08-16 | Process gaps recorded: the auto/f16 promotions were vision-checked at 512² only (never 1024² or multi-seed humans), and bench JSON does not persist `textTokens` / `attnLinearCompute` / `vaeVariant` — provenance lived only in filename labels. |

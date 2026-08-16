@@ -130,14 +130,14 @@ Add `--analyze --vision-brief` to any generate for the pixel report + agent chec
 
 ## Performance
 
-Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 · seed 42 · fox prompt. Product defaults: `--text-tokens auto`, BFL Small Decoder, scaled f16 4-bit Linear (`÷16`). Live peak is the DiT (~2 GiB) at both sizes — 1024² is slower, not much hungrier.
+Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 · seed 42 · fox prompt. Product defaults: `--text-tokens 512` (pad), BFL Small Decoder, scaled f16 4-bit Linear (`÷16`). Live peak is the DiT (~2 GiB) at both sizes — 1024² is slower, not much hungrier.
 
 | Canvas | Time | Denoise / step | Decode | MLX active | Watermark |
 |--------|-----:|---------------:|-------:|-----------:|----------:|
-| **512²** | **19.4 s** | 3.34 s | 1.05 s | 2.04 GiB | 2.38 GiB |
-| **1024²** | **74.0 s** | 15.91 s | 5.27 s | 2.05 GiB | 3.46 GiB |
+| **512²** | **24.4 s** | 4.61 s | 1.05 s | 2.04 GiB | 2.54 GiB |
+| **1024²** | **79.0 s** | 17.20 s | 5.27 s | 2.05 GiB | 3.63 GiB |
 
-`--text-tokens auto` trims pad tokens. Same seed is not the same PNG as `--text-tokens 512` (gallery / old recipes). See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+`--text-tokens auto` (opt-in) trims pad tokens for speed (19.4 s / 74.0 s) but weakens prompt conditioning — it was reverted as the default on 2026-08-16. Same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
 BFL **Small Decoder** is the default decode (−37% vs the klein AE). `--vae-variant full` restores klein. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 

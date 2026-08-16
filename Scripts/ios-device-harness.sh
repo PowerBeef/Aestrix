@@ -20,7 +20,7 @@ WIDTH=512
 HEIGHT=""
 STEPS=4
 SEED=42
-TEXT_TOKENS="auto"
+TEXT_TOKENS="512"
 STRENGTH=0.8
 JOB_ID=""
 DO_EVAL=0
@@ -40,7 +40,7 @@ Usage:
   --height N              must match width
   --seed N                default 42
   --steps N               default 4
-  --text-tokens auto|512  default auto
+  --text-tokens 512|auto  default 512
   --strength F            i2i only, default 0.8
   --id NAME               job id (default derived)
   --eval                  run Scripts/eval-generation.sh on the PNG

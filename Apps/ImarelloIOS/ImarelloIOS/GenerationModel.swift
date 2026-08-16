@@ -342,7 +342,7 @@ final class GenerationModel {
                     steps: 4,
                     seed: seed,
                     outputURL: out,
-                    textTokens: .auto,
+                    textTokens: .full512,
                     embedCache: true
                 ),
                 onProgress: { progress in
@@ -378,7 +378,7 @@ final class GenerationModel {
                     seed: seed,
                     outputURL: out,
                     identity: .disabled,
-                    textTokens: .auto,
+                    textTokens: .full512,
                     embedCache: true
                 ),
                 onProgress: { progress in

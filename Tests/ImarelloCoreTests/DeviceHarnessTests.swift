@@ -16,7 +16,7 @@ struct DeviceHarnessTests {
         let data = try DeviceHarnessPaths.jsonEncoder.encode(job)
         let decoded = try DeviceHarnessPaths.jsonDecoder.decode(DeviceHarnessJob.self, from: data)
         #expect(decoded == job)
-        #expect(decoded.textTokens == .auto)
+        #expect(decoded.textTokens == .full512)
         #expect(decoded.mode == .t2i)
         #expect(decoded.steps == 4)
     }

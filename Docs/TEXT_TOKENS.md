@@ -1,6 +1,6 @@
 # Text tokens (`512` vs `auto`)
 
-**P9 Slice A.** Product default is **`--text-tokens auto`** (2026-08-15). `--text-tokens 512` is the byte-stable gallery path.
+**P9 Slice A.** Product default is **`--text-tokens 512`** (pad; reverted 2026-08-16 after a quality regression — see **Decision** below). `--text-tokens auto` is the opt-in speed path.
 
 Code: `TextTokenMode`, `ImarelloPipeline.trimTextTokens`. CLI: `imarello t2i|i2i|session|bench --text-tokens 512|auto`.
 
@@ -22,9 +22,9 @@ Embed-cache entries stay the full `[1, 512, 7680]` tensor (key includes `len=512
 
 | Intent | Flag | Why |
 |--------|------|-----|
-| Product `t2i` / `i2i` (default) | **`auto`** | −32% e2e @ 512²; quality + identity face lock passed |
-| Gallery, “same seed → same pixels” | **`512`** | Pad participates in joint attn; byte-stable vs old PNGs |
-| Official pad-512 eval | `T2I_EXTRA='--text-tokens 512'` | Compare against the old reference |
+| Product `t2i` / `i2i` (default) | **`512`** | Pad participates in joint attn — the conditioning regime the model was distilled with; byte-stable vs old PNGs |
+| Speed experiments (opt-in) | **`auto`** | −32% e2e @ 512², but weaker conditioning — see the 2026-08-16 regression below |
+| Trimmed-path eval | `T2I_EXTRA='--text-tokens auto'` | Compare against the fast path |
 
 Do **not** claim a pad-512 PNG is reproducible under `auto`.
 
@@ -108,23 +108,32 @@ Paths: `/tmp/imarello-auto-id-i2i/recolor-{512,auto}.png`, `replace-{512,auto}.p
 
 **Read-out:** auto does **not** drop the person. Recolor quality matches pad-512. On “replace outfit,” auto changed sleeves more than pad-512; neither delivered the outdoor balcony (identity-stack limit, both paths). Auto can change *how* a wardrobe edit lands, not just texture.
 
-## Decision (product default is `auto`)
+## Decision (product default is `512` — auto reverted 2026-08-16)
 
-**`--text-tokens auto` is the default** (2026-08-15). Speed at 512² is large; T2I eval + identity I2I face lock passed. Same seed is **not** the same PNG — use `--text-tokens 512` when you need the old pad-512 pixels.
+`auto` was promoted to default on 2026-08-15 and **reverted on 2026-08-16** after user-visible quality degradation. Root cause of the regression: FLUX.2 joint attention has no text mask, so the 512-token pad participates in every softmax — the regime the 4-step distillation was trained in. Trimming to ~16–80 real tokens redistributes attention mass and systematically weakens/shifts conditioning. The 512²-only A/B above recorded this as acceptable "pose drift"; on more prompts it is not drift, it is degradation:
 
-Outfit-edit *cut* can drift vs pad-512 on identity replace. That is accepted for the default; pin `512` for a locked recipe.
+| Evidence (seed-42/7 A/Bs, 2026-08-16) | auto | pad-512 |
+|---|---|---|
+| Fisherman 512² (seeds 42 and 7) | Face crushed into shadow, illegible | Legible weathered face, correct rim light |
+| Fox 1024² | Rear view; **headless chimera** on the f32 variant | Front-facing, clean anatomy, tech 78.7 |
+| Fox 512² | Sitting, eyes closed/soft | (Aug-13 pad) standing, sharp open eyes |
+| Identity I2I recolor (seed 7) | OK — face lock holds | OK — near-identical |
+
+The f16 scaled Linear and Small Decoder were **exonerated** (byte-near-identical A/Bs at 512²; at 1024² the f32 variant produced the chimera). Short prompts trim hardest (fox: 512 → 32 tokens) and degrade most — exactly the prompts users type.
+
+Cost of the revert (measured 2026-08-16, pad-512 + f16 qmm + Small Decoder): 512² e2e **24.4 s** (auto: 19.4), 1024² **79.0 s** (auto: 74.0), watermark 2.54 / 3.63 GiB — safe on 8 GB. Same-seed pixels are again byte-stable vs pre-2026-08-15 galleries. `auto` stays available per-run; do not re-promote it without a vision A/B that covers 1024² and human subjects.
 
 ## Re-run
 
 ```bash
-# Product path (auto is CLI default)
-OUT_DIR=/tmp/imarello-eval-regression-auto \
+# Product path (pad-512 is CLI default)
+OUT_DIR=/tmp/imarello-eval-regression-pad \
   IMARELLO=.build/release/imarello \
   ./Scripts/eval-regression.sh
 
-# Pad-512 gallery path
-T2I_EXTRA='--text-tokens 512' \
-  OUT_DIR=/tmp/imarello-eval-regression-pad \
+# Trimmed speed path (opt-in)
+T2I_EXTRA='--text-tokens auto' \
+  OUT_DIR=/tmp/imarello-eval-regression-auto \
   IMARELLO=.build/release/imarello \
   ./Scripts/eval-regression.sh
 

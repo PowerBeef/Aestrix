@@ -13,11 +13,11 @@ struct TextTokenModeTests {
         #expect(TextTokenMode(rawValue: "256") == nil)
     }
 
-    @Test("library request default is auto")
-    func requestDefaultIsAuto() {
+    @Test("library request default is pad-512")
+    func requestDefaultIsPad512() {
         let t2i = T2IRequest(prompt: "x")
-        #expect(t2i.textTokens == .auto)
+        #expect(t2i.textTokens == .full512)
         let i2i = I2IRequest(prompt: "x", imageURL: URL(fileURLWithPath: "/tmp/ref.png"))
-        #expect(i2i.textTokens == .auto)
+        #expect(i2i.textTokens == .full512)
     }
 }

@@ -1,6 +1,6 @@
 # `cursor-opt-quarantine` audit
 
-**This file is a historical audit, not a work queue.** Leftovers 1–4 below shipped on `main` (VAE D=512 chunked SDPA with `evalEachChunk` off, Steel metallib check, `EvalCachePolicy.mid` bench-only, PromptEmbedCache / TextTokenMode tests). `--text-tokens auto` is the **product default**. Do not re-open the branch.
+**This file is a historical audit, not a work queue.** Leftovers 1–4 below shipped on `main` (VAE D=512 chunked SDPA with `evalEachChunk` off, Steel metallib check, `EvalCachePolicy.mid` bench-only, PromptEmbedCache / TextTokenMode tests). `--text-tokens auto` shipped as an opt-in (briefly default 2026-08-15, reverted 2026-08-16). Do not re-open the branch.
 
 **Date:** 2026-08-13  
 **Branch:** `cursor-opt-quarantine` @ `2ce2a8f` — **deleted** after the worth-doing items were reimplemented on `main`.  
@@ -35,7 +35,7 @@ The research doc’s Wave-0 “evidence lock” is mostly **already shipped** af
 | Host contention / ambient filter | Done |
 | Face-region SSIM | Done |
 | HostPreflight lock | Done |
-| `--text-tokens auto` | Done (**product default** as of 2026-08-15) |
+| `--text-tokens auto` | Done (opt-in; default for one day 2026-08-15, reverted 2026-08-16) |
 | Prompt-embed cache | Done (default on) |
 | `imarello session` | Done (≥16 GB gate) |
 | Steel FA D=128 | Done |

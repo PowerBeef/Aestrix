@@ -36,7 +36,7 @@ public struct T2IRequest: Sendable {
         guidance: Float = 1.0,
         seed: UInt64? = nil,
         outputURL: URL? = nil,
-        textTokens: TextTokenMode = .auto,
+        textTokens: TextTokenMode = .full512,
         embedCache: Bool = false
     ) {
         self.prompt = prompt
@@ -81,7 +81,7 @@ public struct I2IRequest: Sendable {
         seed: UInt64? = nil,
         outputURL: URL? = nil,
         identity: IdentityPreserveConfig = .disabled,
-        textTokens: TextTokenMode = .auto,
+        textTokens: TextTokenMode = .full512,
         embedCache: Bool = false
     ) {
         self.prompt = prompt

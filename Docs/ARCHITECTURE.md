@@ -37,7 +37,7 @@ mlx-swift
 ## Correctness footguns
 
 1. Qwen chat template (empty think block with `enable_thinking=False`)  
-2. TE still encodes a 512 pad. DiT default is `--text-tokens auto` (trim). `--text-tokens 512` is the byte-stable path — [`TEXT_TOKENS.md`](TEXT_TOKENS.md)  
+2. TE still encodes a 512 pad. DiT default is `--text-tokens 512` (pad in joint attention). `--text-tokens auto` (trim) is opt-in — faster, weaker conditioning — [`TEXT_TOKENS.md`](TEXT_TOKENS.md)  
 3. Timestep ×1000 when max(t) ≤ 1  
 4. Exact scheduler sigmas vs mflux/diffusers  
 5. TE unload before DiT load  

@@ -25,7 +25,7 @@ public struct DeviceHarnessJob: Sendable, Equatable, Codable {
         height: Int = 512,
         steps: Int = 4,
         seed: UInt64 = 42,
-        textTokens: TextTokenMode = .auto,
+        textTokens: TextTokenMode = .full512,
         strength: Float = 0.8
     ) {
         self.id = id

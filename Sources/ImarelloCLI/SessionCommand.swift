@@ -23,8 +23,8 @@ struct Session: AsyncParsableCommand {
     @Option(name: .long, help: "Output directory (default: ~/Library/Caches/Imarello/outputs)")
     var outputDir: String?
 
-    @Option(name: .long, help: "Text tokens to DiT: auto (default, trim pad) | 512 (padded gallery path). Docs/TEXT_TOKENS.md.")
-    var textTokens: String = "auto"
+    @Option(name: .long, help: "Text tokens to DiT: 512 (default, padded product path) | auto (trim pad; faster, weaker conditioning). Docs/TEXT_TOKENS.md.")
+    var textTokens: String = "512"
 
     @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
     var vaeVariant: String = "small-decoder"

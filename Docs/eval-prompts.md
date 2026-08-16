@@ -4,7 +4,7 @@ Use for smoke tests and visual quality gates. Klein prefers **narrative prose**,
 
 **After generating any sample, run the full eval procedure:**  
 [`Docs/EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) (`--analyze --vision-brief`, then vision checklist).  
-`--text-tokens auto` is the product default. Pad-512: [`TEXT_TOKENS.md`](TEXT_TOKENS.md).
+`--text-tokens 512` (pad) is the product default; `auto` is opt-in: [`TEXT_TOKENS.md`](TEXT_TOKENS.md).
 
 ## T2I (distilled 4-step)
 

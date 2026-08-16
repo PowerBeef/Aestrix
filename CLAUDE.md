@@ -12,7 +12,7 @@ Make **plain** `t2i` / `i2i` **faster** without **noticeable quality loss**, at 
 | Peak e2e RAM (DiT watermark / RSS) does not threaten 8 GB | Unmeasured, or only a decode-only RSS blip that does not move the e2e peak |
 | `Docs/EVAL_WORKFLOW.md` (pixel **and** vision) shows no noticeable degradation | — |
 
-An extra Hub file or a longer first-run `hf download` is **not** a reason to hide a proven win behind a flag — document the pin and refuse with the download hint when missing. Escape hatches (`--vae-variant full`, `--text-tokens 512`) are for the old reference path, not the product path. Same-seed PNG drift is acceptable when vision says the subject and edit still land. Do not trade staged residency or the 4-bit lock for speed.
+An extra Hub file or a longer first-run `hf download` is **not** a reason to hide a proven win behind a flag — document the pin and refuse with the download hint when missing. `--vae-variant full` is the old reference decode path. `--text-tokens auto` is an **opt-in** speed path — it was default for one day (2026-08-15) and reverted after vision showed real conditioning degradation (`Docs/TEXT_TOKENS.md`). Same-seed PNG drift is acceptable only when vision says the subject and edit still land. Do not trade staged residency or the 4-bit lock for speed.
 
 ## Product locks
 
@@ -77,7 +77,7 @@ Definition of done for any generation claim: PNG written · pixel eval run · vi
 ## Architecture reminders
 
 1. **Serial residency**: TE encode → unload → DiT denoise → unload → VAE decode → unload; `Memory.clearCache()` after unload and between large-canvas stages. `Docs/MEMORY.md`.
-2. **Qwen3 TE**: chat template required; hidden-state taps at layers **9/18/27** concat → **7680**. TE encodes a 512 pad; DiT default is **`--text-tokens auto`** (trim, round up to 8); `--text-tokens 512` is the byte-stable gallery path. `Docs/TEXT_TOKENS.md`.
+2. **Qwen3 TE**: chat template required; hidden-state taps at layers **9/18/27** concat → **7680**. TE encodes a 512 pad; DiT default is **`--text-tokens 512`** (pad participates in joint attention — the distillation regime). `--text-tokens auto` (trim) is opt-in: faster but weaker conditioning; reverted as default 2026-08-16. `Docs/TEXT_TOKENS.md`.
 3. **DiT**: MMDiT **5 double + 20 single** blocks; 4-axis RoPE θ=2000; inner dim 3072. Block checkpointing; **MLX Steel fused FA** (D=128); **f16 Q/K/V** when seq > 512. **4-bit Linear GEMMs run in f16 with ÷16/×16 scaling** — raw f16 is noise; `--attn-linear-compute f32` restores the reference GEMM. Prompt context is projected **once per generate** (`7680→3072`), not per step.
 4. **Scheduler**: match mflux/diffusers (time-shift / sigma); training-scale timesteps **[0, 1000]** passed from the pipeline (no host `item()` sync).
 5. **VAE**: decode uses **decode-only** weights; default is BFL **Small Decoder** (`--vae-variant full` = klein AE decoder). Large canvases use tiled decode. **I2I encode is always the klein AE** — never load `full_encoder_small_decoder.safetensors`.
@@ -85,7 +85,7 @@ Definition of done for any generation claim: PNG written · pixel eval run · vi
 7. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`. Latents are packed `[B, H/16·W/16, 128]`; decode = BN denorm + unpatchify.
 8. **I2I strength**: full N-step schedule, color curve default, color/object edits **≥ 0.8**. Identity (Tier B): `--identity` = ref latents (`t=10`) + face mask + clean-pull + `identity` curve; people **0.85–0.9**. `Docs/I2I_STRENGTH.md`.
 9. **Prompt-embed disk cache is default on** (`~/Library/Caches/Imarello/embeds`); a hit skips the TE stage byte-identically; `--no-embed-cache` opts out.
-10. **Perf reference** (8 GB M2, 2026-08-15, product path): 512² e2e **19.4 s** / 1024² **74.0 s**; peak active ~2.05 GiB; watermark 2.4 / 3.46 GiB. `Docs/PERF.md`.
+10. **Perf reference** (8 GB M2, 2026-08-16, product path = pad-512 + f16 qmm + Small Decoder): 512² e2e **24.4 s** / 1024² **79.0 s**; peak active ~2.05 GiB; watermark 2.54 / 3.63 GiB. Opt-in `--text-tokens auto`: 19.4 / 74.0 s. `Docs/PERF.md`.
 
 Correctness footguns and layer diagram: `Docs/ARCHITECTURE.md`.
 
@@ -93,7 +93,7 @@ Correctness footguns and layer diagram: `Docs/ARCHITECTURE.md`.
 
 Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 
-- **Done**: P0–P6c (macOS library + CLI: T2I, I2I, identity I2I, eval workflow), P8 (polish, CI floors), P9 (perf harness; Small Decoder + `--text-tokens auto` + f16 scaled qmm are product defaults).
+- **Done**: P0–P6c (macOS library + CLI: T2I, I2I, identity I2I, eval workflow), P8 (polish, CI floors), P9 (perf harness; Small Decoder + f16 scaled qmm are product defaults; `--text-tokens auto` was reverted to opt-in 2026-08-16 after a vision regression).
 - **P9 leftover slices are paused** (TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`, fused qmm+SwiGLU). **Do not resume speed work unless asked.**
 - **Next phase: P7 iOS** (partial): 512² T2I verified on a physical iPhone; open items are 1024² vision-clean anatomy and last-in-app I2I eval.
 - **Blocking process rule**: always address issues that surface (metallib, load failures, parity fails, failed eval gates, unexplained OOM) **before** starting the next phase.

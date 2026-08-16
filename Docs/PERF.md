@@ -1035,3 +1035,24 @@ try BenchReportWriter.write(report, to: url)
 - Quality gates that block CI without snapshots (optional later)
 
 See **ROADMAP P9** for tracking.
+
+---
+
+## 2026-08-16 — `--text-tokens auto` default reverted (quality regression)
+
+User-reported "huge quality degradation + morphology issues" on both surfaces, all modes, both canvases. Runtime-flag bisect at seed 42/7 (fisherman 512², fox 512²/1024², identity I2I) convicted the `auto` trim; **f16 scaled qmm and Small Decoder were exonerated** (f32-vs-f16 A/Bs byte-near-identical at 512²; the 1024² *f32* variant was the headless-chimera image).
+
+Mechanism: FLUX.2 joint attention has no text mask — the 4-step distillation ran with the full 512-token pad in every softmax. Trimming to ~16–80 tokens redistributes attention mass and weakens conditioning (faces crushed into shadow, subjects averted, 1024² body-plan failures). Short prompts trim hardest and degrade most. The 2026-08-15 promotion had been vision-checked at 512² only.
+
+**Product default restored to pad-512** everywhere (CLI, `T2IRequest`/`I2IRequest`, session, bench fallback, iOS app, device harness). Byte-identity of the new default vs `--text-tokens 512` runs verified; eval-regression 15/15 pixel PASS + vision spots PASS.
+
+Product-path numbers (pad-512 + f16 qmm + Small Decoder, seed 42, fox):
+
+| Canvas | Trials | e2e | denoise/step | peak MLX active | watermark |
+|--------|--------|----:|-------------:|----------------:|----------:|
+| 512² | W1T3 | **24 374 ms** | 4 605 ms | 2.04 GiB | 2.54 GiB |
+| 1024² | W0T1 | **79 005 ms** | 17 197 ms | 2.05 GiB | 3.63 GiB |
+
+Opt-in `--text-tokens auto` remains the 19.4 s / 74.0 s speed path (tables above). Do not re-promote it without a vision A/B covering 1024² and human subjects across seeds. Reports: `outputs/investigation-2026-08-16/bench-newdefault-{512,1024}.json`.
+
+Process gaps to close: bench JSON does not persist `textTokens` / `attnLinearCompute` / `vaeVariant` (provenance lived only in filename labels), and default promotions need a 1024² + human-subject vision gate.
