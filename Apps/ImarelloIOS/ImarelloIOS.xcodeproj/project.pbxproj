@@ -7,26 +7,40 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0E01A9D411EC313465D5DCFB /* PlateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333AC61FB5858216D544DC9E /* PlateSheet.swift */; };
 		0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */; };
-		1165DFA5EB338D1AD8AD2882 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3C025ECF679CB2A4A60E6A /* RootView.swift */; };
 		1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58755645B76E510CF21B41DE /* ImarelloTheme.swift */; };
-		A5AC8575E702DF6C13330356 /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D482C3DD3AB7F71F99071A24 /* ResultView.swift */; };
+		17C6BB20CFFC89F242F563BB /* StatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A659AF4736E8079A515B3CF3 /* StatusRow.swift */; };
+		193293953040FBA8CE5569AA /* PrintStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E47EF4A5B83E773332294A9 /* PrintStore.swift */; };
+		2109EC6B01AC4D92E7CBE3D4 /* GenerationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */; };
+		2E44DDE6AD5AE153C1FEC6C4 /* StudioPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E13C74607B6C81A8E41E1E49 /* StudioPage.swift */; };
+		4AD204347B422649206A3A79 /* StudioModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */; };
+		701749E0BBC1AA156316225D /* PromptBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */; };
+		9A316E2FC45EA3C82B27E511 /* StudioRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */; };
 		A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */; };
 		AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */; };
-		C690006F06E7EB17EEEF0086 /* GenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825BC00012CB6290369BC8B4 /* GenerationModel.swift */; };
-		D1C8BD9991E84BA68001595B /* StudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B08685E00C996591992D850 /* StudioView.swift */; };
+		CA7000708407EF6DBF7173C7 /* HarnessService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BBD0C89F349F329F8C50AD /* HarnessService.swift */; };
+		DB416C6AF2F177724B827DA3 /* ContactSheetPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4086E11990277F9355233656 /* ContactSheetPage.swift */; };
+		E627FFBB1B2743F08A6D7502 /* PrintViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		094826A3BD2A33F6FD78B2AF /* Aestrix */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Aestrix; path = ../..; sourceTree = SOURCE_ROOT; };
 		0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		333AC61FB5858216D544DC9E /* PlateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlateSheet.swift; sourceTree = "<group>"; };
+		3E47EF4A5B83E773332294A9 /* PrintStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintStore.swift; sourceTree = "<group>"; };
+		4086E11990277F9355233656 /* ContactSheetPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactSheetPage.swift; sourceTree = "<group>"; };
+		4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptBar.swift; sourceTree = "<group>"; };
 		53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ImarelloIOS.entitlements; sourceTree = "<group>"; };
 		58755645B76E510CF21B41DE /* ImarelloTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloTheme.swift; sourceTree = "<group>"; };
 		5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloIOSApp.swift; sourceTree = "<group>"; };
-		7B08685E00C996591992D850 /* StudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioView.swift; sourceTree = "<group>"; };
-		7F3C025ECF679CB2A4A60E6A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		825BC00012CB6290369BC8B4 /* GenerationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationModel.swift; sourceTree = "<group>"; };
-		D482C3DD3AB7F71F99071A24 /* ResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultView.swift; sourceTree = "<group>"; };
+		7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintViewer.swift; sourceTree = "<group>"; };
+		93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioRootView.swift; sourceTree = "<group>"; };
+		A659AF4736E8079A515B3CF3 /* StatusRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusRow.swift; sourceTree = "<group>"; };
+		A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationEngine.swift; sourceTree = "<group>"; };
+		ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioModel.swift; sourceTree = "<group>"; };
+		C3BBD0C89F349F329F8C50AD /* HarnessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessService.swift; sourceTree = "<group>"; };
+		E13C74607B6C81A8E41E1E49 /* StudioPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioPage.swift; sourceTree = "<group>"; };
 		F87FDE8274E2450312381B47 /* ImarelloIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ImarelloIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -54,13 +68,20 @@
 			isa = PBXGroup;
 			children = (
 				0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */,
-				825BC00012CB6290369BC8B4 /* GenerationModel.swift */,
+				4086E11990277F9355233656 /* ContactSheetPage.swift */,
+				A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */,
+				C3BBD0C89F349F329F8C50AD /* HarnessService.swift */,
 				53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */,
 				5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */,
 				58755645B76E510CF21B41DE /* ImarelloTheme.swift */,
-				D482C3DD3AB7F71F99071A24 /* ResultView.swift */,
-				7F3C025ECF679CB2A4A60E6A /* RootView.swift */,
-				7B08685E00C996591992D850 /* StudioView.swift */,
+				333AC61FB5858216D544DC9E /* PlateSheet.swift */,
+				3E47EF4A5B83E773332294A9 /* PrintStore.swift */,
+				7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */,
+				4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */,
+				A659AF4736E8079A515B3CF3 /* StatusRow.swift */,
+				ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */,
+				E13C74607B6C81A8E41E1E49 /* StudioPage.swift */,
+				93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */,
 			);
 			path = ImarelloIOS;
 			sourceTree = "<group>";
@@ -159,12 +180,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C690006F06E7EB17EEEF0086 /* GenerationModel.swift in Sources */,
+				DB416C6AF2F177724B827DA3 /* ContactSheetPage.swift in Sources */,
+				2109EC6B01AC4D92E7CBE3D4 /* GenerationEngine.swift in Sources */,
+				CA7000708407EF6DBF7173C7 /* HarnessService.swift in Sources */,
 				0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */,
 				1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */,
-				A5AC8575E702DF6C13330356 /* ResultView.swift in Sources */,
-				1165DFA5EB338D1AD8AD2882 /* RootView.swift in Sources */,
-				D1C8BD9991E84BA68001595B /* StudioView.swift in Sources */,
+				0E01A9D411EC313465D5DCFB /* PlateSheet.swift in Sources */,
+				193293953040FBA8CE5569AA /* PrintStore.swift in Sources */,
+				E627FFBB1B2743F08A6D7502 /* PrintViewer.swift in Sources */,
+				701749E0BBC1AA156316225D /* PromptBar.swift in Sources */,
+				17C6BB20CFFC89F242F563BB /* StatusRow.swift in Sources */,
+				4AD204347B422649206A3A79 /* StudioModel.swift in Sources */,
+				2E44DDE6AD5AE153C1FEC6C4 /* StudioPage.swift in Sources */,
+				9A316E2FC45EA3C82B27E511 /* StudioRootView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

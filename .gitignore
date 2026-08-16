@@ -31,3 +31,6 @@ outputs/
 # Keep metallib build recipe only
 Tools/Metal/*.air
 Tools/Metal/*.metallib
+
+# Impeccable workspace scratch (review shots, question logs)
+.impeccable/
