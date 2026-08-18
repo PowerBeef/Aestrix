@@ -66,6 +66,10 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionAsyncEvalInterval: Int?
     /// Decide attention store dtype from the joint sequence (nil = per-stream product default).
     public var attentionJointSeqF16: Bool?
+    /// S4 experiment: full-f16 single-stream epilogue (nil = product f32 epilogue).
+    public var attentionF16FullEpilogue: Bool?
+    /// S4 experiment: per-tensor dynamic activation scale (nil = flat ÷16).
+    public var attentionDynamicScale: Bool?
     /// Override the VAE tile enable threshold in latent px (nil = product default 128).
     public var vaeTileThreshold: Int?
     /// Text token mode for T2I trials: "512" (pad, product default) | "auto" (trim).
@@ -120,6 +124,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionBlockClearInterval: Int? = nil,
         attentionAsyncEvalInterval: Int? = nil,
         attentionJointSeqF16: Bool? = nil,
+        attentionF16FullEpilogue: Bool? = nil,
+        attentionDynamicScale: Bool? = nil,
         vaeTileThreshold: Int? = nil,
         textTokens: String? = nil,
         padContent: String? = nil,
@@ -162,6 +168,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionBlockClearInterval = attentionBlockClearInterval
         self.attentionAsyncEvalInterval = attentionAsyncEvalInterval
         self.attentionJointSeqF16 = attentionJointSeqF16
+        self.attentionF16FullEpilogue = attentionF16FullEpilogue
+        self.attentionDynamicScale = attentionDynamicScale
         self.vaeTileThreshold = vaeTileThreshold
         self.textTokens = textTokens
         self.padContent = padContent

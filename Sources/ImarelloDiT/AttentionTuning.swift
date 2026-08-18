@@ -48,6 +48,17 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     /// joint QKV back to f32 through concat/SDPA promotion — 5 of 25 blocks run f32
     /// Steel plus six wasted casts per block. Pixel-changing: gate on eval + vision.
     public var jointSeqF16: Bool
+    /// EXPERIMENT (S4, engine plan 2026-08-18): keep the single-stream fused-proj
+    /// epilogue in f16 end-to-end (proj → SwiGLU → concat → to_out input; to_out
+    /// output stays f32 for the residual). Pixel-changing: full gate + the
+    /// schema-1.4 `unstructured_garbage` fail before any promotion.
+    public var linearF16FullEpilogue: Bool
+    /// EXPERIMENT (S4): per-tensor dynamic activation scale — `max(amax|x|/target, 1)`
+    /// computed on-GPU per Linear call — instead of the flat `linearF16Scale`.
+    public var linearDynamicScale: Bool
+    /// Amax normalization target for the dynamic scale (activations land ≤ this
+    /// magnitude before the f16 qmm; headroom for the f16 accumulator).
+    public var linearDynamicScaleTarget: Float
 
     public init(
         queryChunkThreshold: Int = 1536,
@@ -71,7 +82,10 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         /// Product default **true** (2026-08-16 Tier-2): −1.3% e2e @1024², watermark
         /// −0.07 GiB, eval-regression 15/15 + vision pass. `false` restores per-stream
         /// dtype (f32 double-stream attention).
-        jointSeqF16: Bool = true
+        jointSeqF16: Bool = true,
+        linearF16FullEpilogue: Bool = false,
+        linearDynamicScale: Bool = false,
+        linearDynamicScaleTarget: Float = 64
     ) {
         self.queryChunkThreshold = queryChunkThreshold
         self.queryChunkSize = queryChunkSize
@@ -87,6 +101,9 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
         self.qkvCheckpoint = qkvCheckpoint
         self.asyncEvalInterval = max(0, asyncEvalInterval)
         self.jointSeqF16 = jointSeqF16
+        self.linearF16FullEpilogue = linearF16FullEpilogue
+        self.linearDynamicScale = linearDynamicScale
+        self.linearDynamicScaleTarget = max(1, linearDynamicScaleTarget)
     }
 
     /// Product defaults.
@@ -106,5 +123,7 @@ public struct AttentionTuning: Sendable, Equatable, Codable {
     /// Short label for bench reports.
     public var shortLabel: String {
         "\(backend.rawValue)/q\(queryChunkSize)/t\(queryChunkThreshold)/f16@\(f16SeqThreshold)/lin\(linearChunkSize)/qmm-\(linearF16 ? "f16" : "f32")"
+            + (linearF16FullEpilogue ? "/epi-f16" : "")
+            + (linearDynamicScale ? "/dynscale\(Int(linearDynamicScaleTarget))" : "")
     }
 }

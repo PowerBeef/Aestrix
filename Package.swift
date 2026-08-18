@@ -24,7 +24,7 @@ let package = Package(
         // (CLAUDE.md), then rebuild the metallib (the script detects the bump).
         // Imarello fork of mlx-swift: core v0.32.1 base build (see the fork's
         // imarello/core-0.32.1 branch; upstream is stuck pre-0.32 — issue #446).
-        .package(url: "https://github.com/PowerBeef/mlx-swift.git", revision: "f2459b620c595d258701b9c4aa3bcd613ba97a36"),
+        .package(url: "https://github.com/PowerBeef/mlx-swift.git", revision: "b0605dc1bcbc2450cba2c5d1f943d805fa03c65c"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [

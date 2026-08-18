@@ -1,5 +1,8 @@
 import ArgumentParser
+import CoreImage
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import ImarelloCore
 import ImarelloWeights
 import ImarelloRuntime
@@ -478,6 +481,9 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "Two-stage refine steps (default 2).")
     var refineSteps: Int = 2
 
+    @Option(name: .long, help: "Two-stage upscale filter: bicubic (I2I cover-scale, default) | lanczos (CoreImage, sharper — texture A/B).")
+    var refineUpscale: String = "bicubic"
+
     func run() async throws {
         try ensureMLXReady()
         try validateSteps(steps)
@@ -587,6 +593,41 @@ struct T2I: AsyncParsableCommand {
         }
     }
 
+    /// Lanczos upscale via CoreImage on the CPU (software renderer — no Metal
+    /// contention, deterministic). Writes a PNG at exactly width×height.
+    private static func lanczosUpscale(
+        from src: URL, to dst: URL, width: Int, height: Int
+    ) throws {
+        guard let input = CIImage(contentsOf: src) else {
+            throw ImarelloError.imageLoadFailed(path: src.path, reason: "not a decodable image")
+        }
+        let scale = CGFloat(height) / input.extent.height
+        let aspect = (CGFloat(width) / input.extent.width) / scale
+        guard let filter = CIFilter(name: "CILanczosScaleTransform") else {
+            throw ImarelloError.notImplemented("CILanczosScaleTransform unavailable")
+        }
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(scale, forKey: kCIInputScaleKey)
+        filter.setValue(aspect, forKey: kCIInputAspectRatioKey)
+        guard let output = filter.outputImage else {
+            throw ImarelloError.notImplemented("Lanczos filter produced no output")
+        }
+        let context = CIContext(options: [.useSoftwareRenderer: true])
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        guard let cg = context.createCGImage(output, from: rect) else {
+            throw ImarelloError.notImplemented("Lanczos render failed")
+        }
+        guard let dest = CGImageDestinationCreateWithURL(
+            dst as CFURL, UTType.png.identifier as CFString, 1, nil)
+        else {
+            throw ImarelloError.unsupportedWeightFormat("CGImageDestination failed for \(dst.path)")
+        }
+        CGImageDestinationAddImage(dest, cg, nil)
+        guard CGImageDestinationFinalize(dest) else {
+            throw ImarelloError.unsupportedWeightFormat("failed to write \(dst.path)")
+        }
+    }
+
     /// EXPERIMENT (engine plan Q2, MrFlow-style): compose the image at 512²
     /// where Klein 4-step anatomy is reliable, then refine at the target size
     /// with a short low-σ I2I pass. The I2I path cover-scales the 512² PNG to
@@ -604,6 +645,9 @@ struct T2I: AsyncParsableCommand {
         }
         guard refineStrength > 0, refineStrength < 1 else {
             throw ValidationError("--refine-strength must be in (0, 1), got \(refineStrength)")
+        }
+        guard refineUpscale == "bicubic" || refineUpscale == "lanczos" else {
+            throw ValidationError("--refine-upscale must be bicubic | lanczos, got '\(refineUpscale)'")
         }
         try validateSteps(refineSteps)
         let finalURL = outURL
@@ -632,13 +676,25 @@ struct T2I: AsyncParsableCommand {
                     padContent: padContentMode, padKeep: padKeep, padBias: padBias
                 ), onProgress: printProgress)
             print("  stage1 wrote \(stage1URL.path)")
+            // Optional sharper upscale: pre-scale with CoreImage Lanczos so the
+            // refine gets real high-frequency content (the bicubic cover-scale
+            // inside I2I softened texture 10-25 pixel-tech points in the Q gate).
+            var refineSource = stage1URL
+            if refineUpscale == "lanczos" {
+                let upURL = finalURL.deletingPathExtension()
+                    .appendingPathExtension("stage1up.png")
+                try Self.lanczosUpscale(
+                    from: stage1URL, to: upURL, width: width, height: height)
+                refineSource = upURL
+                print("  lanczos upscale wrote \(upURL.path)")
+            }
             // Linear curve makes strength ≡ starting σ exactly; every identity
             // mechanism stays off.
             var refineIdentity = IdentityPreserveConfig.disabled
             refineIdentity.scheduleCurve = .linear
             let url = try await pipeline.edit(
                 I2IRequest(
-                    prompt: prompt, imageURL: stage1URL, strength: refineStrength,
+                    prompt: prompt, imageURL: refineSource, strength: refineStrength,
                     width: width, height: height, steps: refineSteps,
                     guidance: 1.0, seed: seed, outputURL: finalURL,
                     identity: refineIdentity, textTokens: textTokenMode,
@@ -1068,6 +1124,12 @@ struct Bench: AsyncParsableCommand {
     @Flag(name: .long, help: "Decide attention store dtype from the joint sequence (f16 double blocks).")
     var attnJointF16: Bool = false
 
+    @Flag(name: .long, help: "S4 EXPERIMENT: full-f16 single-stream epilogue (proj→SwiGLU→concat→to_out input). Pixel-changing; full gate before any promotion.")
+    var attnF16FullEpilogue: Bool = false
+
+    @Flag(name: .long, help: "S4 EXPERIMENT: per-tensor dynamic activation scale (amax/64) instead of the flat ÷16.")
+    var attnDynamicScale: Bool = false
+
     @Option(name: .long, help: "VAE tile enable threshold in latent px (128 default). WARNING: 136 untiles 1024² decode — measured Metal abort on 8 GB hosts.")
     var vaeTileThreshold: Int?
 
@@ -1194,6 +1256,8 @@ struct Bench: AsyncParsableCommand {
             attentionBlockClearInterval: attnBlockClearInterval,
             attentionAsyncEvalInterval: attnAsyncEval,
             attentionJointSeqF16: attnJointF16 ? true : nil,
+            attentionF16FullEpilogue: attnF16FullEpilogue ? true : nil,
+            attentionDynamicScale: attnDynamicScale ? true : nil,
             vaeTileThreshold: vaeTileThreshold,
             // Persist resolved values, not nil-means-default: quality-knob
             // provenance must live in the report, not the filename label.

@@ -135,13 +135,17 @@ enum AttentionUtils {
     }
 
     /// Sequence Linear. Flattened last-dim GEMM; optional f16 `quantizedMM`.
-    static func applyLinear(_ linear: Linear, _ x: MLXArray) -> MLXArray {
+    /// `outputF16` (S4): skip the f32 upcast in the qmm rescale — the caller
+    /// keeps the epilogue chain in f16.
+    static func applyLinear(
+        _ linear: Linear, _ x: MLXArray, outputF16: Bool = false
+    ) -> MLXArray {
         if x.ndim <= 2 {
-            return applyLinearCore(linear, x)
+            return applyLinearCore(linear, x, outputF16: outputF16)
         }
         let inDim = x.dim(-1)
         let x2 = x.reshaped([-1, inDim])
-        let y2 = applyLinearCore(linear, x2)
+        let y2 = applyLinearCore(linear, x2, outputF16: outputF16)
         return y2.reshaped(Array(x.shape.dropLast()) + [y2.dim(-1)])
     }
 
@@ -157,6 +161,20 @@ enum AttentionUtils {
     private static let compiledPostScale: @Sendable (MLXArray, MLXArray) -> MLXArray = {
         compile { (y: MLXArray, s: MLXArray) -> MLXArray in
             y.asType(.float32) * s
+        }
+    }()
+    /// S4 full-f16 epilogue: rescale WITHOUT the f32 upcast — the result stays
+    /// f16 for SwiGLU/concat/to_out-input. Overflow risk is the gate's job.
+    private static let compiledPostScaleF16: @Sendable (MLXArray, MLXArray) -> MLXArray = {
+        compile { (y: MLXArray, s: MLXArray) -> MLXArray in
+            y * s.asType(.float16)
+        }
+    }()
+    /// S4 dynamic activation scale: `max(amax|x|/target, 1)` as a GPU scalar —
+    /// no host sync; flows into the pre/post-scale graph like the constant did.
+    private static let compiledDynamicScale: @Sendable (MLXArray, MLXArray) -> MLXArray = {
+        compile { (x: MLXArray, target: MLXArray) -> MLXArray in
+            maximum(abs(x).max() / target, MLXArray(Float(1)))
         }
     }()
     nonisolated(unsafe) private static var scaleArrayCache: [Float: MLXArray] = [:]
@@ -177,12 +195,19 @@ enum AttentionUtils {
     /// exact for this pack, min |scale| ≈ 1e-4 ≫ the f16 normal floor — so the
     /// asType below is a free no-op guard). Residual dtype is the caller's
     /// problem (AdaLN stays f32).
-    private static func applyLinearCore(_ linear: Linear, _ x: MLXArray) -> MLXArray {
-        guard AttentionTuning.current.linearF16, let q = linear as? QuantizedLinear else {
-            return linear(x)
+    private static func applyLinearCore(
+        _ linear: Linear, _ x: MLXArray, outputF16: Bool = false
+    ) -> MLXArray {
+        let tuning = AttentionTuning.current
+        guard tuning.linearF16, let q = linear as? QuantizedLinear else {
+            let y = linear(x)
+            return outputF16 ? y.asType(.float16) : y
         }
         // Scale down so f16 accumulate does not overflow (raw f16 qmm → TV static).
-        let scale = scaleArray(AttentionTuning.current.linearF16Scale)
+        // S4 dynamic mode normalizes per tensor (amax/target) instead of the flat 16.
+        let scale = tuning.linearDynamicScale
+            ? compiledDynamicScale(x, scaleArray(tuning.linearDynamicScaleTarget))
+            : scaleArray(tuning.linearF16Scale)
         let x16 = compiledPreScale(x, scale)
         var y = quantizedMM(
             x16,
@@ -194,12 +219,12 @@ enum AttentionUtils {
             bits: q.bits,
             mode: q.mode
         )
-        y = compiledPostScale(y, scale)
+        y = outputF16 ? compiledPostScaleF16(y, scale) : compiledPostScale(y, scale)
         // Bias must be added after the ×scale rescale: inside the sandwich it
         // would come out as scale·bias. (No DiT Linear routed here carries a
         // bias today; this keeps the helper correct if one ever does.)
         if let bias = q.bias {
-            y = y + bias
+            y = y + bias.asType(y.dtype)
         }
         return y
     }
@@ -209,14 +234,15 @@ enum AttentionUtils {
         _ linear: Linear,
         _ x: MLXArray,
         chunkSize: Int? = nil,
-        threshold: Int? = nil
+        threshold: Int? = nil,
+        outputF16: Bool = false
     ) -> MLXArray {
         // x: [B, S, C]
         let seq = x.dim(1)
         let thr = threshold ?? AttentionTuning.current.linearChunkThreshold
         let cs = max(1, chunkSize ?? AttentionTuning.current.linearChunkSize)
         if seq <= thr {
-            return applyLinear(linear, x)
+            return applyLinear(linear, x, outputF16: outputF16)
         }
         var parts: [MLXArray] = []
         parts.reserveCapacity((seq + cs - 1) / cs)
@@ -226,7 +252,7 @@ enum AttentionUtils {
             let chunk = x[0..., start ..< end, 0...]
             // No per-chunk eval: lazy execution still runs chunk-by-chunk at the final
             // eval and frees each chunk's temps by refcount; per-chunk sync only stalled.
-            parts.append(applyLinear(linear, chunk))
+            parts.append(applyLinear(linear, chunk, outputF16: outputF16))
             start = end
         }
         let cat = concatenated(parts, axis: 1)

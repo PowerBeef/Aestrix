@@ -1139,3 +1139,19 @@ The encode win is the 0.32.x split-K qmm + `gemv_wide` small-M kernels, exactly 
 **TE-splice speed claim REFUTED** (both cores): real-token-only encode + cached clean-pad bank measures encode_te 1.58 → 1.71 s (0.32.1) / 1.96 → 2.11 s (0.31.1) — the TE encode is **dispatch-bound, not FLOP-bound**, so cutting seq 512 → ~30 buys nothing (§5.1's "−8% e2e" estimate stands corrected). The splice ships anyway as the `--pad-content clean` implementation (quality verified: LPIPS-lite 0.194 vs prompt pads — inside the R4 0.15–0.22 band; tech unchanged), with the pad bank cached independently of `--no-embed-cache`.
 
 **Two-stage 1024²** (`t2i --two-stage`, MrFlow-style compose→refine): fixes body-plan anatomy failures (four-armed dancer seed 0 → clean at every σ 0.05–0.30 × 1–2 steps; 512² composition preserved) but pixel technical drops 10–25 pts on fur/texture prompts — the interpolated upscale supplies no high frequencies for a low-σ refine to rebuild (MrFlow uses a GAN SR model here). **Opt-in anatomy rescue only; not the 1024² default.** Requires the corrected refine-regime schedule (strengthSchedule ends at startT/N when startT < 1/N — the naive ramp ascends and the earlier clamp silently forced σ to 1/N).
+
+## 2026-08-18 — S4 full-f16 single-stream epilogue: speed claim refuted, flags kept
+
+**Design**: `--attn-f16-full-epilogue` keeps the fused single-stream proj output in f16 end-to-end (SwiGLU → concat → `to_out` input; `to_out` output stays f32 for the residual). `--attn-dynamic-scale` replaces the flat ÷16 with a GPU-side per-call amax scale (`max(amax|x|/64, 1)`, no host syncs). Both are `AttentionTuning` knobs threaded through bench provenance (schema 1.4: `attentionF16FullEpilogue` / `attentionDynamicScale`).
+
+W1T3, seed 42 fox, vs the post-bump baseline (JSONs: `outputs/engine-uplift-2026-08-18/s4/`):
+
+| Mode | 512² e2e | 512² watermark | 1024² e2e | 1024² watermark | pixel tech |
+|---|---|---|---|---|---|
+| product (0.32.1) | 21.89 s | 2.567 GiB | 67.44 s | 2.998 GiB | ref |
+| epi-f16 | 22.30 s (+1.9%) | **2.421 GiB (−150 MiB)** | 69.30 s (+2.8%) | 2.998 GiB (=) | 96.5 / 98.1, 0 fails |
+| epi-f16 + dynscale | 22.55 s (+3.0%) | 2.500 GiB | 67.76 s (+0.5%) | 3.045 GiB (+47 MiB) | 96.5 / 98.1, 0 fails |
+
+**Verdict.** The ledger's "est. −8–12% denoise, −0.6 GiB @1024²" is refuted on this host: the qmm already computes in f16 internally, so an f16 epilogue only halves epilogue write bandwidth (not the bottleneck) while adding cast overhead; and the 1024² watermark is set by full-length attention tensors on the *streamed* path, which the epilogue transients never touch. The one real effect — −150 MiB watermark @512² (the non-streamed full-length proj halves) — costs +1.9% e2e, a better ratio than the earlier streaming NO-GO (−150 MiB for +8.2%) but still a regression. Quality is fully intact at both canvases (pixel clean + vision PASS incl. fox anatomy/fur), so the flags stay as opt-in experiments. **No promotion; S4 closed.**
+
+**Two-stage Lanczos follow-up (2026-08-18, same day):** `--refine-upscale lanczos` (CoreImage `CILanczosScaleTransform`, CPU software renderer, deterministic) A/B'd at the σ0.15/n1 operating point against the bicubic sweep: fox-s42 tech **69.3** (bicubic 72.6, single-stage 98.7), dancer-s0 **64.4** (bicubic 60.8) — within noise of each other, and vision confirms the anatomy rescue holds while fur/floor texture stays soft. **Verdict: the interpolation kernel is not the bottleneck** — any band-limited upscale gives the low-σ refine no high frequencies to amplify; the σ-insensitivity finding predicted this. The two-stage texture re-gate requires a real SR stage (new model dependency — needs a product decision); `--refine-upscale` stays as a documented option.

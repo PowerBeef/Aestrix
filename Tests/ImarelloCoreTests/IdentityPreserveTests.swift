@@ -8,6 +8,12 @@ import ImageIO
 @Suite("I2I identity preserve helpers")
 struct IdentityPreserveTests {
 
+    init() {
+        // Face-mask tests eval MLXArrays; the nojit fork needs the full
+        // metallib inside the test bundle (see TestMetallib).
+        TestMetallib.install()
+    }
+
     @Test("clean-pull alpha decays across steps")
     func cleanPullDecay() {
         let base: Float = 0.4

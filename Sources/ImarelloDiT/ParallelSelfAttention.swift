@@ -43,12 +43,16 @@ public final class Flux2ParallelSelfAttention: Module {
                 chunkSize: max(1, tuning.linearChunkSize))
         }
 
+        // S4 experiment: f16 proj output keeps the whole epilogue (SwiGLU →
+        // concat → to_out input) in f16; QKV still norms in f32 below.
+        let epilogueF16 = tuning.linearF16FullEpilogue
         let proj = DiTOpProfile.time(
             .qkvProj,
             inputs: [hiddenStates],
             sync: { [$0] }
         ) {
-            AttentionUtils.linearChunkedSequence(toQkvMlpProj, hiddenStates)
+            AttentionUtils.linearChunkedSequence(
+                toQkvMlpProj, hiddenStates, outputF16: epilogueF16)
         }
         let packed = DiTOpProfile.time(
             .qkvRope,
@@ -139,6 +143,7 @@ public final class Flux2ParallelSelfAttention: Module {
         let seq = hiddenStates.dim(1)
         // Full-sequence decision, exactly as the unchunked path takes it.
         let attnDType: DType = seq > AttentionTuning.current.f16SeqThreshold ? .float16 : .float32
+        let epilogueF16 = AttentionTuning.current.linearF16FullEpilogue
 
         var qChunks: [MLXArray] = []
         var kChunks: [MLXArray] = []
@@ -151,7 +156,7 @@ public final class Flux2ParallelSelfAttention: Module {
             ranges.append((start, end))
             let piece = hiddenStates[0..., start ..< end, 0...]
             let proj = DiTOpProfile.time(.qkvProj, inputs: [piece], sync: { [$0] }) {
-                AttentionUtils.applyLinear(toQkvMlpProj, piece)
+                AttentionUtils.applyLinear(toQkvMlpProj, piece, outputF16: epilogueF16)
             }
             let (q, k, v) = DiTOpProfile.time(
                 .qkvRope, inputs: [proj], sync: { [$0.0, $0.1, $0.2] }
