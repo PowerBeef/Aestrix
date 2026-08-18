@@ -17,7 +17,7 @@ struct Session: AsyncParsableCommand {
     @Option var steps: Int = 4
     @Option var seed: UInt64?
 
-    @Option(name: .long, help: "3bit|4bit|6bit|8bit (default 4bit — product lock)")
+    @Option(name: .long, help: "4bit (the product lock; 6/8-bit pins are non-product references)")
     var weights: String = "4bit"
 
     @Option(name: .long, help: "Output directory (default: ~/Library/Caches/Imarello/outputs)")
@@ -37,8 +37,14 @@ struct Session: AsyncParsableCommand {
 
     func run() async throws {
         try ensureMLXReady()
+        try validateSteps(steps)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
+        }
+        guard preset == .bits4 else {
+            throw ValidationError(
+                "--weights \(weights) is not a product path (4-bit lock, Docs/WEIGHTS.md); "
+                    + "the 6/8-bit pins are reference-only and cannot load end-to-end")
         }
         guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
             throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")

@@ -78,6 +78,31 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$MODE" in
+  t2i|i2i) ;;
+  *) echo "error: --mode must be t2i or i2i (got '$MODE')" >&2; exit 1 ;;
+esac
+case "$TEXT_TOKENS" in
+  512|auto) ;;
+  *) echo "error: --text-tokens must be 512 or auto (got '$TEXT_TOKENS')" >&2; exit 1 ;;
+esac
+if ! [[ "$STEPS" =~ ^[0-9]+$ ]] || (( STEPS < 1 )); then
+  echo "error: --steps must be a positive integer (got '$STEPS')" >&2
+  exit 1
+fi
+if ! [[ "$SEED" =~ ^[0-9]+$ ]]; then
+  echo "error: --seed must be a non-negative integer (got '$SEED')" >&2
+  exit 1
+fi
+if ! [[ "$STRENGTH" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+  echo "error: --strength must be a number in (0, 1] (got '$STRENGTH')" >&2
+  exit 1
+fi
+if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]]; then
+  echo "error: --timeout must be an integer number of seconds (got '$TIMEOUT')" >&2
+  exit 1
+fi
+
 HEIGHT="${HEIGHT:-$WIDTH}"
 if [[ "$WIDTH" != "$HEIGHT" ]]; then
   echo "error: canvas must be square (got ${WIDTH}x${HEIGHT})" >&2
@@ -99,6 +124,10 @@ if pgrep -x imarello >/dev/null 2>&1; then
   echo "error: another imarello process is running (one Metal owner)." >&2
   pgrep -lf imarello || true
   exit 1
+fi
+if pgrep -x xcodebuild >/dev/null 2>&1; then
+  echo "warning: xcodebuild is running — the generation happens on the iPhone," >&2
+  echo "warning: but avoid Mac-side Metal work while it compiles (Docs/HOST_SAFETY.md)." >&2
 fi
 
 if [[ -z "$DEVICE" ]]; then
@@ -128,8 +157,11 @@ if [[ -z "$DEVICE" ]]; then
   exit 1
 fi
 
+# The default id carries a timestamp: a reused id would match a leftover
+# jobs/done/{id}.json from a previous run and return that run's PNG instantly.
+SCRIPT_START_EPOCH="$(date +%s)"
 if [[ -z "$JOB_ID" ]]; then
-  JOB_ID="${MODE}-${WIDTH}-s${SEED}"
+  JOB_ID="${MODE}-${WIDTH}-s${SEED}-$(date +%Y%m%d%H%M%S)"
 fi
 JOB_ID="$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._-]", "-", sys.argv[1]) or "job")' "$JOB_ID")"
 
@@ -147,6 +179,7 @@ echo "launching $BUNDLE_ID on $DEVICE"
 xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID" >/dev/null
 
 WORK="$(mktemp -d /tmp/imarello-harness.XXXXXX)"
+trap 'rm -rf "$WORK"' EXIT
 JOB_JSON="$WORK/${JOB_ID}.json"
 python3 - "$JOB_JSON" "$JOB_ID" "$MODE" "$PROMPT" "$WIDTH" "$HEIGHT" "$STEPS" "$SEED" "$TEXT_TOKENS" "$STRENGTH" <<'PY'
 import json, sys
@@ -202,8 +235,23 @@ while (( SECONDS < DEADLINE )); do
       --domain-identifier "$BUNDLE_ID" \
       --source "Library/Caches/Imarello/jobs/done/${JOB_ID}.json" \
       --destination "$DEST/${JOB_ID}.json" >/dev/null 2>&1; then
-    DONE_JSON=1
-    break
+    # Guard against a leftover done file from a previous run with the same
+    # (explicit) id: only accept results whose startedAt is not older than
+    # this script's start, with 120 s of clock-skew allowance.
+    if python3 - "$DEST/${JOB_ID}.json" "$SCRIPT_START_EPOCH" <<'PY' >/dev/null 2>&1
+import json, sys, datetime
+r = json.load(open(sys.argv[1]))
+started = r.get("startedAt")
+if not started:
+    sys.exit(1)
+t = datetime.datetime.fromisoformat(started.replace("Z", "+00:00")).timestamp()
+sys.exit(0 if t >= int(sys.argv[2]) - 120 else 1)
+PY
+    then
+      DONE_JSON=1
+      break
+    fi
+    rm -f "$DEST/${JOB_ID}.json"
   fi
   sleep 2
 done
@@ -213,7 +261,8 @@ if [[ -z "${DONE_JSON:-}" ]]; then
   exit 1
 fi
 
-python3 - "$DEST/${JOB_ID}.json" <<'PY'
+STATUS=0
+python3 - "$DEST/${JOB_ID}.json" <<'PY' || STATUS=$?
 import json, sys
 r = json.load(open(sys.argv[1]))
 print("status:", r.get("status"))
@@ -224,7 +273,6 @@ print("metallib:", r.get("metallibNote"))
 if r.get("status") != "ok":
     sys.exit(2 if r.get("status") == "failed" else 3)
 PY
-STATUS=$?
 if [[ "$STATUS" -ne 0 ]]; then
   echo "harness job did not succeed (see $DEST/${JOB_ID}.json)" >&2
   exit "$STATUS"
@@ -247,6 +295,11 @@ echo "png: $DEST/$PNG_NAME"
 echo "result: $DEST/${JOB_ID}.json"
 
 if [[ "$DO_EVAL" -eq 1 ]]; then
+  # Prefer the release binary for eval so a missing IMARELLO does not silently
+  # fall back to (or build) a debug one inside eval-generation.sh.
+  if [[ -z "${IMARELLO:-}" && -x "$ROOT/.build/release/imarello" ]]; then
+    export IMARELLO="$ROOT/.build/release/imarello"
+  fi
   EVAL_FLAGS=(--prompt "$PROMPT" --mode "$MODE")
   if [[ "$FAIL_GATE" -eq 1 ]]; then
     EVAL_FLAGS+=(--fail-on-pixel-gate)

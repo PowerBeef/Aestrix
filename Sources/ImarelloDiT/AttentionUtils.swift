@@ -225,10 +225,14 @@ enum AttentionUtils {
             bits: q.bits,
             mode: q.mode
         )
+        y = compiledPostScale(y, scale)
+        // Bias must be added after the ×scale rescale: inside the sandwich it
+        // would come out as scale·bias. (No DiT Linear routed here carries a
+        // bias today; this keeps the helper correct if one ever does.)
         if let bias = q.bias {
-            y = y + bias.asType(.float16)
+            y = y + bias
         }
-        return compiledPostScale(y, scale)
+        return y
     }
 
     /// Apply a sequence Linear in chunks to avoid huge [B, L, out] intermediates (e.g. fused QKV+MLP).

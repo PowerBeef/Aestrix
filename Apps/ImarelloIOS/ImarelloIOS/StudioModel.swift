@@ -35,6 +35,9 @@ final class StudioModel {
     var pendingEdit: PrintRecord?
 
     var isRunning = false
+    /// Stop was tapped but the pipeline hasn't reached a cancellation check
+    /// yet. The row keeps reading "Stopping" until the run actually ends.
+    var isStopping = false
     var phase: PipelineProgress?
     var runStartedAt: Date?
     var errorMessage: String?
@@ -44,6 +47,7 @@ final class StudioModel {
     var harnessJobID: String?
 
     private var runTask: Task<Void, Never>?
+    private var saveMessageDismissTask: Task<Void, Never>?
 
     init(engine: GenerationEngine, store: PrintStore) {
         self.engine = engine
@@ -109,14 +113,15 @@ final class StudioModel {
                 let url = try await engine.generate(
                     prompt: prompt, side: side, seed: seed
                 ) { [weak self] progress in
-                    self?.phase = progress
+                    guard let self, !self.isStopping else { return }
+                    self.phase = progress
                 }
                 store.record(outputURL: url, prompt: prompt, seed: seed, side: side, mode: "t2i")
                 currentPrint = store.latest
             } catch is CancellationError {
                 // cancelled
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = Self.friendlyMessage(for: error)
             }
         }
         #endif
@@ -141,17 +146,27 @@ final class StudioModel {
                 let url = try await engine.edit(
                     source: source, prompt: prompt, side: sourceSide, seed: seed
                 ) { [weak self] progress in
-                    self?.phase = progress
+                    guard let self, !self.isStopping else { return }
+                    self.phase = progress
                 }
                 store.record(outputURL: url, prompt: prompt, seed: seed, side: sourceSide, mode: "i2i")
                 currentPrint = store.latest
             } catch is CancellationError {
                 // cancelled
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = Self.friendlyMessage(for: error)
             }
         }
         #endif
+    }
+
+    /// The raw `weightsNotFound` description is a sandbox UUID path; the row
+    /// needs the same copy the gate cell already uses.
+    static func friendlyMessage(for error: Error) -> String {
+        if case ImarelloError.weightsNotFound = error {
+            return "Weights are not on this device yet — sync them from the Mac."
+        }
+        return error.localizedDescription
     }
 
     func retryLast() {
@@ -163,17 +178,26 @@ final class StudioModel {
     }
 
     func cancel() {
-        runTask?.cancel()
-        runTask = nil
-        isRunning = false
+        guard let task = runTask else {
+            isRunning = false
+            isStopping = false
+            phase = nil
+            runStartedAt = nil
+            return
+        }
+        // The pipeline honors cancellation at stage boundaries and per denoise
+        // step; the run stays "Stopping" until it actually unwinds, so a retry
+        // cannot collide with a still-running ghost generation.
+        isStopping = true
         phase = nil
-        runStartedAt = nil
+        task.cancel()
     }
 
     private func startRun(_ work: @escaping @MainActor () async -> Void) {
         errorMessage = nil
         saveMessage = nil
         isRunning = true
+        isStopping = false
         runStartedAt = Date()
         phase = PipelineProgress(phase: .preparing)
         runTask?.cancel()
@@ -185,7 +209,8 @@ final class StudioModel {
 
     private func finishRun() {
         isRunning = false
-        if phase?.phase != .finished { phase = nil }
+        isStopping = false
+        phase = nil
         runTask = nil
         runStartedAt = nil
     }
@@ -205,8 +230,20 @@ final class StudioModel {
                 PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
             }
             saveMessage = "Saved to Photos"
+            scheduleSaveMessageDismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The model owns the auto-dismiss so the message clears even when no view
+    /// that renders it happens to be on screen.
+    private func scheduleSaveMessageDismiss() {
+        saveMessageDismissTask?.cancel()
+        saveMessageDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            saveMessage = nil
         }
     }
 
@@ -218,11 +255,16 @@ final class StudioModel {
         if pendingEdit?.id == record.id {
             pendingEdit = nil
         }
+        // "Try Again" must not replay an edit whose source print is gone.
+        if case .edit(let source) = lastAction, source.id == record.id {
+            lastAction = nil
+        }
     }
 
     // MARK: - status copy (one grammar for every state)
 
     var phaseLabel: String? {
+        if isStopping { return "Stopping" }
         guard let phase else { return nil }
         switch phase.phase {
         case .preparing: return "Preparing"

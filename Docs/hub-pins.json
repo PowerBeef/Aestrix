@@ -1,13 +1,8 @@
 {
   "schema_version": "1.0",
   "pinned_on": "2026-08-13",
-  "note": "Hugging Face git revisions Imarello ships against. Bump WeightPreset.pin in lockstep with this file.",
+  "note": "Hugging Face git revisions Imarello ships against. Bump WeightPreset.pin in lockstep with this file. No 3-bit pack (product lock, Docs/WEIGHTS.md).",
   "packs": {
-    "3bit": {
-      "model_id": "mlx-community/FLUX.2-Klein-4B-3bit",
-      "revision": "246946064c7218227b1e99509245392cdcedc9d3",
-      "last_modified": "2026-05-29T12:58:20.000Z"
-    },
     "4bit": {
       "model_id": "mlx-community/FLUX.2-Klein-4B-4bit",
       "revision": "1cebb9b45c21ece14a42615b16bf5fa4de9b56da",

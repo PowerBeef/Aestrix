@@ -11,12 +11,31 @@ CHECKOUT="$ROOT/.build/checkouts/mlx-swift"
 MLX_ROOT="$CHECKOUT/Source/Cmlx/mlx"
 KERNELS="$MLX_ROOT/mlx/backend/metal/kernels"
 
+# The mlx-swift revision the lib was built from (git checkout, else Package.resolved).
+mlx_revision() {
+  git -C "$CHECKOUT" rev-parse HEAD 2>/dev/null && return 0
+  python3 - "$ROOT/Package.resolved" 2>/dev/null <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for p in d.get("pins", []):
+    if p.get("identity") == "mlx-swift":
+        print(p["state"]["revision"])
+        break
+PY
+}
+
 need_rebuild() {
   if [[ ! -f "$OUT" ]]; then return 0; fi
   # Stub / noop metallib is a few KB; real one is tens of MB.
   local sz
   sz=$(stat -f%z "$OUT" 2>/dev/null || echo 0)
   if (( sz < 1000000 )); then return 0; fi
+  # A lib built from an older mlx-swift silently mismatches the host code
+  # (kernel/runtime ABI): rebuild whenever the recorded revision differs.
+  local want have
+  want="$(mlx_revision || true)"
+  have="$(cat "$OUT.rev" 2>/dev/null || true)"
+  if [[ -z "$want" || -z "$have" || "$want" != "$have" ]]; then return 0; fi
   return 1
 }
 
@@ -29,6 +48,7 @@ build_metallib() {
 
   local WORK AIR_DIR
   WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
   AIR_DIR="$WORK/air"
   mkdir -p "$AIR_DIR"
   local OK=0 FAIL=0
@@ -53,17 +73,24 @@ build_metallib() {
 
   if (( OK == 0 )); then
     echo "error: no metal kernels compiled" >&2
-    rm -rf "$WORK"
+    exit 1
+  fi
+  # A partial kernel set links fine and only fails later as a runtime MLX
+  # function-load error mid-generate — refuse to install one.
+  if (( FAIL > 0 )); then
+    echo "error: $FAIL kernel(s) failed to compile; refusing to link a partial metallib" >&2
+    echo "       see the FAIL lines above (toolchain vs mlx-swift kernel mismatch?)" >&2
     exit 1
   fi
   echo "compiled OK=$OK FAIL=$FAIL → linking metallib"
   mkdir -p "$(dirname "$OUT")"
   xcrun -sdk macosx metallib "$AIR_DIR"/*.air -o "$OUT"
-  rm -rf "$WORK"
+  mlx_revision > "$OUT.rev" || true
   ls -la "$OUT"
 }
 
 install_metallib() {
+  local installed=0
   local dir
   for dir in \
     "$ROOT/.build/arm64-apple-macosx/debug" \
@@ -86,10 +113,16 @@ install_metallib() {
         fi
       done
       echo "installed metallib → $dir"
+      installed=$((installed + 1))
     fi
   done
   # Do NOT overwrite Sources/ImarelloCLI/Resources/mlx.metallib — that path holds a
   # tiny SPM package stub committed to git. Full kernels go next to the binary only.
+  if (( installed == 0 )); then
+    echo "error: no .build product directory found — nothing received the metallib." >&2
+    echo "       run 'swift build' first (the binary would run on the stub otherwise)." >&2
+    exit 1
+  fi
 }
 
 verify_steel() {

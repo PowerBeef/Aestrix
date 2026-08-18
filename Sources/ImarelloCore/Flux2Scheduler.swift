@@ -134,8 +134,11 @@ public struct Flux2Scheduler: Sendable {
         curve: StrengthScheduleCurve = .colorEdit
     ) -> (sigmas: [Float], timesteps: [Float], startSigma: Float) {
         precondition(numInferenceSteps >= 1)
-        let startT = curve.startT(strength: strength)
+        // Clamp: below the curve's useful floor (strength ≲ 0.175 on colorEdit)
+        // startT would drop under endT and the linspace would *ascend* — Euler
+        // integrating toward noise before the terminal step.
         let endT = 1.0 / Float(numInferenceSteps)
+        let startT = max(curve.startT(strength: strength), endT)
 
         var base: [Float] = []
         base.reserveCapacity(numInferenceSteps)

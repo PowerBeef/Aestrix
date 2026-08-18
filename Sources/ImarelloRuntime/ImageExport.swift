@@ -71,15 +71,22 @@ enum ImageExport {
         let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
             CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         )
-        guard let ctx = CGContext(
-            data: &bytes,
-            width: w,
-            height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: w * 4,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
-        ), let cgImage = ctx.makeImage() else {
+        // `makeImage()` reads through the buffer pointer after the initializer
+        // returns, so the context must live inside withUnsafeMutableBytes — an
+        // inout `&bytes` pointer is only guaranteed for the init call itself.
+        let made = bytes.withUnsafeMutableBytes { buffer -> CGImage? in
+            guard let ctx = CGContext(
+                data: buffer.baseAddress,
+                width: w,
+                height: h,
+                bitsPerComponent: 8,
+                bytesPerRow: w * 4,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo.rawValue
+            ) else { return nil }
+            return ctx.makeImage()
+        }
+        guard let cgImage = made else {
             throw ImarelloError.unsupportedWeightFormat("failed to create CGImage for PNG export")
         }
 

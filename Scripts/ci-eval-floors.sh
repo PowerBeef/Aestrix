@@ -4,9 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "== Imarello Hub pins + eval golden floors =="
+echo "== Imarello Hub pins + eval golden floors + pure-math suites =="
 # Single invocation so SPM compiles once. Do not drop the filter: Metal FA tests
-# have hung after GPU aborts on constrained hosts.
-swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'
+# have hung after GPU aborts on constrained hosts. Every suite listed here is
+# verified MLX-free (no GPU work), so it is safe on a virtualized CI runner;
+# VAEAttention and DiTOpProfile stay local-only because they touch MLX arrays.
+swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests|Flux2Math|DeviceHarness|TextTokenMode|Metallib|AppCache|MemoryStaging|VAETileMath|CompVisVAEMapper|IdentityPreserve|EvalCachePolicy|PromptEmbedCacheKey|HostPreflight|Qwen|MetricsAggregator|FaceRegionCompare'
 
-echo "OK — pins + floors satisfied (Docs/hub-pins.json, Docs/eval-floors.json)"
+echo "OK — pins + floors + math suites satisfied (Docs/hub-pins.json, Docs/eval-floors.json)"

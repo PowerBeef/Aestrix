@@ -19,9 +19,9 @@ let package = Package(
         .executable(name: "imarello", targets: ["ImarelloCLI"]),
     ],
     dependencies: [
-        // mlx-swift is declared for Phases 1+ (model port). Phase 0 stubs do not
-        // link it so `imarello mem-selftest` works without metallib. Uncomment
-        // product deps on Text/DiT/VAE when implementing those modules.
+        // Pinned exact deliberately: kernel/runtime ABI must match the metallib
+        // Scripts/ensure-metallib.sh builds. Bump only with validation
+        // (CLAUDE.md), then rebuild the metallib (the script detects the bump).
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],

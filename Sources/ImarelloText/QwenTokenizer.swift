@@ -191,7 +191,27 @@ public final class QwenTokenizer: @unchecked Sendable {
         )
         var ids = encode(formatted)
         if ids.count > maxLength {
-            ids = Array(ids.prefix(maxLength))
+            // Truncate prompt *content*, never the template closers: a plain
+            // tail cut drops <|im_end|> + the assistant/think block and the TE
+            // then conditions on an unterminated turn (outside the
+            // distillation regime). The suffix starts with a special token, so
+            // encoding head and suffix separately is byte-exact with the
+            // joined encode.
+            var suffixText = "\(QwenChatTemplate.imEnd)\n\(QwenChatTemplate.imStart)assistant\n"
+            if !enableThinking {
+                suffixText += "\(QwenChatTemplate.thinkOpen)\n\n\(QwenChatTemplate.thinkClose)\n\n"
+            }
+            let suffixIds = encode(suffixText)
+            var headIds = encode("\(QwenChatTemplate.imStart)user\n\(prompt)")
+            let budget = max(0, maxLength - suffixIds.count)
+            if headIds.count > budget {
+                headIds = Array(headIds.prefix(budget))
+            }
+            ids = headIds + suffixIds
+            fputs(
+                "warning: prompt exceeds \(maxLength) tokens; "
+                    + "truncated prompt content (chat-template closers preserved)\n",
+                stderr)
         }
         var mask = Array(repeating: 1, count: ids.count)
         if ids.count < maxLength {

@@ -29,10 +29,15 @@ struct HubPinTests {
     @Test("apply(preset:) updates model id and revision together")
     func applyPresetKeepsPin() {
         var config = ImarelloConfig(weightPreset: .bits4, tier: .low, maxSide: 512)
-        config.apply(preset: .bits3)
-        #expect(config.weightPreset == .bits3)
-        #expect(config.modelID == WeightPreset.bits3.defaultModelID)
-        #expect(config.revision == WeightPreset.bits3.pinnedRevision)
+        config.apply(preset: .bits6)
+        #expect(config.weightPreset == .bits6)
+        #expect(config.modelID == WeightPreset.bits6.defaultModelID)
+        #expect(config.revision == WeightPreset.bits6.pinnedRevision)
+    }
+
+    @Test("there is no 3-bit preset (product lock)")
+    func noThreeBitPreset() {
+        #expect(WeightPreset(rawValue: "3bit") == nil)
     }
 
     @Test("Docs/hub-pins.json matches WeightPreset")

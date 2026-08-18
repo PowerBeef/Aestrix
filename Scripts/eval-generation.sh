@@ -4,7 +4,21 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IMARELLO="${IMARELLO:-${AESTRIX:-$ROOT/.build/debug/imarello}}"
+# A user-supplied IMARELLO must be honored or rejected — never silently swapped.
+IMARELLO_EXPLICIT="${IMARELLO:-${AESTRIX:-}}"
+if [[ -n "$IMARELLO_EXPLICIT" && ! -x "$IMARELLO_EXPLICIT" ]]; then
+  echo "error: IMARELLO is set but not executable: $IMARELLO_EXPLICIT" >&2
+  exit 1
+fi
+# Prefer the release binary when present (matches generate/bench convention);
+# analyze-image itself is a CPU/Vision path, so debug is only slower, not wrong.
+if [[ -n "$IMARELLO_EXPLICIT" ]]; then
+  IMARELLO="$IMARELLO_EXPLICIT"
+elif [[ -x "$ROOT/.build/release/imarello" ]]; then
+  IMARELLO="$ROOT/.build/release/imarello"
+else
+  IMARELLO="$ROOT/.build/debug/imarello"
+fi
 IMAGE=""
 PROMPT=""
 REFERENCE=""
@@ -21,7 +35,8 @@ Usage:
 Runs imarello analyze-image (text report + JSON) and writes a vision brief sidecar.
 
 Environment:
-  IMARELLO   path to imarello binary (default: .build/debug/imarello)
+  IMARELLO   path to imarello binary (default: .build/release/imarello when
+             present, else .build/debug/imarello; AESTRIX is a legacy alias)
 EOF
 }
 
@@ -47,6 +62,11 @@ if [[ ! -f "$IMAGE" ]]; then
 fi
 
 if [[ ! -x "$IMARELLO" ]]; then
+  if pgrep -x xcodebuild >/dev/null 2>&1 || pgrep -x imarello >/dev/null 2>&1; then
+    echo "error: imarello binary missing and a Metal owner is active; build later" >&2
+    echo "       (swift build -c release && ./Scripts/ensure-metallib.sh)" >&2
+    exit 1
+  fi
   echo "building imarello…"
   (cd "$ROOT" && swift build --product imarello)
   IMARELLO="$ROOT/.build/debug/imarello"

@@ -42,17 +42,33 @@ fi
 if [[ -z "$DEVICE" ]]; then
   # devicectl mixes log lines into stdout; write JSON to a real file.
   DEVICE_JSON="$(mktemp)"
-  xcrun devicectl list devices --json-output "$DEVICE_JSON" >/dev/null 2>&1 || true
-  DEVICE="$(python3 -c 'import json,sys
-d=json.load(sys.stdin)
-for dev in d.get("result",{}).get("devices",[]):
-    p=dev.get("deviceProperties") or {}
-    h=dev.get("hardwareProperties") or {}
-    c=dev.get("connectionProperties") or {}
-    if h.get("reality")=="physical" and c.get("pairingState")=="paired":
+  trap 'rm -f "$DEVICE_JSON"' EXIT
+  if ! xcrun devicectl list devices --json-output "$DEVICE_JSON" >/dev/null 2>&1; then
+    echo "devicectl could not list devices (Xcode selected? phone trusted?)." >&2
+    exit 1
+  fi
+  # Both devicectl JSON shapes: new (properties.hardware/.connection) and
+  # legacy (hardwareProperties/connectionProperties) — same handling as
+  # ios-device-harness.sh.
+  DEVICE="$(python3 - "$DEVICE_JSON" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for dev in d.get("result", {}).get("devices", []):
+    props = dev.get("properties") or {}
+    hw = (props.get("hardware") or {})
+    conn = (props.get("connection") or {})
+    old_h = dev.get("hardwareProperties") or {}
+    old_c = dev.get("connectionProperties") or {}
+    reality = hw.get("reality") or old_h.get("reality")
+    pairing = str(conn.get("pairingState") or old_c.get("pairingState") or "").lower()
+    if reality == "physical" and pairing == "paired":
         print(dev.get("identifier") or "")
-        break' < "$DEVICE_JSON")"
-  rm -f "$DEVICE_JSON"
+        break
+PY
+)"
 fi
 if [[ -z "$DEVICE" ]]; then
   echo "No connected physical iPhone. Pair one, then retry." >&2

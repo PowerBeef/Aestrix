@@ -55,7 +55,11 @@ for prompt in "${PROMPTS[@]}"; do
     tech="?"
     notes=""
     if [[ -f "${png%.png}.eval.json" ]]; then
-      tech=$(python3 -c "import json; t=json.load(open('${png%.png}.eval.json')).get('technical') or {}; print(round(t.get('technical_score', t.get('technicalScore', float('nan'))),1))" 2>/dev/null || echo "?")
+      # Path goes in via argv, not interpolated into python source (quote-safe).
+      tech=$(python3 -c 'import json, sys
+t = json.load(open(sys.argv[1])).get("technical") or {}
+print(round(t.get("technical_score", t.get("technicalScore", float("nan"))), 1))' \
+        "${png%.png}.eval.json" 2>/dev/null || echo "?")
     fi
     if [[ $rc -eq 0 ]]; then
       gate=PASS

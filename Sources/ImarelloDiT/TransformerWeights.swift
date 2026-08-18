@@ -21,7 +21,12 @@ public enum TransformerWeights {
         let arrays = try SafetensorsLoader.loadMergedArrays(in: directory)
         let nested = NestedDictionary<String, MLXArray>.unflattened(arrays)
         try model.update(parameters: nested, verify: [.all])
-        precastQuantScalesToF16(model)
+        // The exactness claim below was probed on the 4-bit pack only; higher-bit
+        // packs have ~scale/4-per-bit smaller scales that could go f16-subnormal
+        // (silently lossy). Keep those in bf16.
+        if bits == 4 {
+            precastQuantScalesToF16(model)
+        }
         eval(model)
         return model
     }

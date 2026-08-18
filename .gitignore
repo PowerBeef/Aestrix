@@ -31,4 +31,6 @@ outputs/
 # Keep metallib build recipe only
 Tools/Metal/*.air
 Tools/Metal/*.metallib
+# mlx-swift revision stamp written by ensure-metallib.sh
+Tools/Metal/mlx.metallib.rev
 

@@ -50,6 +50,7 @@ final class GenerationEngine {
     #if targetEnvironment(simulator)
     func generate(
         prompt: String, side: Int, seed: UInt64,
+        steps: Int = 4, textTokens: TextTokenMode = .full512,
         onProgress: @escaping @MainActor (PipelineProgress) -> Void
     ) async throws -> URL {
         throw CancellationError()
@@ -57,13 +58,17 @@ final class GenerationEngine {
 
     func edit(
         source: URL, prompt: String, side: Int, seed: UInt64,
+        strength: Float = 0.8, steps: Int = 4, textTokens: TextTokenMode = .full512,
         onProgress: @escaping @MainActor (PipelineProgress) -> Void
     ) async throws -> URL {
         throw CancellationError()
     }
     #else
+    /// Defaults are the product-locked in-app values; harness jobs pass the
+    /// values from their job JSON so `--steps`/`--text-tokens` actually apply.
     func generate(
         prompt: String, side: Int, seed: UInt64,
+        steps: Int = 4, textTokens: TextTokenMode = .full512,
         onProgress: @escaping @MainActor (PipelineProgress) -> Void
     ) async throws -> URL {
         try Task.checkCancellation()
@@ -74,10 +79,10 @@ final class GenerationEngine {
                 prompt: prompt,
                 width: side,
                 height: side,
-                steps: 4,
+                steps: steps,
                 seed: seed,
                 outputURL: out,
-                textTokens: .full512,
+                textTokens: textTokens,
                 embedCache: true
             ),
             onProgress: { progress in
@@ -89,6 +94,7 @@ final class GenerationEngine {
     /// In-app I2I at the product-locked strength 0.8 (shown in the UI).
     func edit(
         source: URL, prompt: String, side: Int, seed: UInt64,
+        strength: Float = 0.8, steps: Int = 4, textTokens: TextTokenMode = .full512,
         onProgress: @escaping @MainActor (PipelineProgress) -> Void
     ) async throws -> URL {
         try Task.checkCancellation()
@@ -98,14 +104,14 @@ final class GenerationEngine {
             I2IRequest(
                 prompt: prompt,
                 imageURL: source,
-                strength: 0.8,
+                strength: strength,
                 width: side,
                 height: side,
-                steps: 4,
+                steps: steps,
                 seed: seed,
                 outputURL: out,
                 identity: .disabled,
-                textTokens: .full512,
+                textTokens: textTokens,
                 embedCache: true
             ),
             onProgress: { progress in
@@ -156,7 +162,12 @@ final class GenerationEngine {
     private func outputURL(prefix: String) throws -> URL {
         let dir = AppCache.directory("outputs")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("\(prefix)-\(Int(Date().timeIntervalSince1970)).png")
+        // Millisecond suffix: an epoch-seconds-only stem collides when two runs
+        // land in the same second, silently overwriting the earlier PNG.
+        let now = Date().timeIntervalSince1970
+        let millis = Int((now - now.rounded(.down)) * 1000)
+        return dir.appendingPathComponent(
+            "\(prefix)-\(Int(now))-\(String(format: "%03d", millis)).png")
     }
     #endif
 }

@@ -33,7 +33,6 @@ public actor ImarelloPipeline {
 
     private static func bits(for preset: WeightPreset) -> Int {
         switch preset {
-        case .bits3: return 3
         case .bits4: return 4
         case .bits6: return 6
         case .bits8: return 8
@@ -241,6 +240,7 @@ public actor ImarelloPipeline {
 
         onProgress?(PipelineProgress(phase: .preparing))
         trace?.emit(.memorySample(label: "prepare"))
+        try Task.checkCancellation()
 
         let (packedH, packedW) = LatentOps.packedSpatial(
             width: request.width, height: request.height)
@@ -274,6 +274,7 @@ public actor ImarelloPipeline {
                 trace?.note("embed_cache=hit", minDensity: .stages)
                 trace?.emit(.memorySample(label: "after_embed_cache_hit"))
             } else {
+                try Task.checkCancellation()
                 trace?.emit(.stageBegin("load_te"))
                 try await orchestrator.loadTextEncoderExclusive()
                 trace?.emit(.stageEnd("load_te"))
@@ -315,12 +316,19 @@ public actor ImarelloPipeline {
                     cleanEmbeds = cached.embeds
                 } else {
                     try await orchestrator.loadTextEncoderExclusive()
-                    let (embeds, real) = try orchestrator.textEncoder.encode("", trace: trace)
-                    cleanEmbeds = embeds
-                    if let cleanURL {
-                        PromptEmbedCache.store(embeds: embeds, realTokens: real, url: cleanURL)
+                    do {
+                        let (embeds, real) = try orchestrator.textEncoder.encode("", trace: trace)
+                        cleanEmbeds = embeds
+                        if let cleanURL {
+                            PromptEmbedCache.store(embeds: embeds, realTokens: real, url: cleanURL)
+                        }
+                        try await orchestrator.unloadTextEncoderIfStaged()
+                    } catch {
+                        // Same unwind as every other encode site: never leave
+                        // the ~2 GB TE resident on a thrown error.
+                        try? await orchestrator.unloadTextEncoderIfStaged()
+                        throw error
                     }
-                    try await orchestrator.unloadTextEncoderIfStaged()
                 }
                 promptEmbeds = concatenated(
                     [
@@ -331,7 +339,7 @@ public actor ImarelloPipeline {
                 trace?.note("pad_content=clean real=\(realTokens)", minDensity: .stages)
             }
 
-            // Default: trim padded text tokens before the DiT (--text-tokens auto).
+            // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)
@@ -372,6 +380,7 @@ public actor ImarelloPipeline {
             let guidance: MLXArray? = nil
 
             // --- Stage 2: DiT denoise ---
+            try Task.checkCancellation()
             trace?.emit(.stageBegin("load_dit"))
             try await orchestrator.loadDiTExclusive()
             trace?.emit(.stageEnd("load_dit"))
@@ -415,6 +424,7 @@ public actor ImarelloPipeline {
                 }
                 trace?.emit(.stageBegin("denoise"))
                 for step in 0 ..< scheduler.numInferenceSteps {
+                    try Task.checkCancellation()
                     onProgress?(
                         PipelineProgress(
                             phase: .denoising, step: step, totalSteps: request.steps))
@@ -470,6 +480,7 @@ public actor ImarelloPipeline {
         Memory.clearCache()
 
         // --- Stage 3: VAE decode (decode-only weights — ~67 MB less on M2 / Tier L) ---
+        try Task.checkCancellation()
         onProgress?(PipelineProgress(phase: .decoding))
         trace?.emit(.stageBegin("load_vae"))
         try await orchestrator.loadVAEExclusive(mode: .decodeOnly)
@@ -550,11 +561,27 @@ public actor ImarelloPipeline {
 
         onProgress?(PipelineProgress(phase: .preparing))
         trace?.emit(.memorySample(label: "prepare"))
+        try Task.checkCancellation()
 
         let (packedH, packedW) = LatentOps.packedSpatial(
             width: canvas.width, height: canvas.height)
         let imageSeqLen = packedH * packedW
         let nSteps = request.steps
+
+        // Validate up front what LatentOps would otherwise trap on mid-pipeline:
+        // downsampling needs the packed grid to divide by the factor (factor 3
+        // never divides the standard 512/1024 grids; 2 and 4 fail on odd grids).
+        let refCheckFactor = max(1, request.identity.refDownsample)
+        if request.identity.useReferenceLatents, refCheckFactor > 1,
+           packedH % refCheckFactor != 0 || packedW % refCheckFactor != 0 {
+            throw ImarelloError.invalidDimensions(
+                width: canvas.width,
+                height: canvas.height,
+                reason: "ref-downsample \(refCheckFactor) does not divide the "
+                    + "\(packedH)x\(packedW) packed grid; pick a factor that divides "
+                    + "both sides (canvas/16)"
+            )
+        }
 
         // Full N-step schedule from strength noise level → 0 (not a truncated T2I slice).
         // With reference latents, official FLUX.2 I2I starts near pure noise and lets the
@@ -605,6 +632,7 @@ public actor ImarelloPipeline {
             let imageNCHW = try ImageImport.loadNCHW(cgImage: sourceImage)
             eval(imageNCHW)
 
+            try Task.checkCancellation()
             trace?.emit(.stageBegin("load_vae"))
             // Encode-only weights: decoder (~97 MB) is not needed for the reference encode.
             try await orchestrator.loadVAEExclusive(mode: .encodeOnly)
@@ -642,6 +670,7 @@ public actor ImarelloPipeline {
                 eval(promptEmbeds)
                 trace?.note("embed_cache=hit", minDensity: .stages)
             } else {
+                try Task.checkCancellation()
                 trace?.emit(.stageBegin("load_te"))
                 try await orchestrator.loadTextEncoderExclusive()
                 trace?.emit(.stageEnd("load_te"))
@@ -666,7 +695,7 @@ public actor ImarelloPipeline {
                 }
             }
 
-            // Default: trim padded text tokens before the DiT (--text-tokens auto).
+            // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).
             if request.textTokens == .auto {
                 promptEmbeds = Self.trimTextTokens(
                     promptEmbeds, realTokens: realTokens, trace: trace)
@@ -724,6 +753,7 @@ public actor ImarelloPipeline {
             let pullDecay = identity.cleanPullDecay
 
             // --- Stage 2: DiT denoise (all steps of strength schedule) ---
+            try Task.checkCancellation()
             trace?.emit(.stageBegin("load_dit"))
             try await orchestrator.loadDiTExclusive()
             trace?.emit(.stageEnd("load_dit"))
@@ -754,6 +784,7 @@ public actor ImarelloPipeline {
                 }
                 trace?.emit(.stageBegin("denoise"))
                 for step in 0 ..< nSteps {
+                    try Task.checkCancellation()
                     onProgress?(
                         PipelineProgress(
                             phase: .denoising,
@@ -835,6 +866,7 @@ public actor ImarelloPipeline {
         Memory.clearCache()
 
         // --- Stage 3: VAE decode (decode-only after encode unload) ---
+        try Task.checkCancellation()
         onProgress?(PipelineProgress(phase: .decoding))
         trace?.emit(.stageBegin("load_vae"))
         try await orchestrator.loadVAEExclusive(mode: .decodeOnly)

@@ -44,6 +44,13 @@ func applyAttnLinearCompute(_ raw: String?) throws {
     AttentionTuning.current = t
 }
 
+/// `--steps 0` (or negative) would trap on `Flux2Scheduler`'s precondition.
+func validateSteps(_ steps: Int) throws {
+    guard steps >= 1 else {
+        throw ValidationError("steps must be at least 1, got \(steps)")
+    }
+}
+
 func applyVAEVariant(_ raw: String, to config: inout ImarelloConfig) throws {
     guard let variant = VAEDecoderVariant(rawValue: raw) else {
         throw ValidationError("Unknown --vae-variant '\(raw)'; use full | small-decoder")
@@ -384,6 +391,7 @@ struct Schedule: AsyncParsableCommand {
     @Option var steps: Int = 4
 
     func run() async throws {
+        try validateSteps(steps)
         try DimensionValidation.validate(
             width: width,
             height: height,
@@ -418,7 +426,7 @@ struct T2I: AsyncParsableCommand {
     @Option var height: Int = 1024
     @Option var steps: Int = 4
     @Option var seed: UInt64?
-    @Option(name: .long, help: "3bit|4bit|6bit|8bit (default 4bit — product lock)")
+    @Option(name: .long, help: "4bit (the product lock; 6/8-bit pins are non-product references)")
     var weights: String = "4bit"
     @Option(name: .long, help: "Output PNG path (default: ~/Library/Caches/Imarello/outputs/…)")
     var output: String?
@@ -461,10 +469,16 @@ struct T2I: AsyncParsableCommand {
 
     func run() async throws {
         try ensureMLXReady()
+        try validateSteps(steps)
         applyAttnF16Threshold(attnF16Threshold)
         try applyAttnLinearCompute(attnLinearCompute)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
+        }
+        guard preset == .bits4 else {
+            throw ValidationError(
+                "--weights \(weights) is not a product path (4-bit lock, Docs/WEIGHTS.md); "
+                    + "the 6/8-bit pins are reference-only and cannot load end-to-end")
         }
         guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
             throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
@@ -574,7 +588,7 @@ struct I2I: AsyncParsableCommand {
     @Option var height: Int?
     @Option var steps: Int = 4
     @Option var seed: UInt64?
-    @Option(name: .long, help: "3bit|4bit|6bit|8bit")
+    @Option(name: .long, help: "4bit (the product lock; 6/8-bit pins are non-product references)")
     var weights: String = "4bit"
     @Option(name: .long, help: "Output PNG path")
     var output: String?
@@ -588,7 +602,7 @@ struct I2I: AsyncParsableCommand {
     @Flag(name: .long, help: "Vision face mask for regional strength + clean pull.")
     var facePreserve: Bool = false
 
-    @Option(name: .long, help: "Face region σ scale vs global start σ (0…1]. Lower = more face lock (default 0.45 with --identity).")
+    @Option(name: .long, help: "Face region σ scale vs global start σ (0…1]. Lower = more face lock (default 0.5 with --identity).")
     var faceStrengthScale: Float?
 
     @Option(name: .long, help: "Clean-latent pull α on face after each step (0=off; default 0.2 with --identity).")
@@ -629,10 +643,16 @@ struct I2I: AsyncParsableCommand {
 
     func run() async throws {
         try ensureMLXReady()
+        try validateSteps(steps)
         applyAttnF16Threshold(attnF16Threshold)
         try applyAttnLinearCompute(attnLinearCompute)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
+        }
+        guard preset == .bits4 else {
+            throw ValidationError(
+                "--weights \(weights) is not a product path (4-bit lock, Docs/WEIGHTS.md); "
+                    + "the 6/8-bit pins are reference-only and cannot load end-to-end")
         }
         guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
             throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
@@ -945,7 +965,7 @@ struct Bench: AsyncParsableCommand {
     @Flag(name: .long, help: "Decide attention store dtype from the joint sequence (f16 double blocks).")
     var attnJointF16: Bool = false
 
-    @Option(name: .long, help: "VAE tile enable threshold in latent px (96 default; 136 = untiled ≤1024²).")
+    @Option(name: .long, help: "VAE tile enable threshold in latent px (128 default). WARNING: 136 untiles 1024² decode — measured Metal abort on 8 GB hosts.")
     var vaeTileThreshold: Int?
 
     @Option(name: .long, help: "Text tokens to DiT for t2i trials: 512 (default, pad) | auto (trim). Docs/TEXT_TOKENS.md.")
@@ -974,6 +994,13 @@ struct Bench: AsyncParsableCommand {
 
     func run() async throws {
         try ensureMLXReady()
+        try validateSteps(steps)
+        guard trials >= 1 else {
+            throw ValidationError("trials must be at least 1, got \(trials)")
+        }
+        guard warmup >= 0 else {
+            throw ValidationError("warmup must be at least 0, got \(warmup)")
+        }
 
         guard let benchMode = BenchMode(rawValue: mode) else {
             print("error: unknown mode '\(mode)'. Use: \(BenchMode.allCases.map(\.rawValue).joined(separator: ", "))")

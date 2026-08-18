@@ -111,7 +111,7 @@ Device auto-detection accepts any paired physical iPhone (same fix as the sync s
 
 The app polls `Library/Caches/Imarello/jobs/inbox/` every 2s while active. Results land in `jobs/done/{id}.json`; PNGs stay under `Caches/Imarello/outputs/`. Copied artifacts: `/tmp/imarello-ios-eval/{id}/`.
 
-Copy the job to **`…/jobs/inbox/{id}.json`**. Copying onto `…/jobs/inbox` when that name is missing (or is already a file) **replaces the inbox directory with the JSON** and the job never runs. Use a **new `--id`** on retry so a leftover `done/{id}.json` is not treated as the new result.
+Copy the job to **`…/jobs/inbox/{id}.json`**. Copying onto `…/jobs/inbox` when that name is missing (or is already a file) **replaces the inbox directory with the JSON** and the job never runs. The default job id is timestamped and the poll rejects `done/{id}.json` results whose `startedAt` predates the script run, so leftover results are never mistaken for the new one; with an explicit `--id` reuse is still fine for the same reason.
 
 Pixel eval is not a vision pass — open the PNG (`EVAL_WORKFLOW.md`). Do not run a generate matrix on the phone in v1.
 

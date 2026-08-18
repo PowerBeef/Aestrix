@@ -30,6 +30,13 @@ struct ContactSheetPage: View {
                 .safeAreaInset(edge: .top) { header }
             }
         }
+        // The same single instrument voice as the stage — run state, gate, and
+        // errors must not go invisible while the sheet is the front page.
+        .safeAreaInset(edge: .bottom) {
+            StatusRow()
+                .padding(.horizontal, ImarelloTheme.Space.md)
+                .padding(.bottom, ImarelloTheme.Space.xs)
+        }
     }
 
     private var header: some View {

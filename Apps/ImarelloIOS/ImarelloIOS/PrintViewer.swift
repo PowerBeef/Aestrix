@@ -30,7 +30,7 @@ struct PrintViewer: View {
 
             TabView(selection: $selection) {
                 ForEach(store.prints) { record in
-                    ZoomablePrint(image: store.image(for: record))
+                    PrintPage(record: record)
                         .tag(record.id)
                 }
             }
@@ -95,7 +95,16 @@ struct PrintViewer: View {
                         .instrumentLabel()
                 }
                 Spacer()
-                if model.saveMessage != nil {
+                if let error = model.errorMessage {
+                    // Errors must be visible here too: a denied Photos save
+                    // would otherwise give no feedback at all in the viewer.
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(ImarelloTheme.cream)
+                        .lineLimit(2)
+                        .onTapGesture { model.errorMessage = nil }
+                        .accessibilityHint("Tap to dismiss")
+                } else if model.saveMessage != nil {
                     Text(model.saveMessage ?? "")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -148,6 +157,27 @@ struct PrintViewer: View {
         .padding(.vertical, ImarelloTheme.Space.sm)
         .padding(.horizontal, ImarelloTheme.Space.xs)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ImarelloTheme.Radius.control, style: .continuous))
+    }
+}
+
+/// One page of the enlarger. The paged TabView is not lazy — its ForEach body
+/// runs for every print — so the full-resolution decode happens here, only
+/// while the page is (near) on screen, and is dropped when it leaves.
+private struct PrintPage: View {
+    @Environment(PrintStore.self) private var store
+    let record: PrintRecord
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZoomablePrint(image: image)
+            .task(id: record.id) {
+                let path = store.url(for: record).path
+                image = await Task.detached(priority: .userInitiated) {
+                    UIImage(contentsOfFile: path)
+                }.value
+            }
+            .onDisappear { image = nil }
     }
 }
 

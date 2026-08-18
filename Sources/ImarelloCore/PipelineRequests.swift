@@ -3,13 +3,14 @@ import Foundation
 /// How many text tokens are passed to the DiT.
 ///
 /// FLUX.2 joint attention has no text mask, so padding tokens participate in attention.
-/// `.auto` trims the padded 512-token sequence to the real prompt length (rounded up to
-/// a multiple of 8). Product default (faster). `.full512` is the byte-stable gallery path.
-/// See `Docs/TEXT_TOKENS.md`.
+/// `.full512` is the **product default** (the distillation regime). `.auto` trims the
+/// padded 512-token sequence to the real prompt length (rounded up to a multiple of 8) —
+/// faster but weaker conditioning; it was default for one day and reverted 2026-08-16
+/// after a vision regression. See `Docs/TEXT_TOKENS.md`.
 public enum TextTokenMode: String, Sendable, Codable {
-    /// Full 512 padded tokens (byte-stable / gallery; `--text-tokens 512`).
+    /// Full 512 padded tokens (product default; `--text-tokens 512`).
     case full512 = "512"
-    /// Trim to real prompt length rounded up to a multiple of 8. Product default.
+    /// Trim to real prompt length rounded up to a multiple of 8 (opt-in speed path).
     case auto
 }
 
@@ -18,11 +19,13 @@ public struct T2IRequest: Sendable {
     public var width: Int
     public var height: Int
     public var steps: Int
+    /// Currently ignored: distilled Klein runs guidance-free and the pipeline
+    /// hardcodes `nil` (the DiT is built without guidance embeds).
     public var guidance: Float
     public var seed: UInt64?
     /// Destination PNG path. If nil, pipeline chooses a timestamped file under Caches/Imarello/outputs.
     public var outputURL: URL?
-    /// Text tokens passed to the DiT (default: auto trim).
+    /// Text tokens passed to the DiT (default: `.full512`, the product path).
     public var textTokens: TextTokenMode
     /// Cache prompt embeddings on disk and skip TE load+encode on repeat prompts.
     /// Default **false** so library/bench behavior is unchanged; the CLI enables it.
@@ -81,12 +84,14 @@ public struct I2IRequest: Sendable {
     public var width: Int?
     public var height: Int?
     public var steps: Int
+    /// Currently ignored: distilled Klein runs guidance-free and the pipeline
+    /// hardcodes `nil` (the DiT is built without guidance embeds).
     public var guidance: Float
     public var seed: UInt64?
     public var outputURL: URL?
     /// Tier-B identity stack (reference latents, face mask, schedule curve). Default off.
     public var identity: IdentityPreserveConfig
-    /// Text tokens passed to the DiT (default: auto trim).
+    /// Text tokens passed to the DiT (default: `.full512`, the product path).
     public var textTokens: TextTokenMode
     /// Cache prompt embeddings on disk and skip TE load+encode on repeat prompts.
     public var embedCache: Bool

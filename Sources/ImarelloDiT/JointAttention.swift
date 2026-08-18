@@ -98,8 +98,14 @@ public final class Flux2Attention: Module {
         )
         var encOut = joint[0..., ..<txtLen, 0...]
         var imgOut = joint[0..., txtLen..., 0...]
-        encOut = AttentionUtils.linearChunkedSequence(toAddOut, encOut, threshold: 1024)
-        imgOut = AttentionUtils.linearChunkedSequence(toOut, imgOut, threshold: 1024)
+        // Deliberately below the global `linearChunkThreshold` (1536): the two
+        // out-projections chunk from 1024 tokens. Bench sweeps of the global
+        // tunable do NOT reach these calls — tune this constant explicitly.
+        let outProjectionChunkThreshold = 1024
+        encOut = AttentionUtils.linearChunkedSequence(
+            toAddOut, encOut, threshold: outProjectionChunkThreshold)
+        imgOut = AttentionUtils.linearChunkedSequence(
+            toOut, imgOut, threshold: outProjectionChunkThreshold)
         return (imgOut, encOut)
     }
 }

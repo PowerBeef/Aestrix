@@ -58,11 +58,6 @@ struct StatusRow: View {
         .padding(.vertical, ImarelloTheme.Space.sm)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ImarelloTheme.Radius.control, style: .continuous))
         .animation(.snappy, value: cell)
-        .task(id: model.saveMessage) {
-            guard model.saveMessage != nil else { return }
-            try? await Task.sleep(for: .seconds(2.5))
-            model.saveMessage = nil
-        }
         .accessibilityElement(children: .combine)
     }
 
@@ -118,7 +113,7 @@ struct StatusRow: View {
     private var trailingAction: some View {
         switch cell {
         case .running:
-            if model.harnessJobID == nil {
+            if model.harnessJobID == nil, !model.isStopping {
                 Button {
                     model.cancel()
                 } label: {

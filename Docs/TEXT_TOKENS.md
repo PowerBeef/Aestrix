@@ -121,7 +121,7 @@ Paths: `/tmp/imarello-auto-id-i2i/recolor-{512,auto}.png`, `replace-{512,auto}.p
 
 The f16 scaled Linear and Small Decoder were **exonerated** (byte-near-identical A/Bs at 512²; at 1024² the f32 variant produced the chimera). Short prompts trim hardest (fox: 512 → 32 tokens) and degrade most — exactly the prompts users type.
 
-Cost of the revert (measured 2026-08-16, pad-512 + f16 qmm + Small Decoder): 512² e2e **24.4 s** (auto: 19.4), 1024² **79.0 s** (auto: 74.0), watermark 2.54 / 3.63 GiB — safe on 8 GB. Same-seed pixels are again byte-stable vs pre-2026-08-15 galleries. `auto` stays available per-run; do not re-promote it without a vision A/B that covers 1024² and human subjects.
+Cost of the revert (measured 2026-08-16 pre-Tier-2, pad-512 + f16 qmm + Small Decoder): 512² e2e **24.4 s** (auto: 19.4), 1024² **79.0 s** (auto: 74.0), watermark 2.54 / 3.63 GiB — safe on 8 GB. The post-Tier-2 product path (joint-f16 attention, tile-128, cache policy) is faster: **23.0 s / 71.0 s**, watermark 2.57 / **3.00 GiB** — `Docs/PERF.md` is the authority. Same-seed pixels are again byte-stable vs pre-2026-08-15 galleries. `auto` stays available per-run; do not re-promote it without a vision A/B that covers 1024² and human subjects.
 
 ## Re-run
 

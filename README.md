@@ -195,7 +195,7 @@ Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/ME
 
 ```bash
 # Filtered unit tests (no weights). Never run unfiltered `swift test` (Metal FA tests can hang).
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness|Qwen'
 
 .build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
   --json /tmp/bench.json

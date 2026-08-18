@@ -1,8 +1,9 @@
 import Foundation
 
-/// Product weights are always pre-quantized. There is no bf16 product preset.
+/// Product weights are always pre-quantized. There is no bf16 product preset,
+/// and no 3-bit preset (product lock, Docs/WEIGHTS.md). The 6/8-bit pins are
+/// non-product references.
 public enum WeightPreset: String, Sendable, Codable, CaseIterable {
-    case bits3 = "3bit"
     case bits4 = "4bit"
     case bits6 = "6bit"
     case bits8 = "8bit"
@@ -16,11 +17,6 @@ public enum WeightPreset: String, Sendable, Codable, CaseIterable {
     /// Repo id + commit SHA. Keep in lockstep with `Docs/hub-pins.json`.
     public var pin: HubPin {
         switch self {
-        case .bits3:
-            return HubPin(
-                modelID: "mlx-community/FLUX.2-Klein-4B-3bit",
-                revision: "246946064c7218227b1e99509245392cdcedc9d3"
-            )
         case .bits4:
             return HubPin(
                 modelID: "mlx-community/FLUX.2-Klein-4B-4bit",

@@ -28,18 +28,25 @@ enum ImageImport {
         let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
             CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         )
-        guard let ctx = CGContext(
-            data: &rgba,
-            width: w,
-            height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
-        ) else {
+        // The context keeps the buffer pointer past the initializer call, so the
+        // whole context lifetime must sit inside withUnsafeMutableBytes — an
+        // inout `&rgba` pointer is only guaranteed for the init itself.
+        let drew = rgba.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(
+                data: buffer.baseAddress,
+                width: w,
+                height: h,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo.rawValue
+            ) else { return false }
+            ctx.draw(target, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drew else {
             throw ImarelloError.imageLoadFailed(path: "<cgimage>", reason: "CGContext failed")
         }
-        ctx.draw(target, in: CGRect(x: 0, y: 0, width: w, height: h))
 
         // Deinterleave RGBA → planar RGB with vDSP. `f/255*2-1` is reproduced
         // with the identical IEEE op sequence (÷ is a real divide; ×2 is exact,

@@ -104,7 +104,8 @@ public enum HostPreflight {
         lockHandle = handle
     }
 
-    /// Other live processes whose comm contains `imarello` (not this pid).
+    /// Other live processes whose comm basename is exactly `imarello`/`aestrix`
+    /// (not this pid).
     public static func siblingImarelloPIDs() -> [Int32] {
         #if os(macOS)
         let selfPid = ProcessInfo.processInfo.processIdentifier
