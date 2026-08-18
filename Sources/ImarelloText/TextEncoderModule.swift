@@ -79,6 +79,29 @@ public final class TextEncoderModule: LoadableModule, @unchecked Sendable {
         return (embeds, realTokens)
     }
 
+    /// TE-splice path: encode ONLY the real (chat-templated) tokens — no pads
+    /// in the window at all, so the mask is pure causal (Steel's fast path)
+    /// and attention/MLP work scales with the prompt, not with 512.
+    ///
+    /// Exactness: under causal attention with tail padding, real-token hidden
+    /// states never attend pad positions, so rows `< realTokens` are identical
+    /// to a full-window encode. Returns `[1, realTokens, jointDim]`.
+    public func encodeRealOnly(
+        _ prompt: String,
+        maxLength: Int = ModelConstants.maxSequenceLength,
+        trace: PipelineTrace? = nil
+    ) throws -> (embeds: MLXArray, realTokens: Int) {
+        guard let model, let tokenizer, isLoaded else {
+            throw ImarelloError.moduleNotLoaded(moduleName)
+        }
+        let ids = tokenizer.encodePromptUnpadded(prompt, maxLength: maxLength)
+        let inputIds = MLXArray(ids.map { Int32($0) }).reshaped([1, ids.count])
+        let embeds = model.encode(inputIds: inputIds, attentionMask: nil, trace: trace)
+        eval(embeds)
+        trace?.probe("te.after_eval", phase: "te", minDensity: .blocks)
+        return (embeds, ids.count)
+    }
+
     /// Encode pre-tokenized ids (for tests / cross-checks).
     public func encode(
         inputIds: MLXArray,

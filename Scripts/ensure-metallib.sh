@@ -46,9 +46,9 @@ build_metallib() {
     exit 1
   fi
 
-  local WORK AIR_DIR
+  local AIR_DIR
   WORK="$(mktemp -d)"
-  trap 'rm -rf "$WORK"' EXIT
+  trap 'rm -rf "${WORK:-}"' EXIT
   AIR_DIR="$WORK/air"
   mkdir -p "$AIR_DIR"
   local OK=0 FAIL=0

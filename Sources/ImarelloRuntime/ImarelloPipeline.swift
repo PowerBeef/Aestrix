@@ -265,7 +265,9 @@ public actor ImarelloPipeline {
             var promptEmbeds: MLXArray
             var realTokens = 0
             let embedURL = request.embedCache
-                ? PromptEmbedCache.entryURL(prompt: request.prompt, modelID: config.modelID)
+                ? PromptEmbedCache.entryURL(
+                    prompt: request.prompt, modelID: config.modelID,
+                    padContent: request.padContent.rawValue)
                 : nil
             if let embedURL, let cached = PromptEmbedCache.load(url: embedURL) {
                 promptEmbeds = cached.embeds
@@ -273,6 +275,61 @@ public actor ImarelloPipeline {
                 eval(promptEmbeds)
                 trace?.note("embed_cache=hit", minDensity: .stages)
                 trace?.emit(.memorySample(label: "after_embed_cache_hit"))
+            } else if request.padContent == .clean {
+                // TE-SPLICE (Tier 3 product path, 2026-08-18): encode ONLY the
+                // real chat-templated tokens (pure causal mask, work scales
+                // with the prompt) and splice position-matched pads from a
+                // cached empty-prompt "clean pad bank". Real rows are exact vs
+                // a full-window encode (causal + tail padding); pad rows are
+                // R4's measured vision-equal clean pads.
+                try Task.checkCancellation()
+                // The pad bank is engine infrastructure (prompt-independent),
+                // so it is cached regardless of the request's embedCache flag —
+                // otherwise --no-embed-cache would re-encode the bank per run.
+                let bankURL = PromptEmbedCache.entryURL(prompt: "", modelID: config.modelID)
+                var padBank: MLXArray? = PromptEmbedCache.load(url: bankURL)?.embeds
+                trace?.emit(.stageBegin("load_te"))
+                try await orchestrator.loadTextEncoderExclusive()
+                trace?.emit(.stageEnd("load_te"))
+                trace?.emit(.memorySample(label: "after_load_te"))
+                do {
+                    trace?.emit(.stageBegin("encode_te"))
+                    if padBank == nil {
+                        // One-time full-window encode of "" seeds the bank.
+                        let (bank, bankReal) = try orchestrator.textEncoder.encode(
+                            "", trace: trace)
+                        PromptEmbedCache.store(
+                            embeds: bank, realTokens: bankReal, url: bankURL)
+                        padBank = bank
+                    }
+                    let (realEmbeds, real) = try orchestrator.textEncoder.encodeRealOnly(
+                        request.prompt, trace: trace)
+                    realTokens = real
+                    if let bank = padBank, real < bank.dim(1) {
+                        promptEmbeds = concatenated(
+                            [realEmbeds, bank[0..., real..., 0...]], axis: 1)
+                    } else {
+                        promptEmbeds = realEmbeds
+                    }
+                    eval(promptEmbeds)
+                    trace?.note("pad_content=clean(splice) real=\(real)", minDensity: .stages)
+                    trace?.emit(.stageEnd("encode_te"))
+                    trace?.emit(.memorySample(label: "after_encode_te"))
+                    if let trace, trace.density != .off {
+                        trace.emit(.peakReset(label: "after_te"))
+                    }
+                    trace?.emit(.stageBegin("unload_te"))
+                    try await orchestrator.unloadTextEncoderIfStaged()
+                    trace?.emit(.stageEnd("unload_te"))
+                    trace?.emit(.memorySample(label: "after_unload_te"))
+                } catch {
+                    try? await orchestrator.unloadTextEncoderIfStaged()
+                    throw error
+                }
+                if let embedURL {
+                    PromptEmbedCache.store(
+                        embeds: promptEmbeds, realTokens: realTokens, url: embedURL)
+                }
             } else {
                 try Task.checkCancellation()
                 trace?.emit(.stageBegin("load_te"))
@@ -303,40 +360,6 @@ public actor ImarelloPipeline {
                     PromptEmbedCache.store(
                         embeds: promptEmbeds, realTokens: realTokens, url: embedURL)
                 }
-            }
-
-            // R4 EXPERIMENT: replace prompt-conditioned pads with position-matched
-            // pads from an empty-prompt encode (content-vs-count; §5.1).
-            if request.padContent == .clean, realTokens < promptEmbeds.dim(1) {
-                let cleanURL = request.embedCache
-                    ? PromptEmbedCache.entryURL(prompt: "", modelID: config.modelID)
-                    : nil
-                let cleanEmbeds: MLXArray
-                if let cleanURL, let cached = PromptEmbedCache.load(url: cleanURL) {
-                    cleanEmbeds = cached.embeds
-                } else {
-                    try await orchestrator.loadTextEncoderExclusive()
-                    do {
-                        let (embeds, real) = try orchestrator.textEncoder.encode("", trace: trace)
-                        cleanEmbeds = embeds
-                        if let cleanURL {
-                            PromptEmbedCache.store(embeds: embeds, realTokens: real, url: cleanURL)
-                        }
-                        try await orchestrator.unloadTextEncoderIfStaged()
-                    } catch {
-                        // Same unwind as every other encode site: never leave
-                        // the ~2 GB TE resident on a thrown error.
-                        try? await orchestrator.unloadTextEncoderIfStaged()
-                        throw error
-                    }
-                }
-                promptEmbeds = concatenated(
-                    [
-                        promptEmbeds[0..., ..<realTokens, 0...],
-                        cleanEmbeds[0..., realTokens..., 0...],
-                    ], axis: 1)
-                eval(promptEmbeds)
-                trace?.note("pad_content=clean real=\(realTokens)", minDensity: .stages)
             }
 
             // Opt-in: trim padded text tokens before the DiT (--text-tokens auto).

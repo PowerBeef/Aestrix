@@ -13,7 +13,9 @@ enum PromptEmbedCache {
     /// Bump when `QwenChatTemplate` or tap/concat behavior changes.
     /// v2: tokenizer gained NFC + the reference pre-tokenizer (2026-08-16) —
     /// ids changed for digit/punctuation prompts, so v1 embeds must miss.
-    private static let formatVersion = "v2"
+    /// v3: pad-content mode joined the key (TE-splice, 2026-08-18) — spliced
+    /// and full-window entries must never alias.
+    private static let formatVersion = "v3"
 
     struct Entry {
         let embeds: MLXArray
@@ -28,7 +30,8 @@ enum PromptEmbedCache {
         prompt: String,
         modelID: String,
         bits: Int = TextEncoderWeights.defaultBits,
-        maxLength: Int = ModelConstants.maxSequenceLength
+        maxLength: Int = ModelConstants.maxSequenceLength,
+        padContent: String = "prompt"
     ) -> String {
         // The tap layers and concat width are part of the key so changing them
         // invalidates entries automatically instead of relying on a manual
@@ -36,7 +39,8 @@ enum PromptEmbedCache {
         let taps = ModelConstants.textEncoderLayers.map(String.init).joined(separator: ",")
         let keySource =
             "\(formatVersion)|\(modelID)|bits\(bits)|len\(maxLength)"
-            + "|taps\(taps)|dim\(ModelConstants.jointAttentionDim)|\(prompt)"
+            + "|taps\(taps)|dim\(ModelConstants.jointAttentionDim)"
+            + "|pad\(padContent)|\(prompt)"
         let digest = SHA256.hash(data: Data(keySource.utf8))
         let hex = digest.map { String(format: "%02x", $0) }.joined()
         return "\(hex).safetensors"
@@ -46,10 +50,12 @@ enum PromptEmbedCache {
         prompt: String,
         modelID: String,
         bits: Int = TextEncoderWeights.defaultBits,
-        maxLength: Int = ModelConstants.maxSequenceLength
+        maxLength: Int = ModelConstants.maxSequenceLength,
+        padContent: String = "prompt"
     ) -> URL {
         let name = entryFilename(
-            prompt: prompt, modelID: modelID, bits: bits, maxLength: maxLength)
+            prompt: prompt, modelID: modelID, bits: bits, maxLength: maxLength,
+            padContent: padContent)
         return AppCache.resolvedItem(under: "embeds", item: name)
     }
 

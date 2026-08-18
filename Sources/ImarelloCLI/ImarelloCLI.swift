@@ -1038,6 +1038,9 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "VAE mid-block attention query chunk (default 64). 0 = legacy MLXFast SDPA.")
     var vaeAttnChunk: Int?
 
+    @Option(name: .customLong("pad-content"), help: "T2I pad content: prompt (full-window, default) | clean (TE-splice).")
+    var benchPadContent: String?
+
     @Option(name: .long, help: "Eval/cache profile: product (default) | mid (≥16 GB bench only).")
     var evalCache: String?
 
@@ -1195,6 +1198,7 @@ struct Bench: AsyncParsableCommand {
             // Persist resolved values, not nil-means-default: quality-knob
             // provenance must live in the report, not the filename label.
             textTokens: textTokens ?? TextTokenMode.full512.rawValue,
+            padContent: benchPadContent ?? "prompt",
             vaeVariant: vaeVariant,
             evalCache: evalCache ?? EvalCachePolicy.current.profileName,
             vaeAttnChunk: vaeAttnChunk

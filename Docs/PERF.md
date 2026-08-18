@@ -1120,3 +1120,22 @@ Experimental knobs landed on `t2i` (`--pad-content prompt|clean`, `--pad-keep N`
 | auto (keep ≈2, no bias) | 0.474 | known-bad anchor |
 
 **Verdicts.** (1) Pads are distributed **register capacity**, not pure softmax mass — no one-line bias licenses trimming, and the R1 bucket ladder would need ≥256-token budgets (surrendering most of the speed) to reach tolerable drift: **count-reduction is a poor trade; parked.** (2) Pad **content is swappable at equal quality** (R4): position-matched empty-prompt pads cost only lateral drift with the full 512-key softmax intact. **This licenses the product TE-splice**: encode real tokens only (mathematically exact under causal + tail-pad) + a cached clean-pad bank → `encode_te` ~2.1–2.7 s → ~0.4 s on every cache miss (≈ −8% e2e @512²), one-time same-seed gallery break, full promotion gate required (multi-seed × 1024² × human subjects). That splice is the next engine lever.
+
+## 2026-08-18 — mlx core 0.32.1 bump (fork) + TE-splice verdicts
+
+**Pin**: `PowerBeef/mlx-swift` branch `imarello/core-0.32.1` (core v0.32.1, mlx-c main + compat patch, **nojit** Metal kernels — the 0.32.1 runtime-JIT template strings for `affine_qmv` are inconsistent with the 5-param JIT header; kernels now resolve by name from the full metallib, which is therefore mandatory at runtime). Metallib 155 MB from the 0.32.1 checkout (all kernels incl. NAX, gated off at runtime on pre-M5/A19 hardware).
+
+W1T3, seed 42 fox, product defaults, same-day A/B vs the 0.31.1 re-baseline (JSONs: `outputs/engine-uplift-2026-08-18/{,bump/}`):
+
+| Metric | 512² | 1024² | identity-i2i 512² |
+|---|---|---|---|
+| e2e | 22.26 → **21.88 s** (−1.7%) | 67.71 → 67.47 s (−0.4%) | 36.75 → **36.16 s** (−1.6%) |
+| encode_te | 1.96 → **1.58 s** (−19%) | 1.95 → **1.58 s** (−19%) | 2.00 → **1.59 s** (−21%) |
+| denoise/step | 4.22 s (flat) | 14.66 → 14.69 s (noise) | 7.61 → 7.57 s |
+| MLX watermark | 2.57 GiB (identical) | 3.00 GiB (identical) | 2.56 GiB (identical) |
+
+The encode win is the 0.32.x split-K qmm + `gemv_wide` small-M kernels, exactly where predicted. The DiT step is unchanged (the scaled-f16 qmm path bypasses the dequant changes). Gate: 79 filtered tests green, eval-regression **15/15 PASS**, fox + fisherman vision-clean; same-seed pixels drift (qmm numerics) per the vision-gated drift rule.
+
+**TE-splice speed claim REFUTED** (both cores): real-token-only encode + cached clean-pad bank measures encode_te 1.58 → 1.71 s (0.32.1) / 1.96 → 2.11 s (0.31.1) — the TE encode is **dispatch-bound, not FLOP-bound**, so cutting seq 512 → ~30 buys nothing (§5.1's "−8% e2e" estimate stands corrected). The splice ships anyway as the `--pad-content clean` implementation (quality verified: LPIPS-lite 0.194 vs prompt pads — inside the R4 0.15–0.22 band; tech unchanged), with the pad bank cached independently of `--no-embed-cache`.
+
+**Two-stage 1024²** (`t2i --two-stage`, MrFlow-style compose→refine): fixes body-plan anatomy failures (four-armed dancer seed 0 → clean at every σ 0.05–0.30 × 1–2 steps; 512² composition preserved) but pixel technical drops 10–25 pts on fur/texture prompts — the interpolated upscale supplies no high frequencies for a low-σ refine to rebuild (MrFlow uses a GAN SR model here). **Opt-in anatomy rescue only; not the 1024² default.** Requires the corrected refine-regime schedule (strengthSchedule ends at startT/N when startT < 1/N — the naive ramp ascends and the earlier clamp silently forced σ to 1/N).

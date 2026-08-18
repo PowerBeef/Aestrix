@@ -184,6 +184,30 @@ public final class QwenTokenizer: @unchecked Sendable {
         maxLength: Int = ModelConstants.maxSequenceLength,
         enableThinking: Bool = false
     ) -> (ids: [Int], attentionMask: [Int]) {
+        var ids = templatedIds(prompt, maxLength: maxLength, enableThinking: enableThinking)
+        var mask = Array(repeating: 1, count: ids.count)
+        if ids.count < maxLength {
+            let pad = maxLength - ids.count
+            ids.append(contentsOf: Array(repeating: padTokenId, count: pad))
+            mask.append(contentsOf: Array(repeating: 0, count: pad))
+        }
+        return (ids, mask)
+    }
+
+    /// Chat-templated ids WITHOUT padding (TE-splice path: encode real tokens
+    /// only; pads come from the cached clean-pad bank).
+    public func encodePromptUnpadded(
+        _ prompt: String,
+        maxLength: Int = ModelConstants.maxSequenceLength,
+        enableThinking: Bool = false
+    ) -> [Int] {
+        templatedIds(prompt, maxLength: maxLength, enableThinking: enableThinking)
+    }
+
+    /// Template + encode + template-preserving truncation, no padding.
+    private func templatedIds(
+        _ prompt: String, maxLength: Int, enableThinking: Bool
+    ) -> [Int] {
         let formatted = QwenChatTemplate.format(
             userPrompt: prompt,
             enableThinking: enableThinking,
@@ -213,13 +237,7 @@ public final class QwenTokenizer: @unchecked Sendable {
                     + "truncated prompt content (chat-template closers preserved)\n",
                 stderr)
         }
-        var mask = Array(repeating: 1, count: ids.count)
-        if ids.count < maxLength {
-            let pad = maxLength - ids.count
-            ids.append(contentsOf: Array(repeating: padTokenId, count: pad))
-            mask.append(contentsOf: Array(repeating: 0, count: pad))
-        }
-        return (ids, mask)
+        return ids
     }
 
     // MARK: - BPE internals

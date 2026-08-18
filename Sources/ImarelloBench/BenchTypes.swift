@@ -70,6 +70,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var vaeTileThreshold: Int?
     /// Text token mode for T2I trials: "512" (pad, product default) | "auto" (trim).
     public var textTokens: String?
+    /// Pad content for T2I trials: "prompt" (full-window, default) | "clean" (TE-splice).
+    public var padContent: String?
     /// VAE decode variant for provenance: "small-decoder" | "full".
     public var vaeVariant: String?
     /// Resolved eval/cache profile for provenance: "product" | "mid".
@@ -120,6 +122,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         attentionJointSeqF16: Bool? = nil,
         vaeTileThreshold: Int? = nil,
         textTokens: String? = nil,
+        padContent: String? = nil,
         vaeVariant: String? = nil,
         evalCache: String? = nil,
         vaeAttnChunk: Int? = nil,
@@ -161,6 +164,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.attentionJointSeqF16 = attentionJointSeqF16
         self.vaeTileThreshold = vaeTileThreshold
         self.textTokens = textTokens
+        self.padContent = padContent
         self.vaeVariant = vaeVariant
         self.evalCache = evalCache
         self.vaeAttnChunk = vaeAttnChunk

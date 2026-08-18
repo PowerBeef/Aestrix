@@ -278,6 +278,8 @@ public actor BenchRunner {
             "bench_\(config.label)_s\(config.seed)_t\(Date().timeIntervalSince1970).png"
         )
         let textTokenMode = config.textTokens.flatMap { TextTokenMode(rawValue: $0) } ?? .full512
+        let padMode = config.padContent.flatMap { T2IRequest.PadContentMode(rawValue: $0) }
+            ?? .prompt
         let request = T2IRequest(
             prompt: config.prompt,
             width: config.width,
@@ -285,7 +287,8 @@ public actor BenchRunner {
             steps: steps,
             seed: config.seed,
             outputURL: outURL,
-            textTokens: textTokenMode
+            textTokens: textTokenMode,
+            padContent: padMode
         )
         let url = try await pipeline.generate(request, trace: collector.trace)
         return url.path
