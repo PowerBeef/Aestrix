@@ -2,86 +2,95 @@
 
 <img src="Docs/assets/readme/imarello-lockup-wide.png" width="560" alt="Imarello">
 
-**Native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)**
+**Turn words into photographs — entirely on your Mac.**
 
-From-scratch on Apple Silicon — not a wrapper around another port. Formerly **Aestrix**.
+A native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for Black Forest Labs'
+[FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), written from scratch for Apple Silicon.
+No cloud, no accounts, no data leaving your machine.
 
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
-[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#quick-start)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#1-what-you-need)
 [![MLX](https://img.shields.io/badge/MLX-0.32.1%20(fork)-blue)](https://github.com/PowerBeef/mlx-swift)
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 [![Eval floors](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml)
 
-Text-to-image and single-image edit · **4-bit** weights · **1024²** default · fits an **8 GB** Mac
+**512² in ~22 s · 1024² in ~68 s — on an 8 GB M2 Mac mini.** Also runs on iPhone.
 
 <img src="Docs/assets/readme/hero-coffee-1024.jpg" width="640" alt="Cozy coffee shop interior, warm afternoon light — Imarello T2I, 1024², 4 steps, seed 42">
 
-<sub>1024² · 4 steps · seed 42 · 4-bit · 8 GB M2 Mac mini</sub>
+<sub>1024² · 4 steps · seed 42 · generated on the 8 GB Mac mini above</sub>
 
 </div>
 
-```text
-prompt ──► Qwen3 TE ──► unload ──► MMDiT (4 steps) ──► unload ──► VAE decode ──► PNG
-              ~2 GB                  ~2 GB                  decode-only / tiled
-```
+## What Imarello does
 
-Only one heavy module is resident at a time. Peak is roughly **max(TE, DiT, VAE)**, not the sum.
+| | You type / give it | You get |
+|---|---|---|
+| **Generate** | A text prompt | A 1024² photograph-quality image in about a minute |
+| **Edit** | An image + what should change | The same scene, recolored / restyled / relit |
+| **Identity edit** | A portrait + a wardrobe or lighting change | The same person — face locked — in the new look |
 
-| Generate | Default | Memory | License |
-|:--------:|:-------:|:------:|:-------:|
-| T2I + I2I + identity | 1024² · 4 steps · guidance 1.0 | Staged · ~2 GiB live | MIT + Apache-2.0 weights |
+Everything runs locally. The model is a 4-bit build of FLUX.2 [klein] (about a 4.8 GB one-time download), tuned so the whole pipeline fits comfortably in 8 GB of unified memory.
 
----
+## Gallery
 
-## Samples
-
-Unedited release outputs, 4-bit, 4 steps, fixed seeds.
+Unedited outputs, fixed seeds.
 
 <table>
 <tr>
 <td align="center" width="50%">
 <img src="Docs/assets/readme/fisherman-1024.jpg" width="380" alt="Weathered fisherman, golden hour">
-<br><sub>T2I · 1024² · seed 42</sub>
+<br><sub>Generate · 1024² · seed 42</sub>
 </td>
 <td align="center" width="50%">
 <img src="Docs/assets/readme/fox-512.jpg" width="380" alt="Red fox in snow at sunrise">
-<br><sub>T2I · 512² · seed 7</sub>
+<br><sub>Generate · 512² · seed 7</sub>
 </td>
 </tr>
 <tr>
 <td align="center">
 <img src="Docs/assets/readme/i2i-mug-before.jpg" width="280" alt="Cobalt ceramic mug">
-<br><sub>Source</sub>
+<br><sub>Original</sub>
 </td>
 <td align="center">
 <img src="Docs/assets/readme/i2i-mug-after.jpg" width="280" alt="Emerald ceramic mug">
-<br><sub><code>i2i --strength 0.8</code> · cobalt → emerald</sub>
+<br><sub>Edit: “emerald green glaze” — everything else stays</sub>
 </td>
 </tr>
 <tr>
 <td align="center">
 <img src="Docs/assets/readme/identity-ref.jpg" width="280" alt="Woman, ivory blouse, studio light">
-<br><sub>Reference</sub>
+<br><sub>Original</sub>
 </td>
 <td align="center">
 <img src="Docs/assets/readme/identity-edit.jpg" width="280" alt="Same woman, emerald silk, golden hour">
-<br><sub><code>i2i --strength 0.9 --identity</code> · wardrobe + light; face stays</sub>
+<br><sub>Identity edit: new outfit and light — same face</sub>
 </td>
 </tr>
 </table>
 
----
+## Get started
 
-## Quick start
+### 1. What you need
 
-**Needs:** Apple Silicon, macOS 15+, Xcode 26 / Swift 6 (CI runs Xcode 26.6), ~5.1 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
+- A Mac with Apple Silicon (M1 or newer) running **macOS 15+** — 8 GB of memory is enough
+- **Xcode 26** (Swift 6)
+- ~5.1 GB of free disk space
+- The [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`) for the model download
+
+### 2. Build it
 
 ```bash
 git clone https://github.com/PowerBeef/Imarello.git && cd Imarello
-# Old clone URLs (`PowerBeef/Aestrix`) redirect here.
 swift build -c release
-./Scripts/ensure-metallib.sh          # full MLX Metal lib (~155 MB) — REQUIRED: kernels load by name (nojit)
+./Scripts/ensure-metallib.sh   # builds the GPU kernel library (~155 MB) — required
+```
 
+> The second script is not optional: Imarello loads its Metal kernels from this library at runtime.
+
+### 3. Download the model (one time, ~4.8 GB)
+
+```bash
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
   --local-dir ~/Library/Caches/Imarello/models/mlx-community--FLUX.2-Klein-4B-4bit
@@ -91,160 +100,141 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --include small_decoder.safetensors --include config.json \
   --local-dir ~/Library/Caches/Imarello/models/black-forest-labs--FLUX.2-small-decoder
 
-.build/release/imarello info           # tier, pin, snapshot, Steel metallib, Small Decoder
-
-.build/release/imarello t2i \
-  "A weathered fisherman at the helm of a wooden boat, golden hour rim light, shallow depth of field." \
-  --seed 42 --output out.png
+.build/release/imarello info   # everything should read “ready”
 ```
 
-Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~22 s on an 8 GB M2).
+### 4. Make your first image
 
 ```bash
-# Recolor / style — strength ≥ 0.8 for object color
-.build/release/imarello i2i "the same ceramic mug, emerald green glaze, same morning light" \
-  --image out.png --strength 0.8 --seed 7 --output edit.png
-
-# People — higher strength + identity stack (ref latents, face mask, milder schedule)
-.build/release/imarello i2i "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
-  --image portrait.png --strength 0.9 --identity --seed 7 --output edit-id.png
+.build/release/imarello t2i \
+  "A weathered fisherman at the helm of a wooden boat, golden hour rim light, shallow depth of field." \
+  --seed 42 --output my-first.png
 ```
 
-Add `--analyze --vision-brief` to any generate for the pixel report + agent checklist.
+That's a 1024² image in about a minute. For a quick ~22-second test, add `--width 512 --height 512`.
+
+To **edit** an image:
+
+```bash
+# Recolor / restyle — describe the change AND what stays
+.build/release/imarello i2i "the same ceramic mug, emerald green glaze, same morning light" \
+  --image my-first.png --strength 0.8 --output edited.png
+
+# People — lock the face while changing wardrobe or lighting
+.build/release/imarello i2i "Same person, exact face and pose; outdoor golden hour, emerald silk top" \
+  --image portrait.png --strength 0.9 --identity --output edited.png
+```
+
+## Getting better images
+
+**Write prompts like captions, not keyword lists.** Klein responds best to narrative prose with the subject first and the lighting spelled out. Don't list what you *don't* want — there are no negative prompts; just describe what you do want. Exact colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Full recipes: [flux-best-practices](.claude/skills/flux-best-practices).
+
+**Editing strength matters.** `--strength 0.8` or higher for color and material changes; people need `0.85–0.9` *plus* `--identity`. Guide: [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
+
+**Full-body subjects at 1024².** The 4-step model can occasionally scramble limbs on complex full-body poses at 1024². If that happens, add `--two-stage`: it composes the image at 512² (where anatomy is reliable) and refines it at 1024² — trading a little texture sharpness for a correct body.
+
+**Repeat prompts are faster.** Prompt understanding is cached on disk, so re-running a prompt with a new seed skips a whole pipeline stage. (Disable with `--no-embed-cache`.)
+
+**Lots of prompts in a row?** On Macs with 16 GB or more, `imarello session` keeps the model warm between images.
+
+Every command and flag: `imarello --help`.
+
+## The iPhone studio
+
+`Apps/ImarelloIOS` is a full photo-studio app on the same engine — generation happens **on the phone** (iPhone 17-class recommended; ~12 s for a 512² image on an iPhone 17 Pro).
+
+- **Stage** — your print fills the screen; one glass status row tells you everything (progress, errors, a working Stop); a gold **Develop** button runs it.
+- **Contact Sheet** — every print you've made. Tap one to zoom, share, save to Photos, delete — or **Edit**, which develops a new print from that one.
+
+Your prints are stored durably (they survive iOS cache cleanups and app reinstalls). Building and installing it requires Xcode and a paired iPhone on iOS 26.2+ — the full recipe, including how weights get onto the device, is in [Docs/IOS.md](Docs/IOS.md).
 
 ---
 
-## Use it well
+# For developers
 
-**Prompting (klein).** Narrative prose, subject first, lighting spelled out. No negative prompts — say what you want. Hex colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Recipes: [`.claude/skills/flux-best-practices`](.claude/skills/flux-best-practices).
+## How it stays inside 8 GB
 
-**I2I.** Strength-only is for color/style. People + scene changes want `--identity` at **0.85–0.9**. See [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
+Only one heavy model is ever resident. Peak memory is roughly **max(stage)**, never the sum:
 
-**1024² full-body subjects.** Klein's 4-step path can occasionally break body plans at 1024² (multi-limb). `t2i --two-stage` composes at 512² (where anatomy is reliable) and refines at 1024² — an opt-in rescue that trades a little texture sharpness for correct anatomy.
+```text
+prompt ──► Qwen3 text encoder ──► unload ──► MMDiT, 4 steps ──► unload ──► VAE decode ──► PNG
+                ~1.7 GB                          ~2.1 GB                     ~0.1 GB (tiled at 1024²)
+```
 
-**Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Imarello/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Entries are written atomically and validated on load; corrupt ones self-delete. Opt out with `--no-embed-cache`.
-
-**Many prompts.** `imarello session` keeps modules warm on **≥16 GB**. 8 GB stays staged.
-
-**Not in v1:** Klein 9B / FLUX.2 Dev, multi-reference, CFG, LoRA, user-facing bf16.
-
----
+The DiT is the watermark: ~2.06 GiB live, 2.57 GiB (512²) / 3.00 GiB (1024²) peak MLX allocations.
 
 ## Performance
 
-Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 · seed 42 · fox prompt. Product defaults: `--text-tokens 512` (pad), BFL Small Decoder, scaled f16 4-bit Linear (`÷16`). Live peak is the DiT (~2 GiB) at both sizes — 1024² is slower, not much hungrier.
+8 GB M2 Mac mini · release build + full metallib · product defaults · warmup 1, trials 3:
 
-| Canvas | Time | Denoise / step | Decode | MLX active | Watermark |
-|--------|-----:|---------------:|-------:|-----------:|----------:|
-| **512²** | **21.9 s** | 4.22 s | 0.94 s | 2.06 GiB | 2.57 GiB |
-| **1024²** | **67.5 s** | 14.69 s | 4.58 s | 2.05 GiB | 3.00 GiB |
+| Canvas | End-to-end | Denoise / step | Decode | Peak MLX |
+|--------|-----------:|---------------:|-------:|---------:|
+| 512² | **21.9 s** | 4.22 s | 0.94 s | 2.57 GiB |
+| 1024² | **67.5 s** | 14.69 s | 4.58 s | 3.00 GiB |
+| Identity edit 512² | **36.2 s** | 7.57 s | 0.94 s | 2.56 GiB |
 
-The 2026-08-16 Tier-1/2 engine work (fused qmm rescale, hoisted step conditioning, chunk-streamed single blocks, joint-f16 attention, untiled 768² decode, relaxed cache policy) took 1024² from 79.0 → 71.0 s (−10%) and its watermark from 3.63 → **3.00 GiB (−17%)**. The **2026-08-18 mlx core 0.32.1 bump** (via a [maintained fork](https://github.com/PowerBeef/mlx-swift) — upstream mlx-swift is pre-0.32; kernels are served from the prebuilt metallib) added split-K/`gemv_wide` small-M kernels: text-encode **−19–21%** in every mode, 512² now **21.9 s** and identity-I2I **36.2 s**, memory identical, full quality gate (15/15 pixel + vision) passed. 768² decode is untiled (no seams). `--text-tokens auto` (opt-in) still trims for speed at 512² but weakens prompt conditioning; same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+What makes it fast, in one paragraph: 4-step distilled sampling · staged residency · MLX **Steel fused flash attention** (D=128, joint-f16) · scaled-f16 4-bit GEMMs · chunk-streamed transformer blocks at 1024² · BFL **Small Decoder** (−37% decode) · per-prompt embedding cache · and, since 2026-08-18, **mlx core 0.32.1** via a [maintained fork](https://github.com/PowerBeef/mlx-swift) (upstream mlx-swift is pre-0.32) whose split-K/`gemv_wide` kernels cut text-encoding 19–21%. Kernels are served from the prebuilt metallib (nojit), which is why `ensure-metallib.sh` is mandatory. The full A/B history with every promotion and refutation lives in [Docs/PERF.md](Docs/PERF.md); the research ledger is [Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md).
 
-BFL **Small Decoder** is the default decode (−37% vs the klein AE). `--vae-variant full` restores klein. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
+Quality is gated twice on every change: a pixel harness (with hard fails for garbage output) *and* a vision review — [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md).
 
-`--attn-linear-compute f32` is the old f32 GEMM. Raw unscaled f16 overflows to noise — do not use it.
-
-Same-day A/Bs and older trees: [Docs/PERF.md](Docs/PERF.md).
-
----
-
-## CLI
-
-| Command | |
-|---------|--|
-| `t2i` / `i2i` | Generate. `--identity` on I2I for people. |
-| `session` | Warm multi-prompt loop (≥16 GB). |
-| `info` | Tier, Hub pin, snapshot, Steel metallib. |
-| `analyze-image` | Pixel quality on an existing PNG. |
-| `bench` / `bench-compare` | Timings, memory, pressure-map, I2I. |
-| `load-te` `load-dit` `load-vae` | Staged load smoke. |
-| `encode-prompt` `schedule` `mem-selftest` | TE-only, sigmas, dry residency. |
-
-`imarello --help` and `imarello t2i --help` list flags.
-
----
-
-## Library
-
-Public API is `ImarelloPipeline` (an `actor` — all MLX state lives there).
+## Use it as a Swift library
 
 ```swift
 import ImarelloCore
 import ImarelloRuntime
 
-let pipeline = ImarelloPipeline()
+let pipeline = ImarelloPipeline()   // an actor — all MLX state lives inside
 let url = try await pipeline.generate(
-    T2IRequest(
-        prompt: "A red fox in a snowy forest at sunrise, photorealistic.",
-        seed: 42
-    )
+    T2IRequest(prompt: "A red fox in a snowy forest at sunrise, photorealistic.", seed: 42)
 )
 ```
 
-`edit(_:)` takes `I2IRequest` (`strength`, optional `identity`). Both calls are **cancellable** — the pipeline checks `Task` cancellation at every stage boundary and denoise step, unloading the resident stage before rethrowing. Inputs are validated up front (`steps`, canvas, `--ref-downsample` grids) instead of trapping mid-pipeline. Modules:
+`edit(_:)` takes an `I2IRequest` (strength, optional identity stack). Both calls are cancellable mid-denoise and validate their inputs up front.
 
-| | |
-|--|--|
-| `ImarelloRuntime` | Staged pipeline, I2I / identity, embed cache |
-| `ImarelloText` | Qwen3 tap (layers 9/18/27 → 7680) |
-| `ImarelloDiT` | MMDiT 5+20, Steel fused FA (joint-f16), scaled f16 4-bit Linear, chunk-streamed single blocks, hoisted step conditioning |
-| `ImarelloVAE` | Small Decoder default, klein encode-only, NHWC end-to-end, untiled ≤768² / tiled cosine blend at 1024² |
-| `ImarelloEval` / `ImarelloBench` | Pixel gates (incl. unstructured-garbage fail) · multi-trial harness |
-| `ImarelloCore` | Pins, scheduler, RoPE, policy |
+| Module | Owns |
+|--------|------|
+| `ImarelloRuntime` | The staged pipeline, I2I + identity, embed cache |
+| `ImarelloText` | Qwen3 encoder (layer taps 9/18/27 → 7680) |
+| `ImarelloDiT` | MMDiT (5 double + 20 single blocks), Steel FA, quantized GEMMs |
+| `ImarelloVAE` | Small Decoder default, klein encoder, tiled decode |
+| `ImarelloEval` / `ImarelloBench` | Pixel quality gates · multi-trial benchmark harness |
+| `ImarelloCore` | Pins, scheduler, RoPE, config — MLX-free |
 
-Design: [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [Docs/MEMORY.md](Docs/MEMORY.md).
+## Developing
 
 ```bash
-# Filtered unit tests (no weights). Never run unfiltered `swift test` (Metal FA tests can hang).
+# Unit tests — ALWAYS filtered; unfiltered `swift test` can hang on Metal FA suites
 swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness|Qwen'
 
-.build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
-  --json /tmp/bench.json
-IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel loop
+# Benchmarks (any perf claim needs these)
+.build/release/imarello bench --width 512 --height 512 --json /tmp/a.json
+.build/release/imarello bench-compare /tmp/a.json /tmp/b.json
+
+# Quality regression: 5 prompts × 3 seeds, pixel-gated
+IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh
 ```
 
----
+| Doc | What's in it |
+|-----|--------------|
+| [ARCHITECTURE.md](Docs/ARCHITECTURE.md) · [MEMORY.md](Docs/MEMORY.md) | Layer design · the staged-residency model |
+| [PERF.md](Docs/PERF.md) · [ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) | A/B ledger · optimization research and verdicts |
+| [WEIGHTS.md](Docs/WEIGHTS.md) | Model packs and pinned revisions |
+| [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | The pixel + vision quality gate |
+| [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) · [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | Edit-strength recipes · the pad-512 conditioning decision |
+| [IOS.md](Docs/IOS.md) | iOS build, install, device weight sync, headless device harness |
+| [ROADMAP.md](Docs/ROADMAP.md) · [CLAUDE.md](CLAUDE.md) | Backlog + decision log · agent/contributor ground rules |
+
+Working on this repo with an AI agent? [CLAUDE.md](CLAUDE.md) is the contract — host safety on 8 GB machines, quality gates, and product locks live there.
 
 ## Status
 
-| Shipping | In progress / parked |
-|----------|----------------------|
-| macOS library + CLI | iOS 26 studio (`Apps/ImarelloIOS`) — **512² T2I and I2I on device**, rebuilt two-page UI; 1024² anatomy has a working opt-in rescue (`--two-stage`), default fix pending an SR stage |
-| 1024² on 8 GB · 4-bit staged (enforced: `--weights` is 4-bit only) | Multi-ref, CFG, LoRA, bf16 |
-| T2I, strength I2I, `--identity` · cancellable runs · validated CLI inputs | `--text-tokens auto` speed path (opt-in) |
-| Steel FA · joint-f16 attention · f16 qmm · Small Decoder · untiled ≤768² decode · crash-safe embed cache · Hub pin + CI (18 no-Metal suites) | Partial-pad conditioning study ([Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) Tier 3) |
+| Shipping today | In progress / next |
+|----------------|--------------------|
+| macOS library + CLI: generate, edit, identity edit — 1024² on 8 GB | A19 Pro / M5 **Neural Accelerator** path (probe + iOS 26.2 floor shipped; device validation next) |
+| iOS studio: 512² generate + edit on device, durable print history | 1024²-on-device polish; full-f16 transformer block (est. −8–12% denoise) |
+| mlx core 0.32.1 (fork) · hardened scripts/CI · 18-suite CI gate | Re-sync to upstream mlx-swift when it ships 0.32.x |
 
-**2026-08-18 hardening pass:** a full-repo adversarial audit (52 verified findings) was fixed the same day — durable iOS print history, self-healing device-harness queue, real cancellation, atomic caches, input validation, and a metallib build that refuses partial kernel sets and tracks the mlx-swift pin. **Same-day engine uplift:** mlx core bumped to 0.32.1 via a maintained fork (text-encode −19–21%, 512² 21.9 s, memory flat, full quality gate passed), a two-stage anatomy rescue for 1024², and a GPU capability probe readying the M5/A19 Neural-Accelerator path. Details in the [roadmap decision log](Docs/ROADMAP.md).
-
-Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
-
-| Doc | |
-|-----|--|
-| [WEIGHTS.md](Docs/WEIGHTS.md) | Hub packs and pinned revisions |
-| [PERF.md](Docs/PERF.md) | Benchmarks and pressure probes |
-| [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | Pixel + vision quality gate |
-| [AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md) | Skills, MCP servers, host-safe loops |
-| [IOS.md](Docs/IOS.md) | iOS 26 demo — Simulator UI, `xcodebuild` + `devicectl`, device generate harness |
-| [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) | Color vs identity strength |
-| [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 |
-| [ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) | Engine analysis, optimization ledger, open research tiers |
-
----
-
-## iOS 26 studio
-
-`Apps/ImarelloIOS` is a phone studio on the same staged `ImarelloRuntime`, rebuilt as **two full-bleed pages** you swipe between:
-
-- **Stage** — your print fills the screen; a plate chip carries `512² · seed 42`, one glass status row speaks for every state (gate, progress + elapsed, staged edit, error + Try Again), and a gold **Develop** pill runs it. **Stop actually stops** — the pipeline honors cancellation mid-denoise.
-- **Contact Sheet** — every print you have made, in a film grid (with the same status row). Tap one to open the viewer: zoom, swipe, Share, Save, Delete — and **Edit**, which develops a new print from *that* one at strength 0.8.
-
-Prints are **durable**: a versioned index and canonical PNGs live in Application Support, so history survives OS cache purges and app reinstall container swaps. Design system: [Apps/ImarelloIOS/DESIGN.md](Apps/ImarelloIOS/DESIGN.md).
-
-- **Simulator** is UI only — MLX has no Simulator Metal. Develop is a no-op.
-- **Physical iPhone** is the generate host. Build with `xcodebuild` (`-skipPackagePluginValidation`) and install with `devicectl`. No Mac Catalyst.
-- Weights stay out of the bundle (`Caches/Imarello/models/`). Resync after every install (`Scripts/sync-ios-device-weights.sh`).
-- Drive a device generate from the Mac with `Scripts/ios-device-harness.sh` (default 512²; `--steps`, `--text-tokens`, and `--strength` apply on device, bad jobs are quarantined instead of wedging the queue, and stale results are rejected automatically). Do not tap Develop from an agent. See [Docs/IOS.md](Docs/IOS.md).
+Not in scope for v1: Klein 9B / FLUX.2 Dev, multi-reference editing, LoRA, CFG, bf16 paths.
 
 ## License
 
