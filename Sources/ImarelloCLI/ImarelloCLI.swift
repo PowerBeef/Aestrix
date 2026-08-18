@@ -1548,6 +1548,9 @@ struct DirectSpike: AsyncParsableCommand {
     @Option(name: .long, help: "Text-encoder snapshot directory (default: pinned snapshot).")
     var teDir: String?
 
+    @Option(name: .long, help: "Spike stage: qmm (milestone A) | layer (milestone B).")
+    var stage: String = "layer"
+
     func run() async throws {
         try ensureMLXReady()
         let config = ImarelloConfig.autoDetectingTier()
@@ -1559,6 +1562,13 @@ struct DirectSpike: AsyncParsableCommand {
         }
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let metallib = exe.deletingLastPathComponent().appendingPathComponent("mlx.metallib")
-        print(try DirectQmmSpike.run(teDirectory: dir, metallibURL: metallib))
+        switch stage {
+        case "qmm":
+            print(try DirectQmmSpike.run(teDirectory: dir, metallibURL: metallib))
+        case "layer":
+            print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
+        default:
+            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer")
+        }
     }
 }
