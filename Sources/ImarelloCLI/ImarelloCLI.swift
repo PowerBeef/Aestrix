@@ -165,6 +165,8 @@ struct Info: AsyncParsableCommand {
         let phys = ProcessInfo.processInfo.physicalMemory
         print("Imarello")
         print("  physical_memory: \(MemoryProbe.formatBytes(phys))")
+        let caps = ChipCapabilities.detect()
+        print("  gpu: \(caps.summary)")
         print("  tier: \(config.tier.rawValue)")
         print("  max_side: \(config.maxSide)")
         print("  memory_policy: \(config.memoryPolicy.rawValue)")
@@ -467,6 +469,15 @@ struct T2I: AsyncParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
+    @Flag(name: .long, help: "EXPERIMENT (engine plan Q2): compose at 512² (clean anatomy), then refine at the target size via a low-strength I2I pass. Square canvases > 512 only.")
+    var twoStage: Bool = false
+
+    @Option(name: .long, help: "Two-stage refine noise level σ in (0, 1); linear schedule, so strength ≡ σ (default 0.15).")
+    var refineStrength: Float = 0.15
+
+    @Option(name: .long, help: "Two-stage refine steps (default 2).")
+    var refineSteps: Int = 2
+
     func run() async throws {
         try ensureMLXReady()
         try validateSteps(steps)
@@ -505,6 +516,14 @@ struct T2I: AsyncParsableCommand {
             throw ValidationError("Unknown --pad-content '\(padContent)'; use prompt | clean")
         }
         let outURL = output.map { URL(fileURLWithPath: $0) }
+
+        if twoStage {
+            try await runTwoStage(
+                pipeline: pipeline, textTokenMode: textTokenMode,
+                padContentMode: padContentMode, outURL: outURL)
+            return
+        }
+
         let request = T2IRequest(
             prompt: prompt,
             width: width,
@@ -544,6 +563,87 @@ struct T2I: AsyncParsableCommand {
                     break
                 }
             }
+            print("wrote \(url.path)")
+            try runPostGenerationEval(
+                imageURL: url,
+                prompt: prompt,
+                referenceURL: nil,
+                mode: .t2i,
+                options: GenerationEvalOptions(
+                    analyze: analyze || analyzeJson != nil || visionBrief,
+                    analyzeJSON: analyzeJson,
+                    visionBrief: visionBrief || analyze,
+                    failOnPixelGate: failOnPixelGate
+                )
+            )
+        } catch let code as ExitCode {
+            throw code
+        } catch let error as ImarelloError {
+            print("error: \(error.localizedDescription)")
+            throw ExitCode.failure
+        } catch {
+            print("error: \(error)")
+            throw ExitCode.failure
+        }
+    }
+
+    /// EXPERIMENT (engine plan Q2, MrFlow-style): compose the image at 512²
+    /// where Klein 4-step anatomy is reliable, then refine at the target size
+    /// with a short low-σ I2I pass. The I2I path cover-scales the 512² PNG to
+    /// the target canvas itself (high-quality CGContext interpolation), so no
+    /// separate upscaler is involved.
+    private func runTwoStage(
+        pipeline: ImarelloPipeline,
+        textTokenMode: TextTokenMode,
+        padContentMode: T2IRequest.PadContentMode,
+        outURL: URL?
+    ) async throws {
+        guard width == height, width > 512 else {
+            throw ValidationError(
+                "--two-stage needs a square canvas larger than 512 (got \(width)x\(height))")
+        }
+        guard refineStrength > 0, refineStrength < 1 else {
+            throw ValidationError("--refine-strength must be in (0, 1), got \(refineStrength)")
+        }
+        try validateSteps(refineSteps)
+        let finalURL = outURL
+            ?? AppCache.directory("outputs")
+                .appendingPathComponent("t2i-2stage-\(Int(Date().timeIntervalSince1970)).png")
+        let stage1URL = finalURL.deletingPathExtension().appendingPathExtension("stage1.png")
+        print(
+            "two-stage: compose 512² steps=\(steps) → refine \(width)² σ=\(refineStrength) steps=\(refineSteps)"
+        )
+        let printProgress: @Sendable (PipelineProgress) -> Void = { progress in
+            switch progress.phase {
+            case .encodingText: print("  phase=encoding_text")
+            case .encodingImage: print("  phase=encoding_image")
+            case .denoising:
+                print("  phase=denoising step=\(progress.step + 1)/\(progress.totalSteps)")
+            case .decoding: print("  phase=decoding")
+            default: break
+            }
+        }
+        do {
+            _ = try await pipeline.generate(
+                T2IRequest(
+                    prompt: prompt, width: 512, height: 512, steps: steps,
+                    guidance: 1.0, seed: seed, outputURL: stage1URL,
+                    textTokens: textTokenMode, embedCache: embedCache,
+                    padContent: padContentMode, padKeep: padKeep, padBias: padBias
+                ), onProgress: printProgress)
+            print("  stage1 wrote \(stage1URL.path)")
+            // Linear curve makes strength ≡ starting σ exactly; every identity
+            // mechanism stays off.
+            var refineIdentity = IdentityPreserveConfig.disabled
+            refineIdentity.scheduleCurve = .linear
+            let url = try await pipeline.edit(
+                I2IRequest(
+                    prompt: prompt, imageURL: stage1URL, strength: refineStrength,
+                    width: width, height: height, steps: refineSteps,
+                    guidance: 1.0, seed: seed, outputURL: finalURL,
+                    identity: refineIdentity, textTokens: textTokenMode,
+                    embedCache: embedCache
+                ), onProgress: printProgress)
             print("wrote \(url.path)")
             try runPostGenerationEval(
                 imageURL: url,
@@ -923,10 +1023,10 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Optional MLX cacheLimit in bytes (e.g. 2147483648).")
     var cacheLimit: UInt64?
 
-    @Option(name: .long, help: "DiT SDPA query chunk size (default 256). Sweep: 128|256|512.")
+    @Option(name: .long, help: "LEGACY (no effect since 2026-08-18): DiT query-chunked SDPA was deleted; D=128 is always Steel. Kept for provenance.")
     var attnChunkSize: Int?
 
-    @Option(name: .long, help: "Seq length above which query-chunked SDPA is used (default 1536).")
+    @Option(name: .long, help: "LEGACY (no effect since 2026-08-18): see --attn-chunk-size.")
     var attnChunkThreshold: Int?
 
     @Option(name: .long, help: "Seq length above which Q/K/V use f16 (default 512).")
@@ -950,13 +1050,13 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "Seq length above which Linear is chunked (default 1536).")
     var attnLinearThreshold: Int?
 
-    @Option(name: .long, help: "Attention backend: mlx | metal-fa | auto (default auto).")
+    @Option(name: .long, help: "Attention backend: mlx (default) | metal-fa | auto.")
     var attnBackend: String?
 
     @Option(name: .long, help: "Joint seq above which the DiT clears cache per block (default 1536).")
     var attnBlockClearThreshold: Int?
 
-    @Option(name: .long, help: "Clear cache every N blocks when per-block clears are active (default 1).")
+    @Option(name: .long, help: "Clear cache every N blocks when per-block clears are active (default 2).")
     var attnBlockClearInterval: Int?
 
     @Option(name: .long, help: "asyncEval per DiT block with a hard eval every N blocks (0 = blocking).")
@@ -1096,6 +1196,13 @@ struct Bench: AsyncParsableCommand {
             // provenance must live in the report, not the filename label.
             textTokens: textTokens ?? TextTokenMode.full512.rawValue,
             vaeVariant: vaeVariant,
+            evalCache: evalCache ?? EvalCachePolicy.current.profileName,
+            vaeAttnChunk: vaeAttnChunk
+                ?? (VAEAttentionConfig.current.useMLXFast
+                    ? 0 : VAEAttentionConfig.current.queryChunkSize),
+            vaeTileSize: VAETileConfig.current.tileSize,
+            vaeTileOverlap: VAETileConfig.current.overlap,
+            vaeTileBlend: String(describing: VAETileConfig.current.blend),
             opProfile: opProfile,
             imagePath: image,
             strength: strength,
@@ -1232,6 +1339,38 @@ struct Bench: AsyncParsableCommand {
             }
             if let evalCache {
                 args += ["--eval-cache", evalCache]
+            }
+            // Forward attention tuning so a ladder can A/B any knob, not just
+            // cache/VAE settings (gap noted in the 2026-08-18 engine plan).
+            if let attnF16Threshold {
+                args += ["--attn-f16-threshold", "\(attnF16Threshold)"]
+            }
+            if let attnLinearCompute {
+                args += ["--attn-linear-compute", attnLinearCompute]
+            }
+            if let attnLinearChunk {
+                args += ["--attn-linear-chunk", "\(attnLinearChunk)"]
+            }
+            if let attnLinearThreshold {
+                args += ["--attn-linear-threshold", "\(attnLinearThreshold)"]
+            }
+            if let attnBackend {
+                args += ["--attn-backend", attnBackend]
+            }
+            if let attnBlockClearThreshold {
+                args += ["--attn-block-clear-threshold", "\(attnBlockClearThreshold)"]
+            }
+            if let attnBlockClearInterval {
+                args += ["--attn-block-clear-interval", "\(attnBlockClearInterval)"]
+            }
+            if let attnAsyncEval {
+                args += ["--attn-async-eval", "\(attnAsyncEval)"]
+            }
+            if attnJointF16 {
+                args += ["--attn-joint-f16"]
+            }
+            if let vaeTileThreshold {
+                args += ["--vae-tile-threshold", "\(vaeTileThreshold)"]
             }
             if force {
                 args += ["--force"]

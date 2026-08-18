@@ -2,14 +2,14 @@ name: ImarelloIOS
 options:
   bundleIdPrefix: app.imarello
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "26.2"
   createIntermediateGroups: true
   defaultConfig: Debug
 settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.2"
     TARGETED_DEVICE_FAMILY: "1,2"
     SUPPORTS_MACCATALYST: NO
     SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
@@ -23,7 +23,7 @@ targets:
   ImarelloIOS:
     type: application
     platform: iOS
-    deploymentTarget: "26.0"
+    deploymentTarget: "26.2"
     sources:
       - path: ImarelloIOS
     attributes:

@@ -66,12 +66,20 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var attentionAsyncEvalInterval: Int?
     /// Decide attention store dtype from the joint sequence (nil = per-stream product default).
     public var attentionJointSeqF16: Bool?
-    /// Override the VAE tile enable threshold in latent px (nil = product default 96).
+    /// Override the VAE tile enable threshold in latent px (nil = product default 128).
     public var vaeTileThreshold: Int?
     /// Text token mode for T2I trials: "512" (pad, product default) | "auto" (trim).
     public var textTokens: String?
     /// VAE decode variant for provenance: "small-decoder" | "full".
     public var vaeVariant: String?
+    /// Resolved eval/cache profile for provenance: "product" | "mid".
+    public var evalCache: String?
+    /// Resolved VAE mid-block attention chunk for provenance (0 = MLXFast SDPA).
+    public var vaeAttnChunk: Int?
+    /// Resolved VAE tile geometry for provenance (schema 1.4).
+    public var vaeTileSize: Int?
+    public var vaeTileOverlap: Int?
+    public var vaeTileBlend: String?
     /// GPU-sync Steel FA vs FFN vs processQKV split (ranking only).
     public var opProfile: Bool
     /// Reference image for I2I / identity-I2I modes.
@@ -113,6 +121,11 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         vaeTileThreshold: Int? = nil,
         textTokens: String? = nil,
         vaeVariant: String? = nil,
+        evalCache: String? = nil,
+        vaeAttnChunk: Int? = nil,
+        vaeTileSize: Int? = nil,
+        vaeTileOverlap: Int? = nil,
+        vaeTileBlend: String? = nil,
         opProfile: Bool = false,
         imagePath: String? = nil,
         strength: Float? = nil,
@@ -149,6 +162,11 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.vaeTileThreshold = vaeTileThreshold
         self.textTokens = textTokens
         self.vaeVariant = vaeVariant
+        self.evalCache = evalCache
+        self.vaeAttnChunk = vaeAttnChunk
+        self.vaeTileSize = vaeTileSize
+        self.vaeTileOverlap = vaeTileOverlap
+        self.vaeTileBlend = vaeTileBlend
         self.opProfile = opProfile
         self.imagePath = imagePath
         self.strength = strength
@@ -501,8 +519,10 @@ public struct SystemSnapshot: Sendable, Codable, Equatable {
     public var gpuName: String?
     /// e.g. "Metal 4" when known.
     public var metalSupport: String?
-    /// True when GPU Neural Accelerators are expected (M5+); false on M1–M4.
+    /// True when GPU Neural Accelerators are expected (M5/A19+); false on M1–M4.
     public var hasNeuralAccelerators: Bool?
+    /// Highest Apple MTLGPUFamily raw value the device reports (schema 1.4).
+    public var appleGpuFamilyRaw: Int? = nil
 }
 
 public struct BenchReport: Sendable, Codable, Equatable {
@@ -515,5 +535,6 @@ public struct BenchReport: Sendable, Codable, Equatable {
     public var aggregate: BenchAggregate
     public var pressure: PressureReport?
 
-    public static let currentSchema = "1.3"
+    /// 1.4 (2026-08-18): + evalCache, vaeAttnChunk, vaeTile{Size,Overlap,Blend} provenance.
+    public static let currentSchema = "1.4"
 }

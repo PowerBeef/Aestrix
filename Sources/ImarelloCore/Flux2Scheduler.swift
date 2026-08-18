@@ -134,11 +134,16 @@ public struct Flux2Scheduler: Sendable {
         curve: StrengthScheduleCurve = .colorEdit
     ) -> (sigmas: [Float], timesteps: [Float], startSigma: Float) {
         precondition(numInferenceSteps >= 1)
-        // Clamp: below the curve's useful floor (strength ≲ 0.175 on colorEdit)
-        // startT would drop under endT and the linspace would *ascend* — Euler
-        // integrating toward noise before the terminal step.
+        let startT = curve.startT(strength: strength)
         let endT = 1.0 / Float(numInferenceSteps)
-        let startT = max(curve.startT(strength: strength), endT)
+        // Two regimes share this schedule:
+        // - Edit (startT ≥ 1/N, the product path): linspace(startT, 1/N, N),
+        //   unchanged.
+        // - Refine (startT < 1/N, e.g. a 1–2-step low-σ pass over an upscaled
+        //   compose): end at startT/N instead. The naive linspace would ASCEND
+        //   toward noise, and clamping startT up to 1/N (the 2026-08-18 first
+        //   fix) silently turned σ=0.15 into 0.5/1.0 — both wrong.
+        let endTEffective = startT >= endT ? endT : startT / Float(numInferenceSteps)
 
         var base: [Float] = []
         base.reserveCapacity(numInferenceSteps)
@@ -147,7 +152,7 @@ public struct Flux2Scheduler: Sendable {
         } else {
             for i in 0 ..< numInferenceSteps {
                 let u = Float(i) / Float(numInferenceSteps - 1)
-                base.append(startT + (endT - startT) * u)
+                base.append(startT + (endTEffective - startT) * u)
             }
         }
 

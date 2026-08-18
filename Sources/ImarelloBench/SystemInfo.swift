@@ -7,26 +7,12 @@ import ImarelloCore
 public enum SystemInfo {
     public static func snapshot(mlxCacheLimit: UInt64? = nil, mlxMemoryLimit: UInt64? = nil) -> SystemSnapshot {
         let processInfo = ProcessInfo.processInfo
-        var recommended: UInt64?
-        var gpuName: String?
-        var metalSupport: String?
-        var neural: Bool?
-        #if canImport(Metal)
-        if let device = MTLCreateSystemDefaultDevice() {
-            recommended = UInt64(device.recommendedMaxWorkingSetSize)
-            gpuName = device.name
-            // Metal 4 is the API generation on macOS 26; Neural Accelerators are M5+ only.
-            if #available(macOS 26.0, iOS 26.0, *) {
-                metalSupport = "Metal 4"
-            } else {
-                metalSupport = "Metal"
-            }
-            let name = device.name.uppercased()
-            // Heuristic: Apple documents Neural Accelerators for M5 / A19-class, not M1–M4.
-            neural = name.contains("M5") || name.contains("M6") || name.contains("M7")
-                || name.contains("A19")
-        }
-        #endif
+        // Real Metal queries (family probe) with the name heuristic as fallback.
+        let caps = ChipCapabilities.detect()
+        let recommended = caps.recommendedMaxWorkingSetBytes
+        let gpuName = caps.gpuName
+        let metalSupport: String? = gpuName == nil ? nil : (caps.metal4 ? "Metal 4" : "Metal")
+        let neural: Bool? = gpuName == nil ? nil : caps.hasNeuralAccelerators
 
         let thermal: String
         switch processInfo.thermalState {
@@ -50,7 +36,8 @@ public enum SystemInfo {
             imarelloGitSha: gitSha(),
             gpuName: gpuName,
             metalSupport: metalSupport,
-            hasNeuralAccelerators: neural
+            hasNeuralAccelerators: neural,
+            appleGpuFamilyRaw: caps.appleGPUFamilyRaw
         )
     }
 

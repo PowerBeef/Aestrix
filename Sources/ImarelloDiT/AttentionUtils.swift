@@ -62,10 +62,6 @@ enum AttentionUtils {
         return (query, key, value)
     }
 
-    /// Defaults mirror `AttentionTuning.default` (kept for call-site clarity / tests).
-    static var attentionQueryChunkThreshold: Int { AttentionTuning.current.queryChunkThreshold }
-    static var attentionQueryChunkSize: Int { AttentionTuning.current.queryChunkSize }
-
     static func computeAttention(
         query: MLXArray,
         key: MLXArray,
@@ -83,7 +79,6 @@ enum AttentionUtils {
             case .metalFA: return true
             case .mlx:
                 // Product mlx: use Steel fused FA (full Q) when MLX supports it (D∈{64,80,128}).
-                // Query-chunking was a pre-Steel low-RAM hack and is slower on current MLX.
                 return MetalFlashAttention.steelHeadDims.contains(headDim) && seq > 8
             case .auto:
                 return seq >= tuning.metalFAMinSeq && headDim <= 128
@@ -119,49 +114,23 @@ enum AttentionUtils {
             }
         }
 
-        let thr = tuning.queryChunkThreshold
-        let chunkSize = max(1, tuning.queryChunkSize)
+        // Non-Steel head dims only (never reached on the product path: D=128 is
+        // always Steel). The old query-chunked loop here was a pre-Steel
+        // low-RAM hack — deleted 2026-08-18; plain SDPA covers the fallback.
         return DiTOpProfile.time(
             .steelFA,
             inputs: [query, key, value],
             sync: { [$0] }
         ) {
-            if seq <= thr {
-                var hidden = MLXFast.scaledDotProductAttention(
-                    queries: query,
-                    keys: key,
-                    values: value,
-                    scale: scale,
-                    mask: nil
-                )
-                hidden = hidden.transposed(0, 2, 1, 3)
-                return hidden.reshaped([batchSize, -1, numHeads * headDim])
-            }
-
-            // Query-chunked MLX SDPA: only for unsupported head dims / extreme lengths.
-            var chunks: [MLXArray] = []
-            chunks.reserveCapacity((seq + chunkSize - 1) / chunkSize)
-            var start = 0
-            while start < seq {
-                let end = min(start + chunkSize, seq)
-                let qChunk = query[0..., 0..., start ..< end, 0...]
-                var out = MLXFast.scaledDotProductAttention(
-                    queries: qChunk,
-                    keys: key,
-                    values: value,
-                    scale: scale,
-                    mask: nil
-                )
-                // [B, H, chunk, D] → [B, chunk, H*D]
-                out = out.transposed(0, 2, 1, 3).reshaped([batchSize, end - start, numHeads * headDim])
-                eval(out)
-                Memory.clearCache()
-                chunks.append(out)
-                start = end
-            }
-            let cat = concatenated(chunks, axis: 1)
-            eval(cat)
-            return cat
+            var hidden = MLXFast.scaledDotProductAttention(
+                queries: query,
+                keys: key,
+                values: value,
+                scale: scale,
+                mask: nil
+            )
+            hidden = hidden.transposed(0, 2, 1, 3)
+            return hidden.reshaped([batchSize, -1, numHeads * headDim])
         }
     }
 

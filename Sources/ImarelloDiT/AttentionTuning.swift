@@ -6,6 +6,8 @@ import MLX
 /// Not actor-isolated: set once before a generation/bench trial on the MLX thread.
 public struct AttentionTuning: Sendable, Equatable, Codable {
     /// Above this sequence length, use query-chunked SDPA instead of one fused call.
+    /// LEGACY (no effect since 2026-08-18): the query-chunked SDPA fallback was
+    /// deleted — D=128 is always Steel. Kept for bench-report provenance compat.
     public var queryChunkThreshold: Int
     /// Query tokens per SDPA chunk when chunking is active.
     public var queryChunkSize: Int
