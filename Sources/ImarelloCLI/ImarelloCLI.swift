@@ -10,6 +10,7 @@ import ImarelloDiT
 import ImarelloVAE
 import ImarelloEval
 import ImarelloBench
+import ImarelloDirect
 
 @main
 struct ImarelloCLI: AsyncParsableCommand {
@@ -22,6 +23,7 @@ struct ImarelloCLI: AsyncParsableCommand {
             EncodePrompt.self, T2I.self, I2I.self, Session.self,
             AnalyzeImage.self, Bench.self, BenchCompare.self,
             DiTCompileSpike.self,
+            DirectSpike.self,
         ]
     )
 }
@@ -1534,5 +1536,29 @@ struct BenchCompare: AsyncParsableCommand {
             print("error: \(error)")
             throw ExitCode.failure
         }
+    }
+}
+
+struct DirectSpike: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "direct-spike",
+        abstract: "RESEARCH (Stage 2, research/bare-metal): direct-dispatch spikes against the MLX metallib."
+    )
+
+    @Option(name: .long, help: "Text-encoder snapshot directory (default: pinned snapshot).")
+    var teDir: String?
+
+    func run() async throws {
+        try ensureMLXReady()
+        let config = ImarelloConfig.autoDetectingTier()
+        let dir: URL
+        if let teDir {
+            dir = URL(fileURLWithPath: teDir)
+        } else {
+            dir = try ModelPaths.resolveOrThrow(config: config).textEncoderDirectory
+        }
+        let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let metallib = exe.deletingLastPathComponent().appendingPathComponent("mlx.metallib")
+        print(try DirectQmmSpike.run(teDirectory: dir, metallibURL: metallib))
     }
 }

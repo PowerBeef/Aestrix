@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "ImarelloRuntime", targets: ["ImarelloRuntime"]),
         .library(name: "ImarelloEval", targets: ["ImarelloEval"]),
         .library(name: "ImarelloBench", targets: ["ImarelloBench"]),
+        .library(name: "ImarelloDirect", targets: ["ImarelloDirect"]),
         .executable(name: "imarello", targets: ["ImarelloCLI"]),
     ],
     dependencies: [
@@ -40,6 +41,14 @@ let package = Package(
             name: "ImarelloWeights",
             dependencies: [
                 "ImarelloCore",
+                .product(name: "MLX", package: "mlx-swift"),
+            ]
+        ),
+        .target(
+            name: "ImarelloDirect",
+            dependencies: [
+                "ImarelloCore",
+                "ImarelloWeights",
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
@@ -118,6 +127,7 @@ let package = Package(
                 "ImarelloVAE",
                 "ImarelloEval",
                 "ImarelloBench",
+                "ImarelloDirect",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             // Placeholder default Metal library for MLX when using `swift build`
