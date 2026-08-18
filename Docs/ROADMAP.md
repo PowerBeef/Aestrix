@@ -1,10 +1,34 @@
 # Imarello roadmap
 
-**Last updated:** 2026-08-18 (two passes: the **audit + hardening pass** `9ad69cd`, then the **engine-uplift session** — mlx core **0.32.1 via fork** (encode_te −19–21%, 512² e2e **21.88 s**, watermarks flat, 15/15 V-eval), TE-splice shipped for conditioning (speed claim refuted — TE is dispatch-bound), `t2i --two-stage` = working opt-in rescue for the P7 1024² anatomy item (softens texture; SR stage before any default gate), ChipCapabilities probe + iOS floor 26.2 for the A19 NAX path. See the decision log's 2026-08-18 rows + PERF.md 2026-08-18.)  
+**Last updated:** 2026-08-18, three passes: the **audit + hardening pass** (`9ad69cd`), the **engine-uplift session** (`8b9f51a`…`2f4fbb8`: mlx core 0.32.1 via fork, TE-splice as `--pad-content clean`, `t2i --two-stage`, ChipCapabilities, iOS floor 26.2), and the **uplift continuation** (`1b5c397`: S4 measured and closed, fork thread-local-stream fix, Lanczos refuted, upstream filings). **This state is tagged `checkpoint-2026-08-18-engine-uplift`** — see the Checkpoint section below.  
 **Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
 **Engine-uplift track is ACTIVE** (user un-paused speed work 2026-08-18; plan in the session log + PERF.md 2026-08-18): next levers are **N2/N3 A19 Pro NAX** (device must run iOS ≥ 26.2; S4 full-f16 epilogue was measured 2026-08-18 and closed — no speed, opt-in flags kept) and the two-stage **SR/Lanczos texture re-gate**. Still parked without a further ask: TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`.  
 **Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
+
+---
+
+## Checkpoint — 2026-08-18 (`checkpoint-2026-08-18-engine-uplift`)
+
+Stable, fully validated restore point (86/86 filtered tests · 15/15 V-eval on the bump · benches + vision on every verdict). Work after this tag is **experimental research** — anything between this tag and the next validated pass should be treated as unproven until it re-passes the gates. To return here: `git checkout checkpoint-2026-08-18-engine-uplift` (deps restore exactly — mlx-swift/mlx-c are revision-pinned to `PowerBeef` fork branches `imarello/core-0.32.1` @ `b0605dc` / `imarello/core-0.32.1-compat` @ `3df95f5`), then `swift build -c release && ./Scripts/ensure-metallib.sh`.
+
+**State at checkpoint**
+
+| Area | State |
+|------|-------|
+| Product perf (8 GB M2, defaults) | 512² **21.9 s** · 1024² **67.5 s** · identity-i2i **36.2 s** · encode_te **1.58 s** · watermarks **2.57 / 3.00 GiB** (PERF.md 2026-08-18 tables) |
+| Engine | core 0.32.1 (nojit — full metallib mandatory); product path = pad-512 + scaled-f16 qmm + joint-f16 attention + Small Decoder; prompt-embed cache v3 |
+| Measured-and-closed levers | TE-splice speed (dispatch-bound) · S4 f16 epilogue (+e2e, −150 MiB @512² only) · dynamic amax scale (works, buys nothing) · Lanczos two-stage upscale (band-limited like bicubic) · streaming 512² (bad trade) · >4 steps (overcooked) |
+| Working opt-ins | `--two-stage [--refine-upscale lanczos]` (1024² anatomy rescue, softer texture) · `--pad-content clean` · `--text-tokens auto` · `--attn-f16-full-epilogue` / `--attn-dynamic-scale` |
+| iOS (P7) | 512² T2I + I2I pass on device; floor 26.2; only 1024² vision-clean anatomy open |
+| Upstream | filed mlx#4350 (JIT qmv arity) + mlx-swift#457 (thread-local streams); patches offered on mlx-swift#446 / PR#450 |
+
+**What remains (in order of readiness)**
+
+1. **N2/N3 — A19 Pro NAX device A/B**: build already carries NAX kernels + the 26.2 floor; **blocked on the iPhone 17 Pro running iOS ≥ 26.2** (user). Success = measurable e2e drop at 512²/1024² with pixel + vision PASS; M2 must stay V-bench-neutral.
+2. **Two-stage texture re-gate**: requires a real **SR stage** (new model dependency — **user product decision**). Interpolators are exhausted (bicubic ≈ Lanczos, both refuted).
+3. **Upstream re-sync**: when ml-explore ships an mlx-swift 0.32.x release (watch #446/#450/#457/mlx#4350), drop the fork → full bump-day validation.
+4. Parked without a further ask: TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`, fused qmm+SwiGLU.
 
 ---
 
