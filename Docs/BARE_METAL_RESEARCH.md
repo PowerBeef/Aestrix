@@ -48,9 +48,13 @@ M2 10-core peak ≈ 3.6 TFLOPS (fp16 = fp32 rate on Apple GPUs). Two conclusions
 
 The TE encode contradicts the DiT result: cutting the encoded sequence from 512 to ~30 tokens (17× less compute) changed nothing.
 
-**Stage 0 traced it (2026-08-18, `outputs/engine-uplift-2026-08-18/stage0/`).** A Metal System Trace of `bench --mode te-only` shows the GPU only **34% busy** across the compute span, in 228 small command buffers (median 10 ms), with repeated **141–251 ms GPU-idle gaps** mid-encode. A symbolicated CPU sample during the encodes names the culprit: the main thread parks in `mlx::core::eval → array::wait → Event::wait` while the heavy CPU work is `mlx::core::io::ParallelFileReader::read` on worker threads. **Working hypothesis: lazy safetensors weight I/O.** MLX materializes weights on first touch; under staged residency the TE is unloaded after every generate, so every encode re-streams weight bytes from disk inside the encode timer — which explains both the GPU starvation and the sequence-length invariance (weight paging, not tokens, dominates). Pending confirmation: a two-encodes-in-one-residency A/B (warm second encode should collapse toward the ~0.1 s compute floor).
+**Stage 0 measured it (2026-08-18, `outputs/engine-uplift-2026-08-18/stage0/`) — three results, one correction.**
 
-**If confirmed, this reframes the fix**: recorded GPU commands would not help — the levers are load-path ones (overlap weight streaming with compute, eager pre-materialization during the load stage, the §4.6d embed_tokens range-read, resident-TE on ≥16 GB hosts). It also means the *bench* number 1.58 s is really "encode + hidden reload", and the honest bespoke-engine target for TE is the compute floor plus unavoidable I/O.
+1. **Lazy weight I/O is exonerated.** A residency A/B (`encodePromptPairResident`: two different-prompt encodes under one TE residency) measures staged load+unload at ~150–200 ms and first-touch weight materialization at **~20 ms**. The steady-state, fully-warm encode is **~1.59 s** — the cost is real execution, not hidden loading. (An earlier read blaming `ParallelFileReader` I/O was a truncated-trace artifact: those reads were between-trial staged reloads. `encodePrompt` stages internally — load, encode, unload, every call — which the first probe missed.)
+2. **Per-stage GPU busy (full-coverage Metal trace of one dit-one-step run @512²):** TE encode **74%** busy (77 kernels; two ~90–117 ms gaps at encode start), DiT step **84.5%** busy under tracing (322 kernels; many 40–59 ms eval-boundary gaps; tracing itself inflates the step 4.22→4.59 s, so the clean-run figure is ≈90%), VAE decode **77%** busy.
+3. **The sequence-length invariance now has a coherent mechanism.** At M=512 the encode is ~1.2 s of genuine GPU compute (~2.0 TFLOPS — DiT-class utilization) plus ~0.4 s of gaps. Cut the tokens to ~30 and the compute floor drops to ~0.1 s — but the measured total barely moved, so the per-op/per-submission fixed costs that big kernels hide **expand to fill the stage at small M**. This is why the S2 TE-splice bought nothing: the splice removed the FLOPs but not the ~300-op submission overhead.
+
+**What this means for the ladder:** the DiT loop is confirmed compute-bound (Stage 0 gate passes as predicted — Stage 2 is scoped to memory + fusions, with replay worth ~8–10% of a step). The TE is the opposite: a recorded-command path would let the splice's real win through (~1.6 s → ~0.3 s class), making the TE stage the first bespoke prototype target after all — for the overhead, not the I/O.
 
 ## 4. What a bespoke engine buys — honest estimates
 
@@ -74,9 +78,9 @@ The TE encode contradicts the DiT result: cutting the encoded sequence from 512 
 
 Everything on `research/bare-metal`; `main` stays at the checkpoint. Every stage passes the standard pixel+vision gates; host-safety rules apply (kernel source compiles are Metal compiles — serial with benches).
 
-**Stage 0 — Measure the MLX tax (days). IN PROGRESS.**
-Metal System Trace of the TE encode: **done** — GPU 34% busy, 141–251 ms idle gaps, CPU sample points at lazy weight I/O (§3). Remaining: the residency A/B that confirms the I/O hypothesis, and the DiT-step trace (512² + 1024²) for GPU-busy %.
-*Gate:* if DiT-loop GPU busy ≥ ~90% (predicted by §2), the bespoke case formally reduces to memory + fusions + load-path work — Stage 2 gets scoped accordingly.
+**Stage 0 — Measure the MLX tax. DONE (2026-08-18).**
+Residency A/B + full-coverage Metal trace (§3): DiT step ≈90% busy clean (compute-bound confirmed — replay worth ~8–10%/step), TE 74% busy with per-op overhead that explodes at small M, decode 77%. Lazy weight I/O exonerated (~20 ms first-touch).
+*Gate result:* Stage 2 scopes to **memory plan + fusions + small-M overhead**; the TE becomes the first recorded-command prototype target (it unlocks the splice's ~1.3 s).
 
 **Stage 1 — Custom kernels inside MLX (weeks).**
 `MLXFast.metalKernel` (verified available in the fork) lets us author fused Metal kernels while MLX still owns tensors, scheduling, and memory:

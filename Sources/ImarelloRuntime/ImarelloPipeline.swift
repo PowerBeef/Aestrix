@@ -159,6 +159,32 @@ public actor ImarelloPipeline {
         }
     }
 
+    /// Stage-0 probe (bare-metal study §3): two different-prompt encodes under
+    /// ONE TE residency, timed separately. Separates first-touch weight
+    /// materialization from steady-state encode cost — `encodePrompt` stages
+    /// (load/unload) internally, so back-to-back calls to it never go warm.
+    public func encodePromptPairResident(
+        _ first: String, _ second: String
+    ) async throws -> (firstMS: Double, secondMS: Double) {
+        try await orchestrator.loadTextEncoderExclusive()
+        do {
+            let t0 = ContinuousClock.now
+            _ = try orchestrator.textEncoder.encode(first)
+            let t1 = ContinuousClock.now
+            _ = try orchestrator.textEncoder.encode(second)
+            let t2 = ContinuousClock.now
+            try await orchestrator.unloadTextEncoderIfStaged()
+            func ms(_ d: Duration) -> Double {
+                Double(d.components.seconds) * 1000
+                    + Double(d.components.attoseconds) / 1e15
+            }
+            return (ms(t1 - t0), ms(t2 - t1))
+        } catch {
+            try? await orchestrator.unloadTextEncoderIfStaged()
+            throw error
+        }
+    }
+
     public func purge() async {
         await orchestrator.purge()
     }

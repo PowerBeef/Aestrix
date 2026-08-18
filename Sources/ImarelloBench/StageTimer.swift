@@ -25,6 +25,13 @@ public final class StageTimer: @unchecked Sendable {
         return ms
     }
 
+    /// Record an externally measured duration under `name`.
+    public func record(_ name: String, milliseconds: Double) {
+        lock.lock()
+        completed[name] = milliseconds
+        lock.unlock()
+    }
+
     public func ms(_ name: String) -> Double? {
         lock.lock()
         defer { lock.unlock() }

@@ -357,6 +357,15 @@ public actor BenchRunner {
         _ = try await pipeline.encodePrompt(config.prompt)
         collector.timer.end("encode_te")
         collector.sample("after_encode_te")
+
+        // Stage-0 probe (bare-metal study §3): two encodes under ONE residency
+        // (encodePrompt stages internally, so back-to-back calls never go warm).
+        let pair = try await pipeline.encodePromptPairResident(
+            config.prompt + " — at dawn",
+            config.prompt + " — at night, in the rain")
+        collector.timer.record("encode_te_resident_cold", milliseconds: pair.firstMS)
+        collector.timer.record("encode_te_resident_warm", milliseconds: pair.secondMS)
+        collector.sample("after_encode_te_pair")
         await pipeline.purge()
     }
 
