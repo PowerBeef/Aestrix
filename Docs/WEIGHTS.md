@@ -3,9 +3,9 @@
 ## Product policy
 
 - Users download **pre-quantized MLX packages only**.
-- **4-bit is locked.** That is the only shipping SKU.
-- 6/8-bit pins exist in `hub-pins.json` but are **not** the product path.
-- **No 3-bit product path.** Do not document or resume 3-bit as a Tier L option.
+- **4-bit is locked.** That is the only shipping SKU — enforced since 2026-08-18: `t2i` / `i2i` / `session` reject `--weights` other than `4bit`.
+- 6/8-bit pins exist in `hub-pins.json` but are **not** the product path (reference-only; they cannot load end-to-end).
+- **No 3-bit product path.** The 3-bit pin was removed from `WeightPreset` and `hub-pins.json` (2026-08-18). Do not document or resume 3-bit as a Tier L option.
 - **No bf16** in runtime defaults or App Store flows.
 - Cache: `~/Library/Caches/Imarello/models/` (macOS); app container on iOS. Existing `~/Library/Caches/Aestrix/models/` snapshots are still resolved.
 - **Pinned revision:** each product preset ships against a Hugging Face **commit SHA** (`WeightPreset.pin`, [`hub-pins.json`](hub-pins.json)). `imarello info` prints `model_revision` and compares it to local `hf download` metadata when present.

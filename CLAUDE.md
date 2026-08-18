@@ -19,7 +19,7 @@ An extra Hub file or a longer first-run `hf download` is **not** a reason to hid
 | Rule | Detail |
 |------|--------|
 | Model | **Klein 4B only** — do not ship Klein 9B (Non-Commercial) or FLUX.2 Dev (32B) |
-| Weights | **4-bit only** (pre-quantized). No 3-bit product path. No user-facing bf16 download or runtime quantize-from-bf16 |
+| Weights | **4-bit only** (pre-quantized), enforced: `--weights` rejects non-4bit and the 3-bit pin was deleted (2026-08-18). No user-facing bf16 download or runtime quantize-from-bf16 |
 | Memory | **Staged pipeline is the default**: never co-reside text encoder + DiT + VAE |
 | Speed / quality | Defaults are the fastest path that passes quality + RAM (see Product goal) |
 | Platforms | macOS library + CLI first; iOS 26 uses the same staged core |
@@ -55,7 +55,7 @@ swift build -c release && ./Scripts/ensure-metallib.sh   # always release for ge
 .build/release/imarello info                             # tier, pin, snapshot, Steel metallib check
 ```
 
-- `swift build` alone leaves a **stub** `default.metallib` (~3 KB); forward kernels need the **full** ~130 MB library. Run `Scripts/ensure-metallib.sh` after every build/resolve/clean checkout (it is gitignored).
+- `swift build` alone leaves a **stub** `default.metallib` (~3 KB); forward kernels need the **full** ~130 MB library. Run `Scripts/ensure-metallib.sh` after every build/resolve/clean checkout (it is gitignored). The script refuses partial kernel sets, stamps the mlx-swift revision in `Tools/Metal/mlx.metallib.rev`, and auto-rebuilds when the pin moves.
 - `ensure-metallib.sh` is `-sdk macosx` only — **never run it for the iOS app** (Xcode embeds its own `mlx-swift_Cmlx.bundle/default.metallib`).
 - Smoke without a full generate: `imarello load-te` / `load-dit` / `load-vae` / `mem-selftest`.
 - Weights: pre-quantized MLX packs only, pinned in `Docs/hub-pins.json` + `WeightPreset.pin` (kept in lockstep by `HubPinTests`). Download recipes: `Docs/WEIGHTS.md`.
@@ -84,7 +84,8 @@ Definition of done for any generation claim: PNG written · pixel eval run · vi
 6. **Canonical weights**: `mlx-community/FLUX.2-Klein-4B-4bit` @ `1cebb9b45c21ece14a42615b16bf5fa4de9b56da` (module-split TE/DiT/VAE).
 7. **Text RoPE ids** (FLUX.2): `[t,h,w,l] = [0,0,0,token_i]`. Latents are packed `[B, H/16·W/16, 128]`; decode = BN denorm + unpatchify.
 8. **I2I strength**: full N-step schedule, color curve default, color/object edits **≥ 0.8**. Identity (Tier B): `--identity` = ref latents (`t=10`) + face mask + clean-pull + `identity` curve; people **0.85–0.9**. `Docs/I2I_STRENGTH.md`.
-9. **Prompt-embed disk cache is default on** (`~/Library/Caches/Imarello/embeds`); a hit skips the TE stage byte-identically; `--no-embed-cache` opts out.
+9. **Prompt-embed disk cache is default on** (`~/Library/Caches/Imarello/embeds`); a hit skips the TE stage byte-identically; `--no-embed-cache` opts out. Writes are atomic (temp+rename), loads validate shape/dtype/size and delete corrupt entries, and the key includes the Qwen tap layers (2026-08-18).
+10. **Cancellation is cooperative**: `generate`/`edit` check `Task.checkCancellation()` at every stage boundary and denoise step, unwinding the resident stage before rethrowing. The iOS Stop button relies on this ("Stopping" state until the run unwinds).
 10. **Perf reference** (8 GB M2, 2026-08-16 post-Tier-2, product path = pad-512 + f16 qmm + joint-f16 attention + Small Decoder): 512² e2e **23.0 s** / 1024² **71.0 s**; peak active ~2.05 GiB; watermark 2.57 / **3.00 GiB**; 768² decode untiled (**never** untile 1024² — measured Metal abort on 8 GB). Opt-in `--text-tokens auto`: ~19 s @512² (1024² is faster on the default). `Docs/PERF.md`.
 
 Correctness footguns and layer diagram: `Docs/ARCHITECTURE.md`.
@@ -93,7 +94,7 @@ Correctness footguns and layer diagram: `Docs/ARCHITECTURE.md`.
 
 Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 
-- **Done**: P0–P6c (macOS library + CLI: T2I, I2I, identity I2I, eval workflow), P8 (polish, CI floors), P9 (perf harness; Small Decoder + f16 scaled qmm are product defaults; `--text-tokens auto` was reverted to opt-in 2026-08-16 after a vision regression), and the **2026-08-16 engine pass** (`Docs/ENGINE_RESEARCH.md` Tiers 0–2: quality fixes, reference-faithful tokenizer, byte-identical optimizations, joint-f16 attention, untiled 768² decode — 512² 23.0 s / 1024² 71.0 s / watermark 3.00 GiB).
+- **Done**: P0–P6c (macOS library + CLI: T2I, I2I, identity I2I, eval workflow), P8 (polish, CI floors), P9 (perf harness; Small Decoder + f16 scaled qmm are product defaults; `--text-tokens auto` was reverted to opt-in 2026-08-16 after a vision regression), the **2026-08-16 engine pass** (`Docs/ENGINE_RESEARCH.md` Tiers 0–2: quality fixes, reference-faithful tokenizer, byte-identical optimizations, joint-f16 attention, untiled 768² decode — 512² 23.0 s / 1024² 71.0 s / watermark 3.00 GiB), and the **2026-08-18 audit + hardening pass** (`9ad69cd`: all 22 Critical/High/Medium findings fixed — durable print history, harness quarantine/sweep/param-threading, pipeline cancellation, atomic embed cache, CLI validation, 3-bit retirement, metallib gating, CI widened to 18 suites; remaining Low items listed in the audit artifact).
 - **P9 leftover slices are paused** (TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`, fused qmm+SwiGLU). **Do not resume speed work unless asked.**
 - **Current phase: P7 iOS** (partial): the studio was **rebuilt from the ground up 2026-08-16** (two-page spread; services split out of `GenerationModel`; persistent print history; edit from any print). 512² T2I **and** I2I both pass pixel + vision on a physical iPhone on that build — the in-app I2I acceptance item is closed. Only open item: **1024² vision-clean anatomy**.
 - **Blocking process rule**: always address issues that surface (metallib, load failures, parity fails, failed eval gates, unexplained OOM) **before** starting the next phase.
@@ -120,7 +121,7 @@ Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 | `imarello dit-compile-spike` | Research only; NO-GO; refused on 8 GB without `--force` |
 | `Scripts/ensure-metallib.sh` | Full MLX metallib (SPM CLI only — never the iOS app) |
 | `Scripts/eval-generation.sh` / `eval-regression.sh` | Eval a PNG · 512² regression + pixel gate |
-| `Scripts/ci-eval-floors.sh` | CI gate: Hub pins + golden floors (no weights) |
+| `Scripts/ci-eval-floors.sh` | CI gate: Hub pins + golden floors + 18 MLX-free suites (no weights) |
 | `Scripts/generate-ios-project.sh` | XcodeGen → `Apps/ImarelloIOS/ImarelloIOS.xcodeproj` |
 | `Scripts/sync-ios-device-weights.sh` / `ios-device-harness.sh` | Copy snapshots to the iPhone · headless device generate + eval |
 
@@ -129,11 +130,11 @@ Authoritative backlog / pause state: `Docs/ROADMAP.md`.
 Full recipe: `Docs/IOS.md`. Product locks unchanged.
 
 - **Simulator is UI-only** (MLX does not run; Develop is a chrome no-op — never fake Klein there). **Mac Catalyst is forbidden.** Physical iPhone runs T2I + I2I (both pass pixel + vision on device, 2026-08-16).
-- **App shape** (rebuilt 2026-08-16): two full-bleed pages — Stage and Contact Sheet — over four services: `GenerationEngine` (pipeline), `HarnessService` (**frozen** harness contract — do not change paths or the job/result schema), `PrintStore` (persistent history: `prints-index.json` + `outputs/`), `StudioModel` (UI state). Views are `StudioRootView` / `StudioPage` / `ContactSheetPage` / `PrintViewer` / `StatusRow` / `PromptBar` / `PlateSheet`. Design system: `Apps/ImarelloIOS/DESIGN.md`; product record: `PRODUCT.md`. Edit runs from **any** print in history at the locked strength 0.8. One status row carries every state — do not add a second instrument voice.
+- **App shape** (rebuilt 2026-08-16; hardened 2026-08-18): two full-bleed pages — Stage and Contact Sheet — over four services: `GenerationEngine` (pipeline), `HarnessService` (**frozen** harness contract — do not change paths or the job/result schema), `PrintStore` (durable history: versioned `prints-index.json` + canonical PNGs in **Application Support** — the Caches `outputs/` copy exists only for the harness pull; a corrupt index is renamed aside, never wiped), `StudioModel` (UI state). Views are `StudioRootView` / `StudioPage` / `ContactSheetPage` / `PrintViewer` / `StatusRow` / `PromptBar` / `PlateSheet`. Design system: `Apps/ImarelloIOS/DESIGN.md`; product record: `PRODUCT.md`. Edit runs from **any** print in history at the locked strength 0.8. One status row carries every state (mirrored on the Contact Sheet) — do not add a second instrument voice.
 - Device build needs `-skipPackagePluginValidation` (mlx-swift ships a CUDA package plugin), `-allowProvisioningUpdates`, team `FK2D8X36G2`. Install/launch with `xcrun devicectl`. XcodeBuildMCP's device workflow is **not enabled** on this host — Simulator tools only.
 - Entitlements `increased-memory-limit` + `extended-virtual-addressing` are pinned via `project.yml` `SystemCapabilities`; after `project.yml` edits run `./Scripts/generate-ios-project.sh`. The wildcard profile silently strips them; hand-`codesign` extra keys fails install with `0xe8008015`.
 - Weights are never bundled. **Resync after every install** (`Scripts/sync-ios-device-weights.sh` — resolves symlinked host snapshots and detects any paired iPhone itself) — a new `devicectl install` usually creates a new data container. If Generate throws `weightsNotFound` while the stage looks ready, the pipeline predates the copy — recreate it (`GenerationEngine.ensureReady`).
-- Drive device generates from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512² fox seed 42; `--mode i2i` edits the last print; `--width 1024` needs `--allow-1024`; new job id on every retry). **Never ask the user to tap Develop.**
+- Drive device generates from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512² fox seed 42; `--mode i2i` edits the last print; `--width 1024` needs `--allow-1024`). Since 2026-08-18 the harness honors `--steps` / `--text-tokens` / `--strength` on device, timestamps its default job id, and rejects stale `done/` results by `startedAt` — device A/B data over those knobs from before that date ran the defaults and is invalid. Undecodable jobs are quarantined with a `failed` result; orphaned `running/` jobs are swept at app launch. **Never ask the user to tap Develop.**
 - 1024² same-seed is a **new noise tensor** (μ 1.15 vs 0.63); Klein 4-step can assemble a broken body plan while pixel PASSes — **vision anatomy is the gate**.
 
 ## Coding conventions

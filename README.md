@@ -74,7 +74,7 @@ Unedited release outputs, 4-bit, 4 steps, fixed seeds.
 
 ## Quick start
 
-**Needs:** Apple Silicon, macOS 15+, Xcode 16 / Swift 6, ~5.1 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
+**Needs:** Apple Silicon, macOS 15+, Xcode 26 / Swift 6 (CI runs Xcode 26.6), ~5.1 GB disk, [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`).
 
 ```bash
 git clone https://github.com/PowerBeef/Imarello.git && cd Imarello
@@ -120,7 +120,7 @@ Add `--analyze --vision-brief` to any generate for the pixel report + agent chec
 
 **I2I.** Strength-only is for color/style. People + scene changes want `--identity` at **0.85–0.9**. See [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
 
-**Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Imarello/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Opt out with `--no-embed-cache`.
+**Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Imarello/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Entries are written atomically and validated on load; corrupt ones self-delete. Opt out with `--no-embed-cache`.
 
 **Many prompts.** `imarello session` keeps modules warm on **≥16 GB**. 8 GB stays staged.
 
@@ -180,7 +180,7 @@ let url = try await pipeline.generate(
 )
 ```
 
-`edit(_:)` takes `I2IRequest` (`strength`, optional `identity`). Modules:
+`edit(_:)` takes `I2IRequest` (`strength`, optional `identity`). Both calls are **cancellable** — the pipeline checks `Task` cancellation at every stage boundary and denoise step, unloading the resident stage before rethrowing. Inputs are validated up front (`steps`, canvas, `--ref-downsample` grids) instead of trapping mid-pipeline. Modules:
 
 | | |
 |--|--|
@@ -209,9 +209,11 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 | Shipping | In progress / parked |
 |----------|----------------------|
 | macOS library + CLI | iOS 26 studio (`Apps/ImarelloIOS`) — **512² T2I and I2I on device**, rebuilt two-page UI; 1024² anatomy still open |
-| 1024² on 8 GB · 4-bit staged | Multi-ref, CFG, LoRA, bf16 |
-| T2I, strength I2I, `--identity` | `--text-tokens auto` speed path (opt-in) |
-| Steel FA · joint-f16 attention · f16 qmm · Small Decoder · untiled ≤768² decode · embed cache · Hub pin + CI floors | Partial-pad conditioning study ([Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) Tier 3) |
+| 1024² on 8 GB · 4-bit staged (enforced: `--weights` is 4-bit only) | Multi-ref, CFG, LoRA, bf16 |
+| T2I, strength I2I, `--identity` · cancellable runs · validated CLI inputs | `--text-tokens auto` speed path (opt-in) |
+| Steel FA · joint-f16 attention · f16 qmm · Small Decoder · untiled ≤768² decode · crash-safe embed cache · Hub pin + CI (18 no-Metal suites) | Partial-pad conditioning study ([Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) Tier 3) |
+
+**2026-08-18 hardening pass:** a full-repo adversarial audit (52 verified findings) was fixed the same day — durable iOS print history, self-healing device-harness queue, real cancellation, atomic caches, input validation, and a metallib build that refuses partial kernel sets and tracks the mlx-swift pin. Details in the [roadmap decision log](Docs/ROADMAP.md).
 
 Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
 
@@ -232,15 +234,15 @@ Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md)
 
 `Apps/ImarelloIOS` is a phone studio on the same staged `ImarelloRuntime`, rebuilt as **two full-bleed pages** you swipe between:
 
-- **Stage** — your print fills the screen; a plate chip carries `512² · seed 42`, one glass status row speaks for every state (gate, progress + elapsed, staged edit, error + Try Again), and a gold **Develop** pill runs it.
-- **Contact Sheet** — every print you have made, in a film grid. Tap one to open the viewer: zoom, swipe, Share, Save, Delete — and **Edit**, which develops a new print from *that* one at strength 0.8.
+- **Stage** — your print fills the screen; a plate chip carries `512² · seed 42`, one glass status row speaks for every state (gate, progress + elapsed, staged edit, error + Try Again), and a gold **Develop** pill runs it. **Stop actually stops** — the pipeline honors cancellation mid-denoise.
+- **Contact Sheet** — every print you have made, in a film grid (with the same status row). Tap one to open the viewer: zoom, swipe, Share, Save, Delete — and **Edit**, which develops a new print from *that* one at strength 0.8.
 
-Prints persist across launches. Design system: [Apps/ImarelloIOS/DESIGN.md](Apps/ImarelloIOS/DESIGN.md).
+Prints are **durable**: a versioned index and canonical PNGs live in Application Support, so history survives OS cache purges and app reinstall container swaps. Design system: [Apps/ImarelloIOS/DESIGN.md](Apps/ImarelloIOS/DESIGN.md).
 
 - **Simulator** is UI only — MLX has no Simulator Metal. Develop is a no-op.
 - **Physical iPhone** is the generate host. Build with `xcodebuild` (`-skipPackagePluginValidation`) and install with `devicectl`. No Mac Catalyst.
 - Weights stay out of the bundle (`Caches/Imarello/models/`). Resync after every install (`Scripts/sync-ios-device-weights.sh`).
-- Drive a device generate from the Mac with `Scripts/ios-device-harness.sh` (default 512²). Do not tap Develop from an agent. See [Docs/IOS.md](Docs/IOS.md).
+- Drive a device generate from the Mac with `Scripts/ios-device-harness.sh` (default 512²; `--steps`, `--text-tokens`, and `--strength` apply on device, bad jobs are quarantined instead of wedging the queue, and stale results are rejected automatically). Do not tap Develop from an agent. See [Docs/IOS.md](Docs/IOS.md).
 
 ## License
 

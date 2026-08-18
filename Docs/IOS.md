@@ -107,6 +107,8 @@ Agents cannot tap **Generate**. Drive one Klein job by dropping JSON into the ap
 ./Scripts/ios-device-harness.sh --width 1024 --allow-1024 --eval
 ```
 
+Since 2026-08-18 the harness **honors `--steps`, `--text-tokens`, and `--strength` on device** (they were previously serialized into the job but silently ignored — device A/B data over those knobs from before that date ran the product defaults and is invalid). The script validates mode and numeric args up front; an undecodable job is quarantined by the app (moved to `jobs/failed/`, `status: failed` result written under the filename stem) instead of wedging the inbox, and orphaned `running/` jobs from a crash are swept into `failed` results at the next app launch.
+
 Device auto-detection accepts any paired physical iPhone (same fix as the sync script); `DEVICE=` overrides.
 
 The app polls `Library/Caches/Imarello/jobs/inbox/` every 2s while active. Results land in `jobs/done/{id}.json`; PNGs stay under `Caches/Imarello/outputs/`. Copied artifacts: `/tmp/imarello-ios-eval/{id}/`.
@@ -130,7 +132,7 @@ Swipe between pages, or use the header buttons. Layers:
 |------|------|
 | `GenerationEngine.swift` | Gate, `ensureReady` (rebuilds the pipeline when `hasLocalSnapshot` flips), T2I / I2I calls |
 | `HarnessService.swift` | Inbox poll → claim → run → result. **Behavior-frozen** — the harness contract lives here |
-| `PrintStore.swift` | Persistent history: `prints-index.json` + `outputs/`, thumbnails, adoption of unindexed PNGs |
+| `PrintStore.swift` | Durable history (2026-08-18): versioned `prints-index.json` + canonical PNGs in **Application Support** (survives OS cache purges; corrupt index renamed aside, never wiped); the Caches `outputs/` copy exists only for the harness pull; size-bucketed `NSCache` thumbnails with a memory-warning purge |
 | `StudioModel.swift` | Plate (prompt/side/seed), staged edit, run lifecycle, darkroom phase copy |
 | `StudioRootView` / `StudioPage` / `ContactSheetPage` / `PrintViewer` / `StatusRow` / `PromptBar` / `PlateSheet` | The spread |
 
