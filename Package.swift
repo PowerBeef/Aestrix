@@ -4,8 +4,12 @@ import PackageDescription
 let package = Package(
     name: "Imarello",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18),
+        // 26.2 floor (2026-08-18): Metal 4 as a single API target and the
+        // MLX NAX path everywhere. Every Apple Silicon Mac runs macOS 26,
+        // so no supported chip is dropped; NAX stays runtime-gated to
+        // A19/M5-class hardware.
+        .macOS("26.2"),
+        .iOS("26.2"),
     ],
     products: [
         .library(name: "ImarelloCore", targets: ["ImarelloCore"]),
@@ -24,7 +28,7 @@ let package = Package(
         // (CLAUDE.md), then rebuild the metallib (the script detects the bump).
         // Imarello fork of mlx-swift: core v0.32.1 base build (see the fork's
         // imarello/core-0.32.1 branch; upstream is stuck pre-0.32 — issue #446).
-        .package(url: "https://github.com/PowerBeef/mlx-swift.git", revision: "b0605dc1bcbc2450cba2c5d1f943d805fa03c65c"),
+        .package(url: "https://github.com/PowerBeef/mlx-swift.git", revision: "079609aa3da8550ff5b98b9fefeb14288043541c"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [

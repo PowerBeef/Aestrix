@@ -22,7 +22,7 @@ An extra Hub file or a longer first-run `hf download` is **not** a reason to hid
 | Weights | **4-bit only** (pre-quantized), enforced: `--weights` rejects non-4bit and the 3-bit pin was deleted (2026-08-18). No user-facing bf16 download or runtime quantize-from-bf16 |
 | Memory | **Staged pipeline is the default**: never co-reside text encoder + DiT + VAE |
 | Speed / quality | Defaults are the fastest path that passes quality + RAM (see Product goal) |
-| Platforms | macOS library + CLI first; iOS 26 uses the same staged core |
+| Platforms | macOS library + CLI first; **floors are macOS 26.2 / iOS 26.2** (raised 2026-08-18 — Metal 4 single target + NAX host paths everywhere; every Apple Silicon Mac runs macOS 26, so no chip is dropped; NAX stays runtime-gated to A19/M5) |
 | v1 features | Text-to-image + single-image I2I (strength + optional **identity** stack) |
 | Guidance | Distilled defaults: **4 steps**, **guidance = 1.0**, **no negative prompts**, no prompt-upsampling by default |
 | Default canvas | **1024²** (4-bit staged). Lower sizes via `--width` / `--height` |

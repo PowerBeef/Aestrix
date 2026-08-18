@@ -46,13 +46,17 @@ M2 10-core peak ≈ 3.6 TFLOPS (fp16 = fp32 rate on Apple GPUs). Two conclusions
 
 ## 3. The TE anomaly — where the bespoke case is strongest
 
-The TE encode contradicts the DiT result: cutting the encoded sequence from 512 to ~30 tokens (17× less compute) changed nothing. Candidate explanations — per-layer kernel-launch floors at small M, weight-streaming bound qmv dispatches, MLX graph-build fixed cost — are unconfirmed; **napkin math rules none of them in cleanly** (weight traffic alone predicts ~15 ms, not 1.5 s). This is the single most suspicious MLX behavior we have measured, it costs ~1.5 s of every cache-miss generate, and the same signature likely floors the per-step modulation/AdaLN small-M work. **Stage 0's first target.**
+The TE encode contradicts the DiT result: cutting the encoded sequence from 512 to ~30 tokens (17× less compute) changed nothing.
+
+**Stage 0 traced it (2026-08-18, `outputs/engine-uplift-2026-08-18/stage0/`).** A Metal System Trace of `bench --mode te-only` shows the GPU only **34% busy** across the compute span, in 228 small command buffers (median 10 ms), with repeated **141–251 ms GPU-idle gaps** mid-encode. A symbolicated CPU sample during the encodes names the culprit: the main thread parks in `mlx::core::eval → array::wait → Event::wait` while the heavy CPU work is `mlx::core::io::ParallelFileReader::read` on worker threads. **Working hypothesis: lazy safetensors weight I/O.** MLX materializes weights on first touch; under staged residency the TE is unloaded after every generate, so every encode re-streams weight bytes from disk inside the encode timer — which explains both the GPU starvation and the sequence-length invariance (weight paging, not tokens, dominates). Pending confirmation: a two-encodes-in-one-residency A/B (warm second encode should collapse toward the ~0.1 s compute floor).
+
+**If confirmed, this reframes the fix**: recorded GPU commands would not help — the levers are load-path ones (overlap weight streaming with compute, eager pre-materialization during the load stage, the §4.6d embed_tokens range-read, resident-TE on ≥16 GB hosts). It also means the *bench* number 1.58 s is really "encode + hidden reload", and the honest bespoke-engine target for TE is the compute floor plus unavoidable I/O.
 
 ## 4. What a bespoke engine buys — honest estimates
 
 | Lever | Mechanism | Estimated win (M2) |
 |---|---|---|
-| **Whole-step command replay** | All 4 steps share every shape. Record the step once (Metal 3 indirect command buffers — available at our macOS 15 floor), replay 4×; per-step CPU/graph/dispatch cost → ~0 | DiT: 0–10% (compute-bound). TE/small-M stages: potentially large — this is what kills the §3 anomaly |
+| **Whole-step command replay** | All 4 steps share every shape. Record the step once (indirect command buffers, or Metal 4 command structures now that the floor is 26.2), replay 4×; per-step CPU/graph/dispatch cost → ~0 | DiT: 0–10% (compute-bound). TE/small-M stages: potentially large — this is what kills the §3 anomaly |
 | **Static memory plan** | Shapes known at plan time → hand-placed buffers, double-buffered chunk streaming, zero allocator | Watermark 3.00 → ~2.3–2.5 GiB @1024²; deterministic 8 GB / iOS-jetsam behavior. The strongest *guaranteed* win |
 | **Cross-op fusions** | qmm+÷16+SwiGLU single kernel; RMSNorm+RoPE+qkv-split; AdaLN scale/shift folded into GEMM epilogues | 10–20% of a step, optimistically |
 | **Silicon-specific paths** | Metal 4 MPP tensor ops (NAX) on A19/M5; int8 quantized attention (SageAttention-class; Draw Things' BSD-3 MFA shaders as reference) | NAX: MLX's fork **already ships this for free** — bespoke adds little there. int8 attention: 2–5% e2e on M2, real on NAX hardware |
@@ -70,9 +74,9 @@ The TE encode contradicts the DiT result: cutting the encoded sequence from 512 
 
 Everything on `research/bare-metal`; `main` stays at the checkpoint. Every stage passes the standard pixel+vision gates; host-safety rules apply (kernel source compiles are Metal compiles — serial with benches).
 
-**Stage 0 — Measure the MLX tax (days).**
-Metal System Trace (`xctrace record --template 'Metal System Trace'`) of: one 512² and one 1024² single-step DiT run, and one TE encode. Read: GPU busy vs gap %, encoder CPU time, per-launch overhead, and *what the TE stage actually does for 1.58 s*.
-*Gate:* if DiT-loop GPU busy ≥ ~90% (predicted by §2), the bespoke case formally reduces to memory + fusions + small-M stages — Stage 2 gets scoped accordingly. The TE trace decides whether a recorded-command TE is the first prototype.
+**Stage 0 — Measure the MLX tax (days). IN PROGRESS.**
+Metal System Trace of the TE encode: **done** — GPU 34% busy, 141–251 ms idle gaps, CPU sample points at lazy weight I/O (§3). Remaining: the residency A/B that confirms the I/O hypothesis, and the DiT-step trace (512² + 1024²) for GPU-busy %.
+*Gate:* if DiT-loop GPU busy ≥ ~90% (predicted by §2), the bespoke case formally reduces to memory + fusions + load-path work — Stage 2 gets scoped accordingly.
 
 **Stage 1 — Custom kernels inside MLX (weeks).**
 `MLXFast.metalKernel` (verified available in the fork) lets us author fused Metal kernels while MLX still owns tensors, scheduling, and memory:
@@ -89,7 +93,7 @@ A standalone Metal module owning *only* the 4-step DiT loop: our own 4-bit weigh
 **Stage 3 — Full runtime (only if Stage 2 passes).**
 Bespoke TE next (the §3 anomaly means the *relative* win is largest there), VAE last (conv/bandwidth-bound; least to gain). Tokenizer stays CPU/Swift. MLX exits the dependency graph only at the end of this stage — and only if every gate held.
 
-**Platform strategy throughout:** engine core targets Metal 3 features (ICBs, simdgroup matrices, function constants — macOS 15 floor holds, every supported chip keeps working); a Metal 4 / MPP-tensor-ops (NAX) path is a gated variant for 26.2+ on A19/M5, mirroring the existing NAX gating.
+**Platform strategy throughout (updated 2026-08-18, user decision):** floors raised to **macOS 26.2 / iOS 26.2** — every Apple Silicon Mac runs macOS 26, so no supported chip is dropped. The bespoke engine targets **Metal 4 as a single API surface** (MTLTensor, MPP `matmul2d` tensor ops, new command encoding) with no Metal 3 dual path; NAX execution remains runtime-gated to A19/M5-class GPUs, and MLX's own NAX host dispatch now compiles in everywhere (fork `079609a`, `MLX_METAL_NO_NAX` dropped).
 
 ## 7. References
 

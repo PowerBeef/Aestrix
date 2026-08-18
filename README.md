@@ -9,7 +9,7 @@ A native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for Blac
 No cloud, no accounts, no data leaving your machine.
 
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
-[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#1-what-you-need)
+[![macOS 26.2+](https://img.shields.io/badge/macOS-26.2%2B-000000?logo=apple&logoColor=white)](#1-what-you-need)
 [![MLX](https://img.shields.io/badge/MLX-0.32.1%20(fork)-blue)](https://github.com/PowerBeef/mlx-swift)
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 [![Eval floors](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml)
@@ -73,7 +73,7 @@ Unedited outputs, fixed seeds.
 
 ### 1. What you need
 
-- A Mac with Apple Silicon (M1 or newer) running **macOS 15+** — 8 GB of memory is enough
+- A Mac with Apple Silicon (M1 or newer) running **macOS 26.2+** — 8 GB of memory is enough
 - **Xcode 26** (Swift 6)
 - ~5.1 GB of free disk space
 - The [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`) for the model download
