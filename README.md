@@ -8,7 +8,7 @@ From-scratch on Apple Silicon — not a wrapper around another port. Formerly **
 
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)](#quick-start)
-[![MLX](https://img.shields.io/badge/MLX-0.31.6-blue)](https://github.com/ml-explore/mlx-swift)
+[![MLX](https://img.shields.io/badge/MLX-0.32.1%20(fork)-blue)](https://github.com/PowerBeef/mlx-swift)
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 [![Eval floors](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml)
 
@@ -80,7 +80,7 @@ Unedited release outputs, 4-bit, 4 steps, fixed seeds.
 git clone https://github.com/PowerBeef/Imarello.git && cd Imarello
 # Old clone URLs (`PowerBeef/Aestrix`) redirect here.
 swift build -c release
-./Scripts/ensure-metallib.sh          # full MLX Metal lib (~130 MB), not the 3 KB stub
+./Scripts/ensure-metallib.sh          # full MLX Metal lib (~155 MB) — REQUIRED: kernels load by name (nojit)
 
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
@@ -98,7 +98,7 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --seed 42 --output out.png
 ```
 
-Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~23 s on an 8 GB M2).
+Default canvas is **1024²**. For a faster smoke: `--width 512 --height 512` (~22 s on an 8 GB M2).
 
 ```bash
 # Recolor / style — strength ≥ 0.8 for object color
@@ -120,6 +120,8 @@ Add `--analyze --vision-brief` to any generate for the pixel report + agent chec
 
 **I2I.** Strength-only is for color/style. People + scene changes want `--identity` at **0.85–0.9**. See [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
 
+**1024² full-body subjects.** Klein's 4-step path can occasionally break body plans at 1024² (multi-limb). `t2i --two-stage` composes at 512² (where anatomy is reliable) and refines at 1024² — an opt-in rescue that trades a little texture sharpness for correct anatomy.
+
 **Repeats.** Prompt-embed cache is **on** (`~/Library/Caches/Imarello/embeds`). A hit skips the text encoder (~4 s at 512²), byte-identical. Entries are written atomically and validated on load; corrupt ones self-delete. Opt out with `--no-embed-cache`.
 
 **Many prompts.** `imarello session` keeps modules warm on **≥16 GB**. 8 GB stays staged.
@@ -134,10 +136,10 @@ Apple M2 **8 GB** Mac mini · release + full metallib · 4-bit staged · W1/T3 �
 
 | Canvas | Time | Denoise / step | Decode | MLX active | Watermark |
 |--------|-----:|---------------:|-------:|-----------:|----------:|
-| **512²** | **23.0 s** | 4.37 s | 0.98 s | 2.06 GiB | 2.57 GiB |
-| **1024²** | **71.0 s** | 15.29 s | 4.84 s | 2.05 GiB | 3.00 GiB |
+| **512²** | **21.9 s** | 4.22 s | 0.94 s | 2.06 GiB | 2.57 GiB |
+| **1024²** | **67.5 s** | 14.69 s | 4.58 s | 2.05 GiB | 3.00 GiB |
 
-The 2026-08-16 Tier-1/2 engine work (fused qmm rescale, hoisted step conditioning, chunk-streamed single blocks, joint-f16 attention, untiled 768² decode, relaxed cache policy) took 1024² from 79.0 → **71.0 s (−10%)** and its watermark from 3.63 → **3.00 GiB (−17%)**, with byte-identical output everywhere except two gated quality-gaining promotions — the pad-512 default is now clearly faster at 1024² than the reverted `auto` path was. 768² decode dropped 51% (untiled, no seams). `--text-tokens auto` (opt-in) still trims for speed at 512² but weakens prompt conditioning; same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
+The 2026-08-16 Tier-1/2 engine work (fused qmm rescale, hoisted step conditioning, chunk-streamed single blocks, joint-f16 attention, untiled 768² decode, relaxed cache policy) took 1024² from 79.0 → 71.0 s (−10%) and its watermark from 3.63 → **3.00 GiB (−17%)**. The **2026-08-18 mlx core 0.32.1 bump** (via a [maintained fork](https://github.com/PowerBeef/mlx-swift) — upstream mlx-swift is pre-0.32; kernels are served from the prebuilt metallib) added split-K/`gemv_wide` small-M kernels: text-encode **−19–21%** in every mode, 512² now **21.9 s** and identity-I2I **36.2 s**, memory identical, full quality gate (15/15 pixel + vision) passed. 768² decode is untiled (no seams). `--text-tokens auto` (opt-in) still trims for speed at 512² but weakens prompt conditioning; same seed under `auto` is not the same PNG. See [Docs/TEXT_TOKENS.md](Docs/TEXT_TOKENS.md).
 
 BFL **Small Decoder** is the default decode (−37% vs the klein AE). `--vae-variant full` restores klein. Pin: [Docs/WEIGHTS.md](Docs/WEIGHTS.md).
 
@@ -208,12 +210,12 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh   # 512² pixel lo
 
 | Shipping | In progress / parked |
 |----------|----------------------|
-| macOS library + CLI | iOS 26 studio (`Apps/ImarelloIOS`) — **512² T2I and I2I on device**, rebuilt two-page UI; 1024² anatomy still open |
+| macOS library + CLI | iOS 26 studio (`Apps/ImarelloIOS`) — **512² T2I and I2I on device**, rebuilt two-page UI; 1024² anatomy has a working opt-in rescue (`--two-stage`), default fix pending an SR stage |
 | 1024² on 8 GB · 4-bit staged (enforced: `--weights` is 4-bit only) | Multi-ref, CFG, LoRA, bf16 |
 | T2I, strength I2I, `--identity` · cancellable runs · validated CLI inputs | `--text-tokens auto` speed path (opt-in) |
 | Steel FA · joint-f16 attention · f16 qmm · Small Decoder · untiled ≤768² decode · crash-safe embed cache · Hub pin + CI (18 no-Metal suites) | Partial-pad conditioning study ([Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md) Tier 3) |
 
-**2026-08-18 hardening pass:** a full-repo adversarial audit (52 verified findings) was fixed the same day — durable iOS print history, self-healing device-harness queue, real cancellation, atomic caches, input validation, and a metallib build that refuses partial kernel sets and tracks the mlx-swift pin. Details in the [roadmap decision log](Docs/ROADMAP.md).
+**2026-08-18 hardening pass:** a full-repo adversarial audit (52 verified findings) was fixed the same day — durable iOS print history, self-healing device-harness queue, real cancellation, atomic caches, input validation, and a metallib build that refuses partial kernel sets and tracks the mlx-swift pin. **Same-day engine uplift:** mlx core bumped to 0.32.1 via a maintained fork (text-encode −19–21%, 512² 21.9 s, memory flat, full quality gate passed), a two-stage anatomy rescue for 1024², and a GPU capability probe readying the M5/A19 Neural-Accelerator path. Details in the [roadmap decision log](Docs/ROADMAP.md).
 
 Backlog: [Docs/ROADMAP.md](Docs/ROADMAP.md). Agent rules: [CLAUDE.md](CLAUDE.md). Workflow (skills / MCP): [Docs/AGENT_WORKFLOW.md](Docs/AGENT_WORKFLOW.md).
 

@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-18 (two passes: the **audit + hardening pass** `9ad69cd`, then the **engine-uplift session** — mlx core **0.32.1 via fork** (encode_te −19–21%, 512² e2e **21.88 s**, watermarks flat, 15/15 V-eval), TE-splice shipped for conditioning (speed claim refuted — TE is dispatch-bound), `t2i --two-stage` = working opt-in rescue for the P7 1024² anatomy item (softens texture; SR stage before any default gate), ChipCapabilities probe + iOS floor 26.2 for the A19 NAX path. See the decision log's 2026-08-18 rows + PERF.md 2026-08-18.)  
 **Working tree focus:** macOS library + CLI is the shipping surface. **Next product phase is P7 iOS.**  
-**Backend / P9 leftovers are paused** — do not start TAEF2, ref-KV, Δ-DiT, `stagedAggressive`, or fused qmm+SwiGLU unless the user asks.  
+**Engine-uplift track is ACTIVE** (user un-paused speed work 2026-08-18; plan in the session log + PERF.md 2026-08-18): next levers are **S4 fused qmm+SwiGLU full-f16 single block** and **N2/N3 A19 Pro NAX** (device must run iOS ≥ 26.2). Still parked without a further ask: TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`.  
 **Agent workflow:** [`Docs/AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).  
 **Experimental Cursor tree:** `cursor-opt-quarantine` **deleted** after the leftovers were ported. Audit: [`Docs/CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
 
@@ -155,7 +155,7 @@ Status legend: `parked` = not started · `partial` = some code/docs · `blocked`
 | — | `paused` | **Δ-DiT** skip a subset of single blocks on **step 2 only** | High risk; kill on any vision-brief / pixel fail. |
 | — | `paused` | `stagedAggressive` weight **drop** (not mmap) | iOS jetsam, not M2 speed. Expect slower e2e. |
 
-**Latest default-path (8 GB Mac mini, release, auto + Small Decoder + f16 qmm ×16, 2026-08-15):** 512² W1T3 e2e **19.4 s** / denoise **3.34 s**; **1024² W1T3 e2e 74.0 s** / denoise **15.91 s** / decode **5.27 s**; peak active **2.04 / 2.05 GiB**; watermark **2.38 / 3.46 GiB**. Full tables: `Docs/PERF.md`.
+**Latest default-path (8 GB Mac mini, release, pad-512 + f16 qmm + joint-f16 + Small Decoder, core 0.32.1, 2026-08-18):** 512² W1T3 e2e **21.9 s** / denoise **4.22 s** / encode_te **1.58 s**; **1024² e2e 67.5 s** / denoise **14.7 s** / decode **4.6 s**; identity-i2i 512² **36.2 s**; peak active ~2.05 GiB; watermark **2.57 / 3.00 GiB**. *(The 2026-08-15 auto-era row — 19.4 / 74.0 s — is historical; `auto` was reverted.)* Full tables: `Docs/PERF.md`.
 
 **Acceptance for any “faster / leaner” claim**
 
