@@ -1548,8 +1548,11 @@ struct DirectSpike: AsyncParsableCommand {
     @Option(name: .long, help: "Text-encoder snapshot directory (default: pinned snapshot).")
     var teDir: String?
 
-    @Option(name: .long, help: "Spike stage: qmm (milestone A) | layer (milestone B).")
-    var stage: String = "layer"
+    @Option(name: .long, help: "Spike stage: qmm (A) | layer (B) | forward (C).")
+    var stage: String = "forward"
+
+    @Option(name: .long, help: "Sequence length for --stage forward (512 = full window, 30 = splice regime).")
+    var seq: Int = 512
 
     func run() async throws {
         try ensureMLXReady()
@@ -1567,8 +1570,10 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectQmmSpike.run(teDirectory: dir, metallibURL: metallib))
         case "layer":
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
+        case "forward":
+            print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
         default:
-            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer")
+            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward")
         }
     }
 }

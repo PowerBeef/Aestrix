@@ -144,6 +144,23 @@ public enum DirectTELayerSpike {
             threadsPerThreadgroup: MTLSize(width: tp, height: 1, depth: 1))
     }
 
+    static func encodeRopeL(
+        _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
+        x: MTLBuffer, y: MTLBuffer, heads: Int, seqLen: Int
+    ) {
+        enc.setComputePipelineState(ctx.ropePSO)
+        enc.setBuffer(x, offset: 0, index: 0)
+        enc.setBuffer(y, offset: 0, index: 1)
+        var h32 = Int32(heads), d32 = Int32(headDim)
+        var base = ropeBase
+        enc.setBytes(&h32, length: 4, index: 2)
+        enc.setBytes(&d32, length: 4, index: 3)
+        enc.setBytes(&base, length: 4, index: 4)
+        enc.dispatchThreads(
+            MTLSize(width: headDim / 2, height: heads, depth: seqLen),
+            threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+    }
+
     static func encodeRope(
         _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
         x: MTLBuffer, y: MTLBuffer, heads: Int
