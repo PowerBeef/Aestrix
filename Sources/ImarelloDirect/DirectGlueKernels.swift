@@ -13,9 +13,9 @@ enum DirectGlueKernels {
     // RMSNorm: one threadgroup per row, f32 accumulate.
     // y = x * rsqrt(mean(x^2) + eps) * w
     kernel void dq_rmsnorm(
-        device const half* x [[buffer(0)]],
+        device const DQ_DT* x [[buffer(0)]],
         device const float* w [[buffer(1)]],
-        device half* y [[buffer(2)]],
+        device DQ_DT* y [[buffer(2)]],
         constant int& d [[buffer(3)]],
         constant float& eps [[buffer(4)]],
         uint row [[threadgroup_position_in_grid]],
@@ -23,7 +23,7 @@ enum DirectGlueKernels {
         uint tpsz [[threads_per_threadgroup]],
         uint lane [[thread_index_in_simdgroup]],
         uint sgid [[simdgroup_index_in_threadgroup]]) {
-        device const half* xr = x + (size_t)row * d;
+        device const DQ_DT* xr = x + (size_t)row * d;
         float acc = 0.0f;
         for (int i = tid; i < d; i += tpsz) {
             float v = (float)xr[i];
@@ -42,9 +42,9 @@ enum DirectGlueKernels {
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         float inv = invShared;
-        device half* yr = y + (size_t)row * d;
+        device DQ_DT* yr = y + (size_t)row * d;
         for (int i = tid; i < d; i += tpsz) {
-            yr[i] = (half)((float)xr[i] * inv * w[i]);
+            yr[i] = (DQ_DT)((float)xr[i] * inv * w[i]);
         }
     }
 
@@ -52,8 +52,8 @@ enum DirectGlueKernels {
     // Pairs (i, i + D/2): out_i = x_i*cos - x_j*sin ; out_j = x_j*cos + x_i*sin
     // theta_i = pos * base^(-2i/D)
     kernel void dq_rope(
-        device const half* x [[buffer(0)]],
-        device half* y [[buffer(1)]],
+        device const DQ_DT* x [[buffer(0)]],
+        device DQ_DT* y [[buffer(1)]],
         constant int& H [[buffer(2)]],
         constant int& D [[buffer(3)]],
         constant float& base [[buffer(4)]],
@@ -69,38 +69,40 @@ enum DirectGlueKernels {
         float s = metal::sin(theta);
         float a = (float)x[off + i];
         float b = (float)x[off + i + halfD];
-        y[off + i] = (half)(a * c - b * s);
-        y[off + i + halfD] = (half)(b * c + a * s);
+        y[off + i] = (DQ_DT)(a * c - b * s);
+        y[off + i + halfD] = (DQ_DT)(b * c + a * s);
     }
 
     // y = silu(g) * u = (g * sigmoid(g)) * u
     kernel void dq_silu_mul(
-        device const half* g [[buffer(0)]],
-        device const half* u [[buffer(1)]],
-        device half* y [[buffer(2)]],
+        device const DQ_DT* g [[buffer(0)]],
+        device const DQ_DT* u [[buffer(1)]],
+        device DQ_DT* y [[buffer(2)]],
         constant uint& n [[buffer(3)]],
         uint gid [[thread_position_in_grid]]) {
         if (gid >= n) return;
         float gv = (float)g[gid];
         float s = 1.0f / (1.0f + metal::exp(-gv));
-        y[gid] = (half)(gv * s * (float)u[gid]);
+        y[gid] = (DQ_DT)(gv * s * (float)u[gid]);
     }
 
     // y = a + b
     kernel void dq_add(
-        device const half* a [[buffer(0)]],
-        device const half* b [[buffer(1)]],
-        device half* y [[buffer(2)]],
+        device const DQ_DT* a [[buffer(0)]],
+        device const DQ_DT* b [[buffer(1)]],
+        device DQ_DT* y [[buffer(2)]],
         constant uint& n [[buffer(3)]],
         uint gid [[thread_position_in_grid]]) {
         if (gid >= n) return;
-        y[gid] = (half)((float)a[gid] + (float)b[gid]);
+        y[gid] = (DQ_DT)((float)a[gid] + (float)b[gid]);
     }
     """
 
-    static func makeLibrary(device: MTLDevice) throws -> MTLLibrary {
+    /// dtypeName: "half" or "bfloat" — activation storage type for all glue.
+    static func makeLibrary(device: MTLDevice, dtypeName: String = "half") throws -> MTLLibrary {
         let options = MTLCompileOptions()
         options.mathMode = .fast
+        options.preprocessorMacros = ["DQ_DT": dtypeName as NSString]
         return try device.makeLibrary(source: source, options: options)
     }
 }

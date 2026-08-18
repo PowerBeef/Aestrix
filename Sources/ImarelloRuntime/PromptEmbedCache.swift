@@ -9,7 +9,7 @@ import ImarelloText
 /// On a hit the pipeline skips the entire TE stage (~2.26 GB weight load + encode).
 /// Entries are keyed by prompt text, model id, TE quant bits, sequence length, and
 /// the chat-template version, so template or weight changes invalidate old entries.
-enum PromptEmbedCache {
+public enum PromptEmbedCache {
     /// Bump when `QwenChatTemplate` or tap/concat behavior changes.
     /// v2: tokenizer gained NFC + the reference pre-tokenizer (2026-08-16) —
     /// ids changed for digit/punctuation prompts, so v1 embeds must miss.
@@ -46,7 +46,7 @@ enum PromptEmbedCache {
         return "\(hex).safetensors"
     }
 
-    static func entryURL(
+    public static func entryURL(
         prompt: String,
         modelID: String,
         bits: Int = TextEncoderWeights.defaultBits,
@@ -81,11 +81,14 @@ enum PromptEmbedCache {
               embeds.dim(0) == 1,
               embeds.dim(1) == ModelConstants.maxSequenceLength,
               embeds.dim(2) == ModelConstants.jointAttentionDim,
-              embeds.dtype == .float32,
+              // The TE emits bf16 (f32 accepted for older entries). The audit-era
+              // `.float32`-only check rejected every real entry, so the cache
+              // silently never hit and each generate re-paid the full TE stage.
+              embeds.dtype == .bfloat16 || embeds.dtype == .float32,
               realTokens > 0, realTokens <= embeds.dim(1)
         else { return false }
         // Truncation guard: the file must hold at least the tensor payload.
-        let expectedBytes = embeds.shape.reduce(4) { $0 * $1 }
+        let expectedBytes = embeds.shape.reduce(embeds.itemSize) { $0 * $1 }
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size])
             .flatMap { $0 as? Int }
         return (size ?? 0) >= expectedBytes
@@ -94,7 +97,7 @@ enum PromptEmbedCache {
     /// Best-effort write; failures are silent (cache is an optimization only).
     /// Writes go to a temp file first so a crash mid-save can never leave a
     /// half-written entry at the final path.
-    static func store(embeds: MLXArray, realTokens: Int, url: URL) {
+    public static func store(embeds: MLXArray, realTokens: Int, url: URL) {
         let fm = FileManager.default
         let dir = url.deletingLastPathComponent()
         let tmp = dir.appendingPathComponent(".tmp-\(UUID().uuidString).safetensors")

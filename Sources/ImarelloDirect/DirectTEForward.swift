@@ -92,7 +92,7 @@ public enum DirectTEForward {
 
     // MARK: - Weight loading
 
-    static func loadLayers(_ engine: Engine, arrays: [String: MLXArray]) throws {
+    static func loadLayers(_ engine: Engine, arrays: [String: MLXArray], rawScales: Bool = false) throws {
         let dims: [(String, Int, Int)] = [
             ("self_attn.q_proj", nHeads * headDim, hidden),
             ("self_attn.k_proj", nKV * headDim, hidden),
@@ -109,8 +109,8 @@ public enum DirectTEForward {
                     let sc = arrays["layers.\(li).\(name).scales"],
                     let bi = arrays["layers.\(li).\(name).biases"]
                 else { throw DirectQmmSpike.SpikeError.missingTensor("layers.\(li).\(name)") }
-                let s16 = sc.asType(.float16)
-                let b16 = bi.asType(.float16)
+                let s16 = rawScales ? sc : sc.asType(.float16)
+                let b16 = rawScales ? bi : bi.asType(.float16)
                 eval(s16, b16)
                 qmm.append((
                     try engine.ctx.upload(w, "L\(li).\(name).w"),

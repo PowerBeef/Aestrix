@@ -49,6 +49,7 @@ let package = Package(
             dependencies: [
                 "ImarelloCore",
                 "ImarelloWeights",
+                "ImarelloText",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),

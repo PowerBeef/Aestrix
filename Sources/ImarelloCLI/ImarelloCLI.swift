@@ -474,6 +474,9 @@ struct T2I: AsyncParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
+    @Option(name: .long, help: "RESEARCH (Stage 2, research/bare-metal): TE engine: mlx (default product path) | direct (bare-metal encoder pre-seeds the embed cache).")
+    var teEngine: String = "mlx"
+
     @Flag(name: .long, help: "EXPERIMENT (engine plan Q2): compose at 512² (clean anatomy), then refine at the target size via a low-strength I2I pass. Square canvases > 512 only.")
     var twoStage: Bool = false
 
@@ -487,6 +490,30 @@ struct T2I: AsyncParsableCommand {
     var refineUpscale: String = "bicubic"
 
     func run() async throws {
+        if teEngine == "direct" {
+            guard embedCache else {
+                throw ValidationError("--te-engine direct requires the embed cache (drop --no-embed-cache)")
+            }
+            try ensureMLXReady()
+            let config = ImarelloConfig.autoDetectingTier()
+            let snap = try ModelPaths.resolveOrThrow(config: config)
+            let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+            let metallib = exe.deletingLastPathComponent().appendingPathComponent("mlx.metallib")
+            print("te_engine: direct (bare-metal Stage 2) — building engine…")
+            let encoder = try DirectTEEncoder(
+                teDirectory: snap.textEncoderDirectory,
+                tokenizerDirectory: snap.tokenizerDirectory,
+                metallibURL: metallib)
+            let (embeds, realTokens, ms) = try encoder.encode(prompt)
+            let url = PromptEmbedCache.entryURL(
+                prompt: prompt, modelID: config.modelID, padContent: padContent)
+            PromptEmbedCache.store(embeds: embeds, realTokens: realTokens, url: url)
+            print(String(
+                format: "te_engine: direct encode %.0f ms (%d real tokens) — cache pre-seeded, TE stage will be skipped",
+                ms, realTokens))
+        } else if teEngine != "mlx" {
+            throw ValidationError("unknown --te-engine " + teEngine + "; use mlx | direct")
+        }
         try ensureMLXReady()
         try validateSteps(steps)
         applyAttnF16Threshold(attnF16Threshold)
@@ -1572,8 +1599,13 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "encode":
+            let snap = try ModelPaths.resolveOrThrow(config: config)
+            print(try await DirectTEEncodeSpike.run(
+                snapshot: snap, metallibURL: metallib,
+                prompt: "A red fox sitting in a snowy forest clearing at golden hour, professional wildlife photography"))
         default:
-            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward")
+            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode")
         }
     }
 }

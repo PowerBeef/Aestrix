@@ -109,9 +109,10 @@ public enum DirectTELayerSpike {
     static func encodeQmm(
         _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
         w: MTLBuffer, s: MTLBuffer, b: MTLBuffer,
-        x: MTLBuffer, y: MTLBuffer, m: Int, n: Int, k: Int
+        x: MTLBuffer, y: MTLBuffer, m: Int, n: Int, k: Int,
+        pso: MTLComputePipelineState? = nil
     ) {
-        enc.setComputePipelineState(ctx.qmmPSO)
+        enc.setComputePipelineState(pso ?? ctx.qmmPSO)
         enc.setBuffer(w, offset: 0, index: 0)
         enc.setBuffer(s, offset: 0, index: 1)
         enc.setBuffer(b, offset: 0, index: 2)
@@ -128,9 +129,10 @@ public enum DirectTELayerSpike {
 
     static func encodeRms(
         _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
-        x: MTLBuffer, w: MTLBuffer, y: MTLBuffer, rows: Int, d: Int
+        x: MTLBuffer, w: MTLBuffer, y: MTLBuffer, rows: Int, d: Int,
+        pso: MTLComputePipelineState? = nil
     ) {
-        enc.setComputePipelineState(ctx.rmsPSO)
+        enc.setComputePipelineState(pso ?? ctx.rmsPSO)
         enc.setBuffer(x, offset: 0, index: 0)
         enc.setBuffer(w, offset: 0, index: 1)
         enc.setBuffer(y, offset: 0, index: 2)
@@ -146,9 +148,10 @@ public enum DirectTELayerSpike {
 
     static func encodeRopeL(
         _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
-        x: MTLBuffer, y: MTLBuffer, heads: Int, seqLen: Int
+        x: MTLBuffer, y: MTLBuffer, heads: Int, seqLen: Int,
+        pso: MTLComputePipelineState? = nil
     ) {
-        enc.setComputePipelineState(ctx.ropePSO)
+        enc.setComputePipelineState(pso ?? ctx.ropePSO)
         enc.setBuffer(x, offset: 0, index: 0)
         enc.setBuffer(y, offset: 0, index: 1)
         var h32 = Int32(heads), d32 = Int32(headDim)
@@ -227,9 +230,10 @@ public enum DirectTELayerSpike {
 
     static func encodeSiluMul(
         _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
-        g: MTLBuffer, u: MTLBuffer, y: MTLBuffer, n: Int
+        g: MTLBuffer, u: MTLBuffer, y: MTLBuffer, n: Int,
+        pso: MTLComputePipelineState? = nil
     ) {
-        enc.setComputePipelineState(ctx.siluMulPSO)
+        enc.setComputePipelineState(pso ?? ctx.siluMulPSO)
         enc.setBuffer(g, offset: 0, index: 0)
         enc.setBuffer(u, offset: 0, index: 1)
         enc.setBuffer(y, offset: 0, index: 2)
@@ -242,9 +246,10 @@ public enum DirectTELayerSpike {
 
     static func encodeAdd(
         _ enc: MTLComputeCommandEncoder, _ ctx: Ctx,
-        a: MTLBuffer, b: MTLBuffer, y: MTLBuffer, n: Int
+        a: MTLBuffer, b: MTLBuffer, y: MTLBuffer, n: Int,
+        pso: MTLComputePipelineState? = nil
     ) {
-        enc.setComputePipelineState(ctx.addPSO)
+        enc.setComputePipelineState(pso ?? ctx.addPSO)
         enc.setBuffer(a, offset: 0, index: 0)
         enc.setBuffer(b, offset: 0, index: 1)
         enc.setBuffer(y, offset: 0, index: 2)
