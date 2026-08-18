@@ -1130,6 +1130,11 @@ struct Bench: AsyncParsableCommand {
     @Flag(name: .long, help: "S4 EXPERIMENT: per-tensor dynamic activation scale (amax/64) instead of the flat ÷16.")
     var attnDynamicScale: Bool = false
 
+    @Flag(
+        name: .customLong("attn-no-qkv-checkpoint"),
+        help: "STAGE-1 EXPERIMENT: skip the per-block QKV checkpoint evals (fewer GPU sync boundaries; raises transient memory).")
+    var attnNoQkvCheckpoint: Bool = false
+
     @Option(name: .long, help: "VAE tile enable threshold in latent px (128 default). WARNING: 136 untiles 1024² decode — measured Metal abort on 8 GB hosts.")
     var vaeTileThreshold: Int?
 
@@ -1258,6 +1263,7 @@ struct Bench: AsyncParsableCommand {
             attentionJointSeqF16: attnJointF16 ? true : nil,
             attentionF16FullEpilogue: attnF16FullEpilogue ? true : nil,
             attentionDynamicScale: attnDynamicScale ? true : nil,
+            attentionQkvCheckpoint: attnNoQkvCheckpoint ? false : nil,
             vaeTileThreshold: vaeTileThreshold,
             // Persist resolved values, not nil-means-default: quality-knob
             // provenance must live in the report, not the filename label.

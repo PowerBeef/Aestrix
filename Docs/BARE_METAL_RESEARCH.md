@@ -82,17 +82,19 @@ Everything on `research/bare-metal`; `main` stays at the checkpoint. Every stage
 Residency A/B + full-coverage Metal trace (§3): DiT step ≈90% busy clean (compute-bound confirmed — replay worth ~8–10%/step), TE 74% busy with per-op overhead that explodes at small M, decode 77%. Lazy weight I/O exonerated (~20 ms first-touch).
 *Gate result:* Stage 2 scopes to **memory plan + fusions + small-M overhead**; the TE becomes the first recorded-command prototype target (it unlocks the splice's ~1.3 s).
 
-**Stage 1 — Custom kernels inside MLX (weeks).**
-`MLXFast.metalKernel` (verified available in the fork) lets us author fused Metal kernels while MLX still owns tensors, scheduling, and memory:
-1. fused qmm+÷16+SwiGLU epilogue (the #1 and #2 op buckets meet here);
-2. RMSNorm+RoPE+split glue kernel (~5% bucket);
-3. int8 attention spike (reference: Draw Things MFA, BSD-3).
-*Gate:* each fusion must show ≥5% of a step in an A/B, quality-gated. *Kill:* if the fusions can't clear that individually, the "fusions" pillar of the full engine falls, and with it most of its M2 case.
+**Stage 1 — Recover the overhead inside MLX. RUN AND LARGELY REFUTED (2026-08-18).**
+Cheap levers measured before writing any Metal:
+- `MLX_MAX_OPS_PER_BUFFER` / `MLX_MAX_MB_PER_BUFFER` (command-buffer batching): **flat** — the TE's gaps are not commit boundaries.
+- `--attn-no-qkv-checkpoint` (new bench flag; removes ~25 of ~54 evals/step): **worse both ways** — 512² step +2.6%, watermark +160 MiB. The eval boundaries are not dead time; they keep the lazy graph and allocator tight.
+This is the **fourth** independent experiment (asyncEval, streaming-512², S4 epilogue, qkv-checkpoint-off) with the same shape: the current engine sits at a local optimum of MLX's execution model — single-knob deviations lose in both directions. Elementwise-fusion traffic math (~1%-class on M2) plus the DiT's ≈90% busy means the original "≥5% per fusion" gate is unpassable without beating Steel's GEMMs, which §2 says is a ≤1.3× game. **The recoverable overhead is structural, and Stage 1 folds into Stage 2.**
 
-**Stage 2 — The Klein kernel: a bespoke denoise engine (the real prize; 1–2 months).**
-A standalone Metal module owning *only* the 4-step DiT loop: our own 4-bit weight layout (packed for the fused kernels), a static buffer plan, the whole step recorded into indirect command buffers and replayed 4×, Stage 1's fused kernels as the compute core. TE and VAE stay on MLX. Verified block-by-block against MLX activations, then the full gate.
-*Gate to continue:* ≥1.25× on the DiT loop **or** ≥0.5 GiB watermark cut at ≤5% slowdown, at both canvases.
-*Kill:* under both bars → the engine stays a research artifact; Stage 1's fused kernels are still keepable inside MLX.
+**The direct-dispatch insight (what Stage 1's post-mortem bought).** The 155 MB metallib is a plain `MTLLibrary` of *named, complete* kernels — `affine_qmm_*`, `steel_attention_*`, `rms_norm`, RoPE — the exact binaries MLX executes. A bespoke engine therefore does **not** need to author competitive kernels: it can create pipeline states from MLX's own compiled functions and encode them into recorded command buffers over a static buffer plan. MLX's kernels without MLX's runtime. The kernel-ABI contract (argument order, template-name mangling) is readable in `quantized.cpp` / `nojit_kernels.cpp`, and every intermediate can be verified against the MLX oracle.
+
+**Stage 2 — Direct-dispatch engine (rescoped 2026-08-18; the real prize).**
+A standalone Metal module that dispatches **MLX's own metallib kernels** from recorded command buffers over a static buffer plan — no kernel authorship. First prototype: the **TE forward** (27 identical fixed-shape Qwen3 layers, M=512 — the simplest stage and the biggest measured prize: ~1.6 s → ~1.2 s compute floor at M=512, and ~0.3 s-class once the splice's M≈30 encode rides on it). Then the DiT step (memory-plan win + the ~8–10% eval-boundary gap). Weights land in MTLBuffers in the layout the kernels already expect; every layer's output verifies against the MLX oracle.
+*Gate to continue to the DiT:* TE prototype ≥1.3× on the resident encode with embeddings matching the oracle (per-layer cosine ≥ 0.9999).
+*DiT gate:* ≥1.25× on the DiT loop **or** ≥0.5 GiB watermark cut at ≤5% slowdown, both canvases.
+*Kill:* under the bars → research artifact; the study's numbers still stand as the definitive MLX-tax measurement.
 
 **Stage 3 — Full runtime (only if Stage 2 passes).**
 Bespoke TE next (the §3 anomaly means the *relative* win is largest there), VAE last (conv/bandwidth-bound; least to gain). Tokenizer stays CPU/Swift. MLX exits the dependency graph only at the end of this stage — and only if every gate held.

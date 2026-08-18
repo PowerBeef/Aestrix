@@ -36,6 +36,7 @@ public actor BenchRunner {
         if let v = config.attentionJointSeqF16 { t.jointSeqF16 = v }
         if let v = config.attentionF16FullEpilogue { t.linearF16FullEpilogue = v }
         if let v = config.attentionDynamicScale { t.linearDynamicScale = v }
+        if let v = config.attentionQkvCheckpoint { t.qkvCheckpoint = v }
         AttentionTuning.current = t
         if let v = config.vaeTileThreshold {
             VAETileConfig.current.enabledThreshold = max(1, v)
