@@ -285,3 +285,22 @@ let final = ImageAnalysisReportBuilder.mergingVision(pixel, assessment)
 | `imarello analyze-image` | Pixel / brief only |
 | `Scripts/eval-generation.sh` | Sidecars for an existing PNG |
 | `Scripts/ensure-metallib.sh` | Required before generate on clean builds |
+
+## Anatomy addendum (2026-08-18)
+
+The fox smoke is a poor anatomy probe — fur hides limb, proportion, and torso
+errors. `Scripts/eval-anatomy.sh` generates the human-figure reference set
+(swimwear/torso, athletic poses, hands, multi-person scenes) at 512² or 1024².
+The vision pass on these images must explicitly check, beyond the standard
+Phase-B list:
+
+- **Navel**: present when the torso is bare, on the midline, above the hip line.
+- **Proportions**: arm span ≈ height; legs longer than torso; head ≈ 1/7–1/8 of
+  full-body height.
+- **Limbs and digits**: two arms, two legs, five fingers per visible hand;
+  joints bend the correct way (elbows/knees).
+- **Torso landmarks**: shoulder and hip width plausible for the subject;
+  waistline continuous under clothing edges.
+
+Anatomy failures at 1024² are the known Klein weak point (ROADMAP: dancer-s0);
+these subjects are the gate material for any engine or default change.
