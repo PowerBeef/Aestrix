@@ -4,9 +4,10 @@
 
 **Turn words into photographs — entirely on your Mac.**
 
-A native Swift + [MLX](https://github.com/ml-explore/mlx-swift) runtime for Black Forest Labs'
-[FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), written from scratch for Apple Silicon.
-No cloud, no accounts, no data leaving your machine.
+A native Swift runtime for Black Forest Labs'
+[FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), written from scratch for Apple Silicon —
+with its own **direct-dispatch Metal engine** driving [MLX](https://github.com/ml-explore/mlx-swift)'s compiled kernels
+from hand-built command buffers. No cloud, no accounts, no data leaving your machine.
 
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![macOS 26.2+](https://img.shields.io/badge/macOS-26.2%2B-000000?logo=apple&logoColor=white)](#1-what-you-need)
@@ -14,7 +15,7 @@ No cloud, no accounts, no data leaving your machine.
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 [![Eval floors](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml)
 
-**512² in ~22 s · 1024² in ~68 s — on an 8 GB M2 Mac mini.** Also runs on iPhone.
+**512² in ~21 s · 1024² in ~60 s — on an 8 GB M2 Mac mini.** Also runs on iPhone.
 
 <img src="Docs/assets/readme/hero-coffee-1024.jpg" width="640" alt="Cozy coffee shop interior, warm afternoon light — Imarello T2I, 1024², 4 steps, seed 42">
 
@@ -111,7 +112,7 @@ hf download black-forest-labs/FLUX.2-small-decoder \
   --seed 42 --output my-first.png
 ```
 
-That's a 1024² image in about a minute. For a quick ~22-second test, add `--width 512 --height 512`.
+That's a 1024² image in about a minute. For a quick ~21-second test, add `--width 512 --height 512`.
 
 To **edit** an image:
 
@@ -161,19 +162,21 @@ prompt ──► Qwen3 text encoder ──► unload ──► MMDiT, 4 steps �
                 ~1.7 GB                          ~2.1 GB                     ~0.1 GB (tiled at 1024²)
 ```
 
-The DiT is the watermark: ~2.06 GiB live, 2.57 GiB (512²) / 3.00 GiB (1024²) peak MLX allocations.
+The DiT is the watermark. Since the bespoke engine took over the T2I path (2026-08-19) its footprint is a printed, deterministic number — ~2.4 GiB owned at 1024² — with process peak RSS around 2.0 GB and MLX's own pool down to 1.77 GiB.
 
 ## Performance
 
 8 GB M2 Mac mini · release build + full metallib · product defaults · warmup 1, trials 3:
 
-| Canvas | End-to-end | Denoise / step | Decode | Peak MLX |
-|--------|-----------:|---------------:|-------:|---------:|
-| 512² | **21.9 s** | 4.22 s | 0.94 s | 2.57 GiB |
-| 1024² | **67.5 s** | 14.69 s | 4.58 s | 3.00 GiB |
-| Identity edit 512² | **36.2 s** | 7.57 s | 0.94 s | 2.56 GiB |
+| Canvas | End-to-end | Denoise / step | Decode | Peak memory |
+|--------|-----------:|---------------:|-------:|------------:|
+| 512² | **20.6 s** | 3.77 s | 0.79 s | ~2.0 GB RSS |
+| 1024² | **60.3 s** | 12.93 s | 3.91 s | ~2.0 GB RSS |
+| Identity edit 512² | **36.2 s** | 7.57 s | 0.94 s | 2.56 GiB MLX |
 
-What makes it fast, in one paragraph: 4-step distilled sampling · staged residency · MLX **Steel fused flash attention** (D=128, joint-f16) · scaled-f16 4-bit GEMMs · chunk-streamed transformer blocks at 1024² · BFL **Small Decoder** (−37% decode) · per-prompt embedding cache · and, since 2026-08-18, **mlx core 0.32.1** via a [maintained fork](https://github.com/PowerBeef/mlx-swift) (upstream mlx-swift is pre-0.32) whose split-K/`gemv_wide` kernels cut text-encoding 19–21%. Kernels are served from the prebuilt metallib (nojit), which is why `ensure-metallib.sh` is mandatory. The full A/B history with every promotion and refutation lives in [Docs/PERF.md](Docs/PERF.md); the research ledger is [Docs/ENGINE_RESEARCH.md](Docs/ENGINE_RESEARCH.md).
+<sub>T2I rows run the bespoke engine (its buffers live outside MLX, so process RSS is the honest peak); identity editing runs the MLX path.</sub>
+
+What makes it fast: 4-step distilled sampling · staged residency · and, since 2026-08-19, **Imarello's own direct-dispatch engine on the whole generate path** — text encoding, conditioning, the diffusion transformer, and the VAE all run as hand-built Metal command buffers over MLX's compiled kernels (every stage oracle-verified against the MLX implementation before its promotion gate; the VAE decode is byte-equivalent within 1 LSB and *faster* than MLX's own dispatch). MLX remains the kernel source and the editing runtime. Supporting cast: Steel fused flash attention (D=128, joint-f16), scaled-f16 4-bit GEMMs, BFL **Small Decoder**, per-prompt embedding cache, and **mlx core 0.32.1** via a [maintained fork](https://github.com/PowerBeef/mlx-swift). Kernels are served from the prebuilt metallib (nojit), which is why `ensure-metallib.sh` is mandatory. On A19 Pro-class hardware the engine can also dispatch Apple's **Neural Accelerator (NAX)** kernels — measured **3.38× on the transformer's dominant op** on an iPhone 17 Pro. The full A/B history lives in [Docs/PERF.md](Docs/PERF.md); the engine build story is [Docs/BARE_METAL_RESEARCH.md](Docs/BARE_METAL_RESEARCH.md).
 
 Quality is gated twice on every change: a pixel harness (with hard fails for garbage output) *and* a vision review — [Docs/EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md).
 
@@ -193,7 +196,8 @@ let url = try await pipeline.generate(
 
 | Module | Owns |
 |--------|------|
-| `ImarelloRuntime` | The staged pipeline, I2I + identity, embed cache |
+| `ImarelloDirect` | The direct-dispatch engine: TE, conditioning, DiT, VAE, NAX |
+| `ImarelloRuntime` | The staged pipeline, I2I + identity, embed cache, engine seams |
 | `ImarelloText` | Qwen3 encoder (layer taps 9/18/27 → 7680) |
 | `ImarelloDiT` | MMDiT (5 double + 20 single blocks), Steel FA, quantized GEMMs |
 | `ImarelloVAE` | Small Decoder default, klein encoder, tiled decode |
@@ -230,9 +234,9 @@ Working on this repo with an AI agent? [CLAUDE.md](CLAUDE.md) is the contract �
 
 | Shipping today | In progress / next |
 |----------------|--------------------|
-| macOS library + CLI: generate, edit, identity edit — 1024² on 8 GB | A19 Pro / M5 **Neural Accelerator** path (probe + iOS 26.2 floor shipped; blocked on a device running iOS ≥ 26.2) |
-| iOS studio: 512² generate + edit on device, durable print history | 1024² anatomy: `--two-stage` rescue works, texture re-gate awaits an SR-stage decision |
-| mlx core 0.32.1 (fork) · hardened scripts/CI · 18-suite CI gate | **Bare-metal direct-dispatch engine** (mainline direction): TE landed opt-in (`--te-engine direct`, splice 1.6 s → 0.2 s); DiT/VAE next through gates |
+| macOS library + CLI: generate, edit, identity edit — 1024² in ~60 s on 8 GB | On-device bespoke engine: NAX proven **3.38×** on the iPhone 17 Pro; next is the full transformer step, then a device generate |
+| **Fully bespoke T2I** — the direct engine owns every generate stage by default (`mlx` engines remain as escape hatches) | iOS studio device generates are paused pending a kernel-library fix (the app needs the full metallib after the engine migration) |
+| mlx core 0.32.1 (fork) · hardened scripts/CI · 18-suite CI gate | Editing (i2i/identity) still runs the MLX transformer — port is a pending product decision · 1024² anatomy: `--two-stage` rescue works, texture re-gate awaits an SR-stage decision |
 
 Not in scope for v1: Klein 9B / FLUX.2 Dev, multi-reference editing, LoRA, CFG, bf16 paths.
 
