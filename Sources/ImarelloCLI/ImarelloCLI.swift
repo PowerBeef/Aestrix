@@ -476,8 +476,8 @@ struct T2I: AsyncParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Cache prompt embeddings on disk; skips TE load+encode on repeat prompts (default on).")
     var embedCache: Bool = true
 
-    @Option(name: .long, help: "RESEARCH (Stage 2, research/bare-metal): TE engine: mlx (default product path) | direct (bare-metal encoder pre-seeds the embed cache).")
-    var teEngine: String = "mlx"
+    @Option(name: .long, help: "TE engine: direct (default since 2026-08-18 — bare-metal encoder, FULL gate passed: 22/22 pixel + vision incl. 1024² anatomy probes) | mlx (previous product path).")
+    var teEngine: String = "direct"
 
     @Flag(name: .long, help: "EXPERIMENT (engine plan Q2): compose at 512² (clean anatomy), then refine at the target size via a low-strength I2I pass. Square canvases > 512 only.")
     var twoStage: Bool = false
@@ -1628,6 +1628,8 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "vae-conv":
+            print(try DirectVAESpike.run(metallibURL: metallib))
         case "conditioning":
             let snapC = try ModelPaths.resolveOrThrow(config: config)
             print(try await DirectConditionerSpike.run(snapshot: snapC, metallibURL: metallib))
@@ -1665,139 +1667,54 @@ struct DirectSpike: AsyncParsableCommand {
 struct DirectGenerate: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "direct-generate",
-        abstract: "RESEARCH (Stage 2): full T2I on the bespoke engine — direct TE + direct DiT; MLX computes conditioning (then unloads) and decodes."
+        abstract: "RESEARCH (Stage 2): T2I on the bespoke persistent pipeline — direct TE + conditioner + DiT; MLX decodes. Multiple prompts reuse resident engines."
     )
 
-    @Argument(help: "Prompt.")
-    var prompt: String
+    @Argument(help: "One or more prompts (each becomes an image).")
+    var prompts: [String]
 
     @Option var width: Int = 512
     @Option var height: Int = 512
     @Option var seed: UInt64 = 42
-    @Option(name: .long, help: "Output PNG path.")
+    @Option(name: .long, help: "Output PNG path (index appended for multiple prompts).")
     var output: String
 
-    @Flag(name: .long, help: "Run pixel eval after writing.")
+    @Flag(name: .long, help: "Run pixel eval after each write.")
     var analyze: Bool = false
 
     func run() async throws {
+        guard !prompts.isEmpty else { throw ValidationError("at least one prompt required") }
         try ensureMLXReady()
         let config = ImarelloConfig.autoDetectingTier()
         let snap = try ModelPaths.resolveOrThrow(config: config)
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let metallib = exe.deletingLastPathComponent().appendingPathComponent("mlx.metallib")
-        let outURL = URL(fileURLWithPath: output)
-        let t0 = CFAbsoluteTimeGetCurrent()
-        func mark(_ label: String, _ since: CFAbsoluteTime) {
-            print(String(format: "direct-generate: %-18s %6.0f ms", (label as NSString).utf8String!, (CFAbsoluteTimeGetCurrent() - since) * 1000))
-        }
 
-        // Stage 1 — direct TE (engine freed before anything else loads).
-        var embeds: MLXArray
-        do {
-            let tTE = CFAbsoluteTimeGetCurrent()
-            let te = try DirectTEEncoder(
-                teDirectory: snap.textEncoderDirectory,
-                tokenizerDirectory: snap.tokenizerDirectory,
-                metallibURL: metallib)
-            let (e, real, _) = try te.encode(prompt)
-            embeds = e
-            print("direct-generate: te real_tokens=\(real)")
-            mark("te_stage", tTE)
-        }
-        Memory.clearCache()
+        let tBuild = CFAbsoluteTimeGetCurrent()
+        let pipeline = try await DirectPipeline(snapshot: snap, metallibURL: metallib, config: config)
+        print(String(format: "direct-generate: pipeline built in %.0f ms (engines stay resident)",
+                     (CFAbsoluteTimeGetCurrent() - tBuild) * 1000))
 
-        // Stage 2 — conditioning on the direct conditioner (no product module;
-        // small weights only, verified cosine 1.0 vs precomputeStepConditioning).
-        let lImg = (width / 16) * (height / 16)
-        let tCond = CFAbsoluteTimeGetCurrent()
-        let e0: MLXArray
-        let rope: (MLXArray, MLXArray)
-        let conditioning: [Flux2StepConditioning]
-        let scheduler = Flux2Scheduler(numInferenceSteps: 4, imageSeqLen: lImg)
-        let dtFloats: [Float] = (0 ..< scheduler.sigmas.count - 1).map {
-            scheduler.sigmas[$0 + 1] - scheduler.sigmas[$0]
-        }
-        do {
-            let cond = try DirectConditioner(
-                transformerDirectory: snap.root.appendingPathComponent("transformer", isDirectory: true),
-                metallibURL: metallib)
-            e0 = try cond.projectContext(embeds)
-            let imgIds = LatentOps.imageIds(width: width, height: height)
-            let txtIds = LatentOps.textIds()
-            rope = cond.rope(imgIds: imgIds, txtIds: txtIds)
-            conditioning = try cond.stepConditioning(timesteps: scheduler.timesteps)
-        }
-        Memory.clearCache()
-        mark("conditioning", tCond)
-
-        // Stage 3 — direct DiT denoise.
-        let tDiT = CFAbsoluteTimeGetCurrent()
-        var latents: MLXArray
-        do {
-            var arrays: [String: MLXArray] = [:]
-            let tDir = snap.root.appendingPathComponent("transformer", isDirectory: true)
-            for shard in ["0.safetensors", "1.safetensors"] {
-                let url = tDir.appendingPathComponent(shard)
-                if FileManager.default.fileExists(atPath: url.path) {
-                    for (k, v) in try MLX.loadArrays(url: url) { arrays[k] = v }
-                }
+        let base = URL(fileURLWithPath: output)
+        for (idx, prompt) in prompts.enumerated() {
+            let outURL: URL
+            if prompts.count == 1 {
+                outURL = base
+            } else {
+                outURL = base.deletingPathExtension()
+                    .appendingPathExtension("p\(idx).png")
             }
-            let engine = try DirectDiTStep(lImg: lImg, metallibURL: metallib)
-            try engine.loadBlocks(arrays: arrays, nDouble: 5, nSingle: 20)
-            let head = try engine.loadHead(arrays: arrays)
-            arrays.removeAll()
-            Memory.clearCache()
-            print(String(format: "direct-generate: engine_owned=%.2f GiB", Double(engine.ownedBytes) / 1_073_741_824))
-
-            let e0Buf = try engine.upload(e0, "e0")
-            let noise = LatentOps.samplePackedNoise(width: width, height: height, seed: seed)
-            eval(noise)
-            let noiseData = noise.asData(noCopy: false)
-            noiseData.withUnsafeBytes { raw in
-                head.latA.contents().copyMemory(from: raw.baseAddress!, byteCount: raw.count)
+            let tm = try await pipeline.generate(
+                prompt: prompt, width: width, height: height, seed: seed, outputURL: outURL)
+            print(String(
+                format: "direct-generate[%d]: te %.0f ms · dit %.0f ms · vae %.0f ms · total %.0f ms → %@",
+                idx, tm.teMS, tm.ditMS, tm.vaeMS, tm.totalMS, outURL.lastPathComponent))
+            if analyze {
+                _ = try runPostGenerationEval(
+                    imageURL: outURL, prompt: prompt, referenceURL: nil, mode: .t2i,
+                    options: .init(analyze: true, analyzeJSON: nil, visionBrief: false,
+                                   failOnPixelGate: false, i2iStrength: nil))
             }
-            var cur = head.latA, alt = head.latB
-            for step in 0 ..< 4 {
-                try engine.setStepConditioning(conditioning[step], cos: rope.0, sin: rope.1)
-                try engine.encodeDenoiseStep(
-                    latIn: cur, latOut: alt, e0: e0Buf, head: head, dt: dtFloats[step])
-                swap(&cur, &alt)
-            }
-            var lat = [Float](repeating: 0, count: lImg * 128)
-            lat.withUnsafeMutableBufferPointer { p in
-                p.baseAddress!.update(
-                    from: cur.contents().bindMemory(to: Float.self, capacity: lImg * 128),
-                    count: lImg * 128)
-            }
-            latents = MLXArray(lat, [1, lImg, 128])
-            eval(latents)
-        }
-        Memory.clearCache()
-        mark("dit_stage", tDiT)
-
-        // Stage 4 — VAE decode (MLX, small decoder) + export.
-        let tVAE = CFAbsoluteTimeGetCurrent()
-        let vae = VAEModule(
-            snapshot: snap,
-            decoderVariant: .smallDecoder,
-            smallDecoderDirectory: ModelPaths.resolveSmallDecoderIfPresent(config: config))
-        try await vae.load(mode: .decodeOnly)
-        let (ph, pw) = (height / 16, width / 16)
-        let spatial = LatentOps.unpackSequence(latents, height: ph, width: pw)
-        let rgb = try vae.decodePacked(spatial)
-        eval(rgb)
-        await vae.unload()
-        try ImageExport.writePNG(rgb, to: outURL)
-        mark("vae_export", tVAE)
-        mark("total", t0)
-        print("wrote \(outURL.path)")
-
-        if analyze {
-            _ = try runPostGenerationEval(
-                imageURL: outURL, prompt: prompt, referenceURL: nil, mode: .t2i,
-                options: .init(analyze: true, analyzeJSON: nil, visionBrief: false,
-                               failOnPixelGate: false, i2iStrength: nil))
         }
     }
 }
