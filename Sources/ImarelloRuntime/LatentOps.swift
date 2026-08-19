@@ -159,7 +159,7 @@ public enum LatentOps {
     }
 
     /// `[B, S, C]` → `[B, C, H, W]` (row-major H then W).
-    static func unpackSequence(_ packed: MLXArray, height: Int, width: Int) -> MLXArray {
+    public static func unpackSequence(_ packed: MLXArray, height: Int, width: Int) -> MLXArray {
         let b = packed.dim(0)
         let c = packed.dim(2)
         // (B, S, C) → (B, C, S) → (B, C, H, W)

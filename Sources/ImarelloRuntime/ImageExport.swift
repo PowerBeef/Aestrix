@@ -7,17 +7,17 @@ import MLX
 import ImarelloCore
 
 /// Write MLX image tensors to PNG (macOS / iOS ImageIO).
-enum ImageExport {
+public enum ImageExport {
     /// Value range of the incoming tensor. Callers know their range; sampling
     /// pixels to guess it silently crushed shadows when the probed corner was bright.
-    enum PixelRange {
+    public enum PixelRange {
         case negOneToOne
         case zeroToOne
     }
 
     /// - Parameter image: NCHW float RGB.
     /// - Parameter range: `[-1, 1]` (FLUX VAE convention, default) or `[0, 1]`.
-    static func writePNG(_ image: MLXArray, to url: URL, range: PixelRange = .negOneToOne) throws {
+    public static func writePNG(_ image: MLXArray, to url: URL, range: PixelRange = .negOneToOne) throws {
         var x = image
         if x.ndim == 4 {
             x = x[0]  // CHW

@@ -114,7 +114,7 @@ public final class DirectDiTStep {
     /// — the deterministic static-plan footprint, distinct from device-wide use.
     public private(set) var ownedBytes = 0
 
-    func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
+    public func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
         let d = a.asData(noCopy: false)
         return try d.withUnsafeBytes { raw -> MTLBuffer in
             guard let base = raw.baseAddress,
@@ -786,8 +786,8 @@ extension DirectDiTStep {
         let h0: MTLBuffer         // [lImg, 3072] f32 (step input)
         let nhHead: MTLBuffer     // [lImg, 3072] f16 (norm_out output, ÷16)
         let pred16: MTLBuffer     // [lImg, 128] f16 (proj_out output)
-        let latA: MTLBuffer       // [lImg, 128] f32 ping-pong
-        let latB: MTLBuffer
+        public let latA: MTLBuffer  // [lImg, 128] f32 ping-pong
+        public let latB: MTLBuffer
     }
 
     /// Place a head/embedder buffer inside the heap's compute zone: the
