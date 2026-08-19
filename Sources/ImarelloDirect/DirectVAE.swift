@@ -681,3 +681,118 @@ public enum DirectVAEDecodeSpike {
         """
     }
 }
+
+// MARK: - Tiled decode (V5)
+
+extension DirectVAE {
+
+    /// Decode one NCHW latent tile [1,32,th,tw] → NCHW RGB, on the engine.
+    /// Sized-per-call scratch; sync (used as the product stitcher's closure).
+    func decodeTileNCHW(_ tile: MLXArray) throws -> MLXArray {
+        let H8 = tile.dim(2), W8 = tile.dim(3)
+        let zNHWC = tile.transposed(0, 2, 3, 1).asType(.float32)
+        eval(zNHWC)
+        let zData = zNHWC.asData(noCopy: false)
+        let zBuf = try zData.withUnsafeBytes { rawB -> MTLBuffer in
+            guard let base = rawB.baseAddress,
+                let bb = device.makeBuffer(bytes: base, length: rawB.count)
+            else { throw DirectQmmSpike.SpikeError.metal("z tile") }
+            return bb
+        }
+        let outH = 8 * H8, outW = 8 * W8
+        let bigBytes = outH * outW * 192 * 4
+        let midBytes = H8 * W8 * 384 * 4
+        func mk(_ n: Int, _ l: String) throws -> MTLBuffer {
+            guard let b = device.makeBuffer(length: n) else {
+                throw DirectQmmSpike.SpikeError.metal(l)
+            }
+            return b
+        }
+        let a = try mk(bigBytes, "a"), b = try mk(bigBytes, "b")
+        let t1 = try mk(bigBytes, "t1"), t2 = try mk(bigBytes, "t2")
+        let t3 = try mk(midBytes, "t3"), t4 = try mk(midBytes, "t4")
+        let scores = try mk(H8 * W8 * H8 * W8 * 4, "scores")
+        let rgbBuf = try mk(outH * outW * 3 * 4, "rgb")
+        guard let cb = queue.makeCommandBuffer(),
+            let enc = cb.makeComputeCommandEncoder()
+        else { throw DirectQmmSpike.SpikeError.metal("cb") }
+        try encodeDecoder(enc, z: zBuf, rgb: rgbBuf, a: a, b: b,
+                          t1: t1, t2: t2, t3: t3, t4: t4, scores: scores,
+                          H8: H8, W8: W8)
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("tile exec: \(e)") }
+        let n = outH * outW * 3
+        var host = [Float](repeating: 0, count: n)
+        host.withUnsafeMutableBufferPointer { p in
+            p.baseAddress!.update(
+                from: rgbBuf.contents().bindMemory(to: Float.self, capacity: n), count: n)
+        }
+        return MLXArray(host, [1, outH, outW, 3]).transposed(0, 3, 1, 2)
+    }
+}
+
+/// V5 spike: tiled 1024² decode — the product's cosine-blend stitcher driving
+/// the direct engine per tile, vs the product decodePacked end to end.
+public enum DirectVAETiledSpike {
+    public static func run(
+        snapshot: ModelSnapshot, smallDecoderDirectory: URL, metallibURL: URL
+    ) async throws -> String {
+        let width = 1024, height = 1024
+        let h16 = height / 16, w16 = width / 16
+
+        let packed = LatentOps.samplePackedNoise(width: width, height: height, seed: 42)
+        let spatial = LatentOps.unpackSequence(packed, height: h16, width: w16)
+        eval(spatial)
+
+        let module = VAEModule(
+            snapshot: snapshot, decoderVariant: .smallDecoder,
+            smallDecoderDirectory: smallDecoderDirectory)
+        try await module.load(mode: .decodeOnly)
+        let oracleNCHW = try await module.decodePacked(spatial)
+        eval(oracleNCHW)
+        await module.unload()
+        Memory.clearCache()
+
+        let vaeArrays = try MLX.loadArrays(
+            url: snapshot.vaeDirectory.appendingPathComponent("0.safetensors"))
+        guard let bnMean = vaeArrays["bn.running_mean"],
+            let bnVar = vaeArrays["bn.running_var"]
+        else { throw DirectQmmSpike.SpikeError.missingTensor("bn stats") }
+        let bnStd = sqrt(bnVar.asType(.float32).reshaped([1, -1, 1, 1]) + 1e-4)
+        let denormed = spatial.asType(.float32) * bnStd
+            + bnMean.asType(.float32).reshaped([1, -1, 1, 1])
+        let latents = Flux2VAE.unpatchify(denormed)
+        eval(latents)
+
+        let vae = try DirectVAE(
+            smallDecoderFile: smallDecoderDirectory.appendingPathComponent("small_decoder.safetensors"),
+            metallibURL: metallibURL)
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let direct = Flux2VAE.decodeLatentsTiled(
+            latents,
+            decode: { tile in try! vae.decodeTileNCHW(tile) },
+            config: .current)
+        eval(direct)
+        let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+
+        let n = 3 * height * width
+        let a = direct.reshaped([n]).asArray(Float.self)
+        let b = oracleNCHW.asType(.float32).reshaped([n]).asArray(Float.self)
+        var dot = 0.0, na = 0.0, nb = 0.0, maxDiff = 0.0
+        for i in 0 ..< n {
+            let x = Double(a[i]), y = Double(b[i])
+            dot += x * y; na += x * x; nb += y * y
+            maxDiff = max(maxDiff, abs(x - y))
+        }
+        let cosine = dot / (na.squareRoot() * nb.squareRoot() + 1e-30)
+        return """
+        direct-vae V5 — tiled 1024² (product cosine stitcher, direct tile decode)
+          cosine_vs_oracle: \(String(format: "%.7f", cosine))
+          max_abs_diff:     \(String(format: "%.6f", maxDiff))
+          tiled_wall:       \(String(format: "%.1f", ms)) ms
+          verdict:          \(cosine >= 0.9999 ? "PASS" : "investigate")
+        """
+    }
+}

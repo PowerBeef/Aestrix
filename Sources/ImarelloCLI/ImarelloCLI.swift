@@ -1646,6 +1646,11 @@ struct DirectSpike: AsyncParsableCommand {
             print(try await DirectVAEDecodeSpike.run(
                 snapshot: snapD, smallDecoderDirectory: sdDirD,
                 metallibURL: metallib, config: config))
+        case "vae-tiled":
+            let snapT = try ModelPaths.resolveOrThrow(config: config)
+            let sdDirT = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+            print(try await DirectVAETiledSpike.run(
+                snapshot: snapT, smallDecoderDirectory: sdDirT, metallibURL: metallib))
         case "vae-conv":
             print(try DirectVAESpike.run(metallibURL: metallib))
         case "conditioning":
