@@ -1627,6 +1627,16 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "dit-step":
+            let snap3 = try ModelPaths.resolveOrThrow(config: config)
+            print(try DirectDiTStepSpike.run(
+                transformerDirectory: snap3.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: metallib))
+        case "dit-double":
+            let snap2 = try ModelPaths.resolveOrThrow(config: config)
+            print(try DirectDiTDoubleBlockSpike.run(
+                transformerDirectory: snap2.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: metallib))
         case "dit-block":
             let snap = try ModelPaths.resolveOrThrow(config: config)
             print(try DirectDiTBlockSpike.run(
@@ -1638,7 +1648,7 @@ struct DirectSpike: AsyncParsableCommand {
                 snapshot: snap, metallibURL: metallib,
                 prompt: "A red fox sitting in a snowy forest clearing at golden hour, professional wildlife photography"))
         default:
-            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode | dit-block")
+            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode | dit-block | dit-double | dit-step")
         }
     }
 }
