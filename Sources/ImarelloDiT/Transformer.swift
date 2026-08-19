@@ -11,6 +11,20 @@ public struct Flux2StepConditioning {
     public let doubleTxt: [(MLXArray, MLXArray, MLXArray)]
     public let single: (MLXArray, MLXArray, MLXArray)
     public let outConditioning: (scale: MLXArray, shift: MLXArray)
+
+    public init(
+        temb: MLXArray,
+        doubleImg: [(MLXArray, MLXArray, MLXArray)],
+        doubleTxt: [(MLXArray, MLXArray, MLXArray)],
+        single: (MLXArray, MLXArray, MLXArray),
+        outConditioning: (scale: MLXArray, shift: MLXArray)
+    ) {
+        self.temb = temb
+        self.doubleImg = doubleImg
+        self.doubleTxt = doubleTxt
+        self.single = single
+        self.outConditioning = outConditioning
+    }
 }
 
 /// FLUX.2 Klein MMDiT: 5 double + 20 single stream blocks.

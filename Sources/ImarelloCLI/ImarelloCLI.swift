@@ -1628,6 +1628,9 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "conditioning":
+            let snapC = try ModelPaths.resolveOrThrow(config: config)
+            print(try await DirectConditionerSpike.run(snapshot: snapC, metallibURL: metallib))
         case "dit-denoise":
             let snap4 = try ModelPaths.resolveOrThrow(config: config)
             print(try await DirectDiTDenoiseSpike.run(
@@ -1704,29 +1707,27 @@ struct DirectGenerate: AsyncParsableCommand {
         }
         Memory.clearCache()
 
-        // Stage 2 — conditioning via the product module, then UNLOAD it.
+        // Stage 2 — conditioning on the direct conditioner (no product module;
+        // small weights only, verified cosine 1.0 vs precomputeStepConditioning).
         let lImg = (width / 16) * (height / 16)
         let tCond = CFAbsoluteTimeGetCurrent()
-        let dit = DiTModule(snapshot: snap)
-        try await dit.load()
-        let e0 = try dit.projectContext(embeds).asType(.float32)
-        let imgIds = LatentOps.imageIds(width: width, height: height)
-        let txtIds = LatentOps.textIds()
-        let rope = try dit.prepareRotaryEmbeddings(imgIds: imgIds, txtIds: txtIds)
+        let e0: MLXArray
+        let rope: (MLXArray, MLXArray)
+        let conditioning: [Flux2StepConditioning]
         let scheduler = Flux2Scheduler(numInferenceSteps: 4, imageSeqLen: lImg)
-        let stepTimesteps: [MLXArray] = scheduler.timesteps.map { MLXArray([$0]).asType(.float32) }
         let dtFloats: [Float] = (0 ..< scheduler.sigmas.count - 1).map {
             scheduler.sigmas[$0 + 1] - scheduler.sigmas[$0]
         }
-        let conditioning = try dit.precomputeStepConditioning(
-            timesteps: stepTimesteps, batch: 1, dtype: .float32, guidance: MLXArray(1.0))
-        eval(e0, rope.0, rope.1)
-        for sc in conditioning {
-            eval(sc.temb, sc.outConditioning.scale, sc.outConditioning.shift,
-                 sc.single.0, sc.single.1, sc.single.2)
-            for t in sc.doubleImg + sc.doubleTxt { eval(t.0, t.1, t.2) }
+        do {
+            let cond = try DirectConditioner(
+                transformerDirectory: snap.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: metallib)
+            e0 = try cond.projectContext(embeds)
+            let imgIds = LatentOps.imageIds(width: width, height: height)
+            let txtIds = LatentOps.textIds()
+            rope = cond.rope(imgIds: imgIds, txtIds: txtIds)
+            conditioning = try cond.stepConditioning(timesteps: scheduler.timesteps)
         }
-        await dit.unload()
         Memory.clearCache()
         mark("conditioning", tCond)
 

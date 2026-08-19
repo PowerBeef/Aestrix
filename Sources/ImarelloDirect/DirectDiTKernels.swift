@@ -172,6 +172,17 @@ enum DirectDiTKernels {
         x[idx] = (half)((float)x[idx] * scale);
     }
 
+    // SiLU in f32 (conditioning MLP glue).
+    kernel void dd_silu_f32(
+        device const float* x [[buffer(0)]],
+        device float* y [[buffer(1)]],
+        constant uint& n [[buffer(2)]],
+        uint gid [[thread_position_in_grid]]) {
+        if (gid >= n) return;
+        float v = x[gid];
+        y[gid] = v / (1.0f + metal::exp(-v));
+    }
+
     // f32 → f16 with scale (latents → qmm input, ÷16).
     kernel void dd_cast_prescale(
         device const float* x [[buffer(0)]],
