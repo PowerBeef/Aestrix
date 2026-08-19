@@ -1640,6 +1640,12 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectVAEMidSpike.run(
                 smallDecoderFile: sdDirM.appendingPathComponent("small_decoder.safetensors"),
                 metallibURL: metallib))
+        case "vae-decode":
+            let snapD = try ModelPaths.resolveOrThrow(config: config)
+            let sdDirD = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+            print(try await DirectVAEDecodeSpike.run(
+                snapshot: snapD, smallDecoderDirectory: sdDirD,
+                metallibURL: metallib, config: config))
         case "vae-conv":
             print(try DirectVAESpike.run(metallibURL: metallib))
         case "conditioning":

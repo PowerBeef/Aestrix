@@ -4,6 +4,8 @@ import MLX
 import MLXNN
 import ImarelloVAE
 import ImarelloCore
+import ImarelloWeights
+import ImarelloRuntime
 
 /// Direct VAE decoder engine (Stage 2, V-track). Convs run on the metallib's
 /// f32 implicit-gemm kernels; everything else on `DirectVAEKernels`. Weights
@@ -498,6 +500,183 @@ public enum DirectVAEMidSpike {
           cosine_vs_oracle: \(String(format: "%.7f", cosine))
           max_abs_diff:     \(String(format: "%.6f", maxDiff))
           gpu_wall:         \(String(format: "%.1f", ms)) ms
+          verdict:          \(cosine >= 0.9999 ? "PASS" : "investigate")
+        """
+    }
+}
+
+// MARK: - Full decoder (V4)
+
+extension DirectVAE {
+
+    struct UpSpec {
+        let cIn: Int
+        let cOut: Int
+        let upsample: Bool
+    }
+    /// Small Decoder up path: reversed [96,192,384,384] → 3 resnets each.
+    static let upSpecs: [UpSpec] = [
+        UpSpec(cIn: 384, cOut: 384, upsample: true),
+        UpSpec(cIn: 384, cOut: 384, upsample: true),
+        UpSpec(cIn: 384, cOut: 192, upsample: true),
+        UpSpec(cIn: 192, cOut: 96, upsample: false),
+    ]
+
+    func encodeUpsample(
+        _ enc: MTLComputeCommandEncoder, prefix: String,
+        x: MTLBuffer, y: MTLBuffer, t: MTLBuffer, H: Int, W: Int, C: Int
+    ) throws {
+        enc.setComputePipelineState(upPSO)
+        enc.setBuffer(x, offset: 0, index: 0)
+        enc.setBuffer(t, offset: 0, index: 1)
+        var h32 = Int32(H), w32 = Int32(W), c32 = Int32(C)
+        enc.setBytes(&h32, length: 4, index: 2)
+        enc.setBytes(&w32, length: 4, index: 3)
+        enc.setBytes(&c32, length: 4, index: 4)
+        enc.dispatchThreads(
+            MTLSize(width: C, height: 2 * W, depth: 2 * H),
+            threadsPerThreadgroup: MTLSize(width: min(C, 64), height: 4, depth: 1))
+        try encodeConv(enc, x: t, wt: try w("\(prefix).conv.weight"), y: y,
+                       H: 2 * H, W: 2 * W, C: C, O: C, k: 3)
+        encodeBiasAct(enc, x: y, bias: try w("\(prefix).conv.bias"), HW: 4 * H * W, C: C, silu: false)
+    }
+
+    /// post_quant_conv → conv_in → mid → 4 up blocks → GN+SiLU → conv_out.
+    /// `z` NHWC [1,H8,W8,32] → `rgb` NHWC [1,8·H8,8·W8,3].
+    /// `a`/`b`/`t1`/`t2` sized for the largest stage (8·H8 × 8·W8 × 192 f32);
+    /// `t3`/`t4` mid-sized (H8·W8·384); `scores` H8²·W8² f32.
+    func encodeDecoder(
+        _ enc: MTLComputeCommandEncoder,
+        z: MTLBuffer, rgb: MTLBuffer,
+        a: MTLBuffer, b: MTLBuffer, t1: MTLBuffer, t2: MTLBuffer,
+        t3: MTLBuffer, t4: MTLBuffer, scores: MTLBuffer,
+        H8: Int, W8: Int
+    ) throws {
+        var H = H8, W = W8
+        try encodeConv(enc, x: z, wt: try w("post_quant_conv.weight"), y: a,
+                       H: H, W: W, C: 32, O: 32, k: 1)
+        encodeBiasAct(enc, x: a, bias: try w("post_quant_conv.bias"), HW: H * W, C: 32, silu: false)
+        try encodeConv(enc, x: a, wt: try w("decoder.conv_in.weight"), y: b,
+                       H: H, W: W, C: 32, O: 384, k: 3)
+        encodeBiasAct(enc, x: b, bias: try w("decoder.conv_in.bias"), HW: H * W, C: 384, silu: false)
+        try encodeMid(enc, x: b, y: a, t1: t1, t2: t2, t3: t3, t4: t4,
+                      scores: scores, H: H, W: W, C: 384)
+        var cur = a, alt = b
+        for (i, spec) in Self.upSpecs.enumerated() {
+            for r in 0 ..< 3 {
+                let cIn = r == 0 ? spec.cIn : spec.cOut
+                try encodeResnet(enc, prefix: "decoder.up_blocks.\(i).resnets.\(r)",
+                                 x: cur, y: alt, t1: t1, t2: t2,
+                                 H: H, W: W, cIn: cIn, cOut: spec.cOut)
+                swap(&cur, &alt)
+            }
+            if spec.upsample {
+                try encodeUpsample(enc, prefix: "decoder.up_blocks.\(i).upsamplers.0",
+                                   x: cur, y: alt, t: t1, H: H, W: W, C: spec.cOut)
+                swap(&cur, &alt)
+                H *= 2
+                W *= 2
+            }
+        }
+        encodeGroupNormAct(enc, x: cur, gamma: try w("decoder.conv_norm_out.weight"),
+                           beta: try w("decoder.conv_norm_out.bias"), y: alt,
+                           HW: H * W, C: 96, silu: true)
+        try encodeConv(enc, x: alt, wt: try w("decoder.conv_out.weight"), y: rgb,
+                       H: H, W: W, C: 96, O: 3, k: 3)
+        encodeBiasAct(enc, x: rgb, bias: try w("decoder.conv_out.bias"), HW: H * W, C: 3, silu: false)
+    }
+}
+
+/// V4 spike: the whole Small Decoder untiled @512² on the direct engine vs
+/// the product `VAEModule.decodePacked` on the same packed latent.
+public enum DirectVAEDecodeSpike {
+    public static func run(
+        snapshot: ModelSnapshot, smallDecoderDirectory: URL, metallibURL: URL,
+        config: ImarelloConfig
+    ) async throws -> String {
+        let width = 512, height = 512
+        let h16 = height / 16, w16 = width / 16
+        let H8 = 2 * h16, W8 = 2 * w16
+
+        let packed = LatentOps.samplePackedNoise(width: width, height: height, seed: 42)
+        let spatial = LatentOps.unpackSequence(packed, height: h16, width: w16)
+        eval(spatial)
+
+        // Oracle: the product decode path (untiled at 512²), then unload.
+        let module = VAEModule(
+            snapshot: snapshot, decoderVariant: .smallDecoder,
+            smallDecoderDirectory: smallDecoderDirectory)
+        try await module.load(mode: .decodeOnly)
+        let oracleNCHW = try await module.decodePacked(spatial)
+        eval(oracleNCHW)
+        let oracle = oracleNCHW.transposed(0, 2, 3, 1)  // NHWC for comparison
+        eval(oracle)
+        await module.unload()
+        Memory.clearCache()
+
+        // Direct entry: BN denorm + unpatchify on MLX (tiny), engine from conv on.
+        let vaeArrays = try MLX.loadArrays(
+            url: snapshot.vaeDirectory.appendingPathComponent("0.safetensors"))
+        guard let bnMean = vaeArrays["bn.running_mean"],
+            let bnVar = vaeArrays["bn.running_var"]
+        else { throw DirectQmmSpike.SpikeError.missingTensor("bn stats") }
+        let bnStd = sqrt(bnVar.asType(.float32).reshaped([1, -1, 1, 1]) + 1e-4)
+        let denormed = spatial.asType(.float32) * bnStd
+            + bnMean.asType(.float32).reshaped([1, -1, 1, 1])
+        let zNHWC = Flux2VAE.unpatchify(denormed).transposed(0, 2, 3, 1).asType(.float32)
+        eval(zNHWC)
+
+        let vae = try DirectVAE(
+            smallDecoderFile: smallDecoderDirectory.appendingPathComponent("small_decoder.safetensors"),
+            metallibURL: metallibURL)
+        let zData = zNHWC.asData(noCopy: false)
+        let zBuf = try zData.withUnsafeBytes { rawB -> MTLBuffer in
+            guard let base = rawB.baseAddress,
+                let bb = vae.device.makeBuffer(bytes: base, length: rawB.count)
+            else { throw DirectQmmSpike.SpikeError.metal("z") }
+            return bb
+        }
+        let outH = 8 * H8, outW = 8 * W8
+        let bigBytes = outH * outW * 192 * 4
+        let midBytes = H8 * W8 * 384 * 4
+        let a = try vae.scratch(bigBytes, "a")
+        let b = try vae.scratch(bigBytes, "b")
+        let t1 = try vae.scratch(bigBytes, "t1")
+        let t2 = try vae.scratch(bigBytes, "t2")
+        let t3 = try vae.scratch(midBytes, "t3")
+        let t4 = try vae.scratch(midBytes, "t4")
+        let scores = try vae.scratch(H8 * W8 * H8 * W8 * 4, "scores")
+        let rgbBuf = try vae.scratch(outH * outW * 3 * 4, "rgb")
+
+        guard let cb = vae.queue.makeCommandBuffer(),
+            let enc = cb.makeComputeCommandEncoder()
+        else { throw DirectQmmSpike.SpikeError.metal("cb") }
+        try vae.encodeDecoder(enc, z: zBuf, rgb: rgbBuf, a: a, b: b,
+                              t1: t1, t2: t2, t3: t3, t4: t4, scores: scores,
+                              H8: H8, W8: W8)
+        enc.endEncoding()
+        let t0 = CFAbsoluteTimeGetCurrent()
+        cb.commit()
+        await cb.completed()
+        let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("exec: \(e)") }
+
+        let n = outH * outW * 3
+        let ptr = rgbBuf.contents().bindMemory(to: Float.self, capacity: n)
+        let ref = oracle.reshaped([n]).asArray(Float.self)
+        var dot = 0.0, na = 0.0, nb = 0.0, maxDiff = 0.0
+        for i in 0 ..< n {
+            let x = Double(ptr[i]), y = Double(ref[i])
+            dot += x * y; na += x * x; nb += y * y
+            maxDiff = max(maxDiff, abs(x - y))
+        }
+        let cosine = dot / (na.squareRoot() * nb.squareRoot() + 1e-30)
+        return """
+        direct-vae V4 — full Small Decoder untiled @\(width)² vs product decodePacked
+          cosine_vs_oracle: \(String(format: "%.7f", cosine))
+          max_abs_diff:     \(String(format: "%.6f", maxDiff))
+          gpu_wall:         \(String(format: "%.1f", ms)) ms
+          engine_owned:     \(String(format: "%.2f", Double(vae.ownedBytes) / 1_073_741_824)) GiB
           verdict:          \(cosine >= 0.9999 ? "PASS" : "investigate")
         """
     }
