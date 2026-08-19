@@ -106,16 +106,22 @@ public final class DirectVAE {
     func encodeConv(
         _ enc: MTLComputeCommandEncoder,
         x: MTLBuffer, wt: MTLBuffer, y: MTLBuffer,
-        H: Int, W: Int, C: Int, O: Int, k: Int
+        H: Int, W: Int, C: Int, O: Int, k: Int,
+        tileOverride: (bm: Int, bn: Int)? = nil
     ) throws {
         let pad = k / 2
         let implicitM = H * W
         let implicitN = O
         let implicitK = k * k * C
         var wm = 2, wn = 2
-        let bm = implicitM >= 8192 && C >= 64 ? 64 : 32
+        var bm = implicitM >= 8192 && C >= 64 ? 64 : 32
         var bn = (bm == 64 || implicitN >= 64) ? 64 : 32
+        // Measured on M2 (O=96 @512²): bn=64 over a 96-wide N pads 25% of every
+        // tile row — bn=32 tiles exactly and runs 20–40% faster. Prefer the
+        // aligned tile whenever N is a multiple of 32 but not of 64.
+        if bn == 64, implicitN % 64 != 0, implicitN % 32 == 0 { bn = 32 }
         if implicitN <= 16 { bn = 8; wm = 4; wn = 1 }
+        if let t = tileOverride { bm = t.bm; bn = t.bn }
         let bk = 16
         let tn = (implicitN + bn - 1) / bn
         let tm = (implicitM + bm - 1) / bm
@@ -1032,6 +1038,16 @@ public enum DirectVAEMicroSpike {
         let cw0 = try vae.w("decoder.up_blocks.3.resnets.0.conv1.weight")  // 192→96
         try time("conv3x3 192→96") { enc in
             try vae.encodeConv(enc, x: a, wt: cw0, y: b, H: H, W: W, C: 192, O: 96, k: 3)
+        }
+        for (tbm, tbn) in [(64, 64), (64, 32), (32, 64), (32, 32)] {
+            try time("conv 192→96 bm\(tbm) bn\(tbn)") { enc in
+                try vae.encodeConv(enc, x: a, wt: cw0, y: b, H: H, W: W, C: 192, O: 96, k: 3,
+                                   tileOverride: (bm: tbm, bn: tbn))
+            }
+            try time("conv 96→96 bm\(tbm) bn\(tbn)") { enc in
+                try vae.encodeConv(enc, x: a, wt: cw, y: b, H: H, W: W, C: 96, O: 96, k: 3,
+                                   tileOverride: (bm: tbm, bn: tbn))
+            }
         }
         let bias = try vae.w("decoder.up_blocks.3.resnets.1.conv1.bias")
         try time("bias+silu 96ch") { enc in
