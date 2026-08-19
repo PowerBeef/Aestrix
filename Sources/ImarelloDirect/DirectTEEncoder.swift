@@ -201,6 +201,108 @@ public final class DirectTEEncoder {
             threadsPerThreadgroup: MTLSize(width: 32, height: 4, depth: 1))
     }
 
+    // MARK: - Causal attention (splice path: no pads in window)
+
+    func encodeCausalAttention(
+        _ enc: MTLComputeCommandEncoder, L: Int,
+        q: MTLBuffer, k: MTLBuffer, v: MTLBuffer, o: MTLBuffer
+    ) throws {
+        let nHeads = DirectTEForward.nHeads
+        let nKV = DirectTEForward.nKV
+        let headDim = DirectTEForward.headDim
+        let bq = 32, bk = 16
+        let pso = try engine.attnPSO(
+            alignQ: L % bq == 0, alignK: L % bk == 0, dtypeName: "bfloat16")
+        enc.setComputePipelineState(pso)
+        enc.setBuffer(q, offset: 0, index: 0)
+        enc.setBuffer(k, offset: 0, index: 1)
+        enc.setBuffer(v, offset: 0, index: 2)
+        enc.setBuffer(o, offset: 0, index: 3)
+        let nq = (L + bq - 1) / bq, nk = (L + bk - 1) / bk
+        var data = Data(capacity: 152)
+        func i32(_ v: Int) { var x = Int32(v); withUnsafeBytes(of: &x) { data.append(contentsOf: $0) } }
+        func f32v(_ v: Float) { var x = v; withUnsafeBytes(of: &x) { data.append(contentsOf: $0) } }
+        func i64x3(_ a: Int, _ b: Int, _ c: Int) {
+            for v in [Int64(a), Int64(b), Int64(c)] {
+                var x = v; withUnsafeBytes(of: &x) { data.append(contentsOf: $0) }
+            }
+        }
+        i32(1); i32(nHeads); i32(headDim); i32(L); i32(L)
+        i32(nHeads / nKV)
+        f32v(1.0 / Float(Double(headDim).squareRoot()))
+        i32(nq); i32(nk)
+        i32(L / bq); i32(L / bk)
+        i32(L - (L / bq) * bq); i32(L - (L / bk) * bk)
+        i32(0)
+        i64x3(L * nHeads * headDim, headDim, nHeads * headDim)
+        i64x3(L * nKV * headDim, headDim, nKV * headDim)
+        i64x3(L * nKV * headDim, headDim, nKV * headDim)
+        i64x3(L * nHeads * headDim, headDim, nHeads * headDim)
+        data.withUnsafeBytes { enc.setBytes($0.baseAddress!, length: data.count, index: 4) }
+        enc.dispatchThreadgroups(
+            MTLSize(width: nq, height: nHeads, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 32, height: 4, depth: 1))
+    }
+
+    /// Splice path: encode ONLY the real (chat-templated) tokens — pure causal,
+    /// work scales with the prompt, not with 512. Returns `[1, r, 7680]` bf16.
+    public func encodeRealOnly(_ prompt: String) throws -> (embeds: MLXArray, realTokens: Int, ms: Double) {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let ids = tokenizer.encodePromptUnpadded(prompt, maxLength: Self.maxLen)
+        let r = ids.count
+        lastRealTokens = r
+
+        let xPtr = scratch.x.contents().bindMemory(to: UInt16.self, capacity: r * Self.hidden)
+        for (pos, token) in ids.enumerated() {
+            embedRow(token, into: xPtr + pos * Self.hidden)
+        }
+
+        guard let cb = engine.ctx.queue.makeCommandBuffer() else {
+            throw DirectQmmSpike.SpikeError.metal("cb")
+        }
+        var tapIdx = 0
+        for (li, lb) in engine.layers.enumerated() {
+            guard let enc = cb.makeComputeCommandEncoder() else {
+                throw DirectQmmSpike.SpikeError.metal("encoder")
+            }
+            try encodeLayer(enc, lb, L: r, kind: .causal)
+            enc.endEncoding()
+            swap(&scratch.x, &scratch.y)
+            if tapIdx < DirectTEForward.taps.count, li + 1 == DirectTEForward.taps[tapIdx] {
+                guard let blit = cb.makeBlitCommandEncoder() else {
+                    throw DirectQmmSpike.SpikeError.metal("blit")
+                }
+                blit.copy(
+                    from: scratch.x, sourceOffset: 0,
+                    to: scratch.tapBufs[tapIdx], destinationOffset: 0,
+                    size: r * Self.hidden * 2)
+                blit.endEncoding()
+                tapIdx += 1
+            }
+        }
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("exec: \(e)") }
+
+        var out = [Float](repeating: 0, count: r * Self.hidden * 3)
+        for (t, buf) in scratch.tapBufs.enumerated() {
+            let p = buf.contents().bindMemory(to: UInt16.self, capacity: r * Self.hidden)
+            out.withUnsafeMutableBufferPointer { ob in
+                for l in 0 ..< r {
+                    let dst = ob.baseAddress! + l * Self.hidden * 3 + t * Self.hidden
+                    let src = p + l * Self.hidden
+                    for c in 0 ..< Self.hidden {
+                        dst[c] = Self.bf16ToF32(src[c])
+                    }
+                }
+            }
+        }
+        let embeds = MLXArray(out, [1, r, Self.hidden * 3]).asType(.bfloat16)
+        eval(embeds)
+        let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        return (embeds, r, ms)
+    }
+
     // MARK: - Full encode
 
     /// Chat-templated, padded-window encode. Returns `[1, 512, 7680]` bf16.
@@ -225,7 +327,7 @@ public final class DirectTEEncoder {
             guard let enc = cb.makeComputeCommandEncoder() else {
                 throw DirectQmmSpike.SpikeError.metal("encoder")
             }
-            encodeMaskedLayer(enc, lb)
+            try encodeLayer(enc, lb, L: L, kind: .maskedFullWindow)
             enc.endEncoding()
             swap(&scratch.x, &scratch.y)
             if tapIdx < DirectTEForward.taps.count, li + 1 == DirectTEForward.taps[tapIdx] {
@@ -264,12 +366,14 @@ public final class DirectTEEncoder {
         return (embeds, realTokens, ms)
     }
 
-    private func encodeMaskedLayer(
-        _ enc: MTLComputeCommandEncoder, _ lb: DirectTEForward.LayerBuffers
-    ) {
+    enum AttentionKind { case maskedFullWindow, causal }
+
+    private func encodeLayer(
+        _ enc: MTLComputeCommandEncoder, _ lb: DirectTEForward.LayerBuffers,
+        L: Int, kind: AttentionKind
+    ) throws {
         let ctx = engine.ctx
         let s = scratch
-        let L = Self.maxLen
         let nHeads = DirectTEForward.nHeads
         let nKV = DirectTEForward.nKV
         let headDim = DirectTEForward.headDim
@@ -287,7 +391,12 @@ public final class DirectTEEncoder {
         LS.encodeRms(enc, ctx, x: s.k, w: lb.wKn, y: s.kn, rows: L * nKV, d: headDim, pso: rmsPSO)
         LS.encodeRopeL(enc, ctx, x: s.qn, y: s.qr, heads: nHeads, seqLen: L, pso: ropePSO)
         LS.encodeRopeL(enc, ctx, x: s.kn, y: s.kr, heads: nKV, seqLen: L, pso: ropePSO)
-        encodeMaskedAttention(enc, q: s.qr, k: s.kr, v: s.v, o: s.attnO)
+        switch kind {
+        case .maskedFullWindow:
+            encodeMaskedAttention(enc, q: s.qr, k: s.kr, v: s.v, o: s.attnO)
+        case .causal:
+            try encodeCausalAttention(enc, L: L, q: s.qr, k: s.kr, v: s.v, o: s.attnO)
+        }
         LS.encodeQmm(enc, ctx, w: lb.qmm[3].w, s: lb.qmm[3].s, b: lb.qmm[3].b,
                      x: s.attnO, y: s.attnP, m: L, n: lb.qmm[3].n, k: lb.qmm[3].k, pso: qmmPSO)
         LS.encodeAdd(enc, ctx, a: s.x, b: s.attnP, y: s.resid1, n: L * hidden, pso: addPSO)

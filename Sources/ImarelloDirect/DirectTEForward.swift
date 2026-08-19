@@ -38,8 +38,10 @@ public enum DirectTEForward {
             ctx = try DirectTELayerSpike.Ctx(metallibURL: metallibURL)
         }
 
-        func attnPSO(alignQ: Bool, alignK: Bool) throws -> MTLComputePipelineState {
-            let key = "\(alignQ)-\(alignK)"
+        func attnPSO(
+            alignQ: Bool, alignK: Bool, dtypeName: String = "float16"
+        ) throws -> MTLComputePipelineState {
+            let key = "\(alignQ)-\(alignK)-\(dtypeName)"
             if let p = attnPSOs[key] { return p }
             let lib = try ctx.device.makeLibrary(URL: metallibURL)
             let consts = MTLFunctionConstantValues()
@@ -50,7 +52,7 @@ public enum DirectTEForward {
             consts.setConstantValue(&t, type: .bool, index: 301)  // do_causal
             consts.setConstantValue(&f, type: .bool, index: 302)  // has_sinks
             let fn = try lib.makeFunction(
-                name: "steel_attention_float16_bq32_bk16_bd128_wm4_wn1_maskfloat16",
+                name: "steel_attention_\(dtypeName)_bq32_bk16_bd128_wm4_wn1_mask\(dtypeName)",
                 constantValues: consts)
             let p = try ctx.device.makeComputePipelineState(function: fn)
             attnPSOs[key] = p

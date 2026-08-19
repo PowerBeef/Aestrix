@@ -11,6 +11,7 @@ import ImarelloVAE
 import ImarelloEval
 import ImarelloBench
 import ImarelloDirect
+import MLX
 
 @main
 struct ImarelloCLI: AsyncParsableCommand {
@@ -504,13 +505,40 @@ struct T2I: AsyncParsableCommand {
                 teDirectory: snap.textEncoderDirectory,
                 tokenizerDirectory: snap.tokenizerDirectory,
                 metallibURL: metallib)
-            let (embeds, realTokens, ms) = try encoder.encode(prompt)
+            let embeds: MLXArray
+            let realTokens: Int
+            let ms: Double
+            if padContent == "clean" {
+                // Splice: real-token causal encode + cached clean-pad bank.
+                let (real, r, realMS) = try encoder.encodeRealOnly(prompt)
+                let bankURL = PromptEmbedCache.entryURL(prompt: "", modelID: config.modelID)
+                var bankMS = 0.0
+                let bank: MLXArray
+                if let cached = PromptEmbedCache.load(url: bankURL) {
+                    bank = cached.embeds
+                } else {
+                    let t0 = CFAbsoluteTimeGetCurrent()
+                    let (b, br, _) = try encoder.encode("")
+                    PromptEmbedCache.store(embeds: b, realTokens: br, url: bankURL)
+                    bank = b
+                    bankMS = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                }
+                embeds = concatenated([real, bank[0..., r..., 0...]], axis: 1)
+                eval(embeds)
+                realTokens = r
+                ms = realMS
+                if bankMS > 0 {
+                    print(String(format: "te_engine: clean-pad bank built %.0f ms (one-time, cached)", bankMS))
+                }
+            } else {
+                (embeds, realTokens, ms) = try encoder.encode(prompt)
+            }
             let url = PromptEmbedCache.entryURL(
                 prompt: prompt, modelID: config.modelID, padContent: padContent)
             PromptEmbedCache.store(embeds: embeds, realTokens: realTokens, url: url)
             print(String(
-                format: "te_engine: direct encode %.0f ms (%d real tokens) — cache pre-seeded, TE stage will be skipped",
-                ms, realTokens))
+                format: "te_engine: direct encode %.0f ms (%d real tokens, pad=%@) — cache pre-seeded, TE stage will be skipped",
+                ms, realTokens, padContent))
         } else if teEngine != "mlx" {
             throw ValidationError("unknown --te-engine " + teEngine + "; use mlx | direct")
         }

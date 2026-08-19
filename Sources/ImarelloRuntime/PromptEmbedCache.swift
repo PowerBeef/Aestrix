@@ -17,9 +17,9 @@ public enum PromptEmbedCache {
     /// and full-window entries must never alias.
     private static let formatVersion = "v3"
 
-    struct Entry {
-        let embeds: MLXArray
-        let realTokens: Int
+    public struct Entry {
+        public let embeds: MLXArray
+        public let realTokens: Int
     }
 
     static func cacheDirectory() -> URL {
@@ -63,7 +63,7 @@ public enum PromptEmbedCache {
     /// A corrupt entry is deleted so it cannot poison every later run: MLX
     /// materializes safetensors lazily, so a truncated file with an intact
     /// header would otherwise only fail inside a non-throwing `eval()`.
-    static func load(url: URL) -> Entry? {
+    public static func load(url: URL) -> Entry? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         guard let (arrays, metadata) = try? loadArraysAndMetadata(url: url),
               let embeds = arrays["embeds"],
