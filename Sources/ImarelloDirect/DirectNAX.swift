@@ -104,13 +104,34 @@ public enum DirectNAXQmmSpike {
             return report + "\n  verdict:   ABI staged; numeric gate needs A19/M5-class hardware"
         }
 
-        // One DiT-shaped projection (K=3072, N=3072): real to_q weights when a
-        // snapshot is present, synthetic 4-bit tensors otherwise.
+        // One DiT-shaped projection (K=3072, N=3072). The synthetic path is
+        // pure Swift + Metal — no MLX. That is deliberate: on-device, MLX's
+        // own nojit kernel lookups hit the app's thin Cmlx-bundle metallib
+        // and abort; the engine's full metallib is a separate resource and
+        // this spike must stay independent of MLX's runtime entirely.
         let m = 4096, k = 3072, n = 3072
-        MLXRandom.seed(7)
-        var wq: MLXArray
-        var sc: MLXArray
-        var bi: MLXArray
+        func mk(_ bytes: [UInt8], _ l: String) throws -> MTLBuffer {
+            try bytes.withUnsafeBytes { raw -> MTLBuffer in
+                guard let b = dev.makeBuffer(bytes: raw.baseAddress!, length: raw.count) else {
+                    throw DirectQmmSpike.SpikeError.metal(l)
+                }
+                return b
+            }
+        }
+        var rng = SystemRandomNumberGenerator()  // ABI proof — determinism not needed
+        func f16Bytes(_ count: Int, scale: Float) -> [UInt8] {
+            var out = [UInt8](repeating: 0, count: count * 2)
+            out.withUnsafeMutableBytes { raw in
+                let p = raw.bindMemory(to: Float16.self)
+                for i in 0 ..< count {
+                    p[i] = Float16((Float.random(in: -1 ... 1, using: &rng)) * scale)
+                }
+            }
+            return out
+        }
+        let wB: MTLBuffer
+        let sB: MTLBuffer
+        let bB: MTLBuffer
         if let ditDirectory {
             var arrays: [String: MLXArray] = [:]
             for shard in ["0.safetensors", "1.safetensors"] {
@@ -126,29 +147,31 @@ public enum DirectNAXQmmSpike {
             guard let w = arrays["\(base).weight"], let s = arrays["\(base).scales"],
                 let b = arrays["\(base).biases"]
             else { throw DirectQmmSpike.SpikeError.missingTensor(base) }
-            wq = w
-            sc = s
-            bi = b
-        } else {
-            wq = MLXRandom.randInt(low: 0, high: Int32.max, [n, k / 8]).asType(.uint32)
-            sc = (MLXRandom.normal([n, k / 64]) * 0.02).asType(.float16)
-            bi = (MLXRandom.normal([n, k / 64]) * 0.01).asType(.float16)
-        }
-        let x = (MLXRandom.normal([m, k]) * 0.5).asType(.float16)
-        let scF16 = sc.asType(.float16), biF16 = bi.asType(.float16)
-        eval(x, wq, scF16, biF16)
-
-        func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
-            let d = a.asData(noCopy: false)
-            return try d.withUnsafeBytes { raw -> MTLBuffer in
-                guard let b = dev.makeBuffer(bytes: raw.baseAddress!, length: raw.count) else {
-                    throw DirectQmmSpike.SpikeError.metal(l)
+            let sF = s.asType(.float16), bF = b.asType(.float16)
+            eval(w, sF, bF)
+            func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
+                let d = a.asData(noCopy: false)
+                return try d.withUnsafeBytes { raw -> MTLBuffer in
+                    guard let b = dev.makeBuffer(bytes: raw.baseAddress!, length: raw.count) else {
+                        throw DirectQmmSpike.SpikeError.metal(l)
+                    }
+                    return b
                 }
-                return b
             }
+            wB = try upload(w, "w")
+            sB = try upload(sF, "s")
+            bB = try upload(bF, "b")
+        } else {
+            var wBytes = [UInt8](repeating: 0, count: n * (k / 8) * 4)
+            wBytes.withUnsafeMutableBytes { raw in
+                let p = raw.bindMemory(to: UInt32.self)
+                for i in 0 ..< p.count { p[i] = UInt32.random(in: .min ... .max, using: &rng) }
+            }
+            wB = try mk(wBytes, "w")
+            sB = try mk(f16Bytes(n * (k / 64), scale: 0.02), "s")
+            bB = try mk(f16Bytes(n * (k / 64), scale: 0.01), "b")
         }
-        let wB = try upload(wq, "w"), sB = try upload(scF16, "s"), bB = try upload(biF16, "b")
-        let xB = try upload(x, "x")
+        let xB = try mk(f16Bytes(m * k, scale: 0.5), "x")
         guard let ySteel = dev.makeBuffer(length: m * n * 2),
             let yNAX = dev.makeBuffer(length: m * n * 2)
         else { throw DirectQmmSpike.SpikeError.metal("y") }
@@ -211,7 +234,7 @@ public enum DirectNAXQmmSpike {
         let cosine = dot / (na.squareRoot() * nb.squareRoot() + 1e-30)
         return report + """
 
-          shape:     M=\(m) K=\(k) N=\(n) (real to_q weights)
+          shape:     M=\(m) K=\(k) N=\(n) (\(ditDirectory == nil ? "synthetic 4-bit tensors" : "real to_q weights"))
           cosine_nax_vs_steel: \(String(format: "%.7f", cosine))
           max_abs_diff:        \(String(format: "%.6f", maxDiff))
           bit_exact:           \(exact)/\(count) (\(String(format: "%.1f", 100.0 * Double(exact) / Double(count)))%)

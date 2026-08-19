@@ -63,6 +63,13 @@ targets:
     deploymentTarget: "26.2"
     sources:
       - path: ImarelloSpikes
+        excludes:
+          - "mlx-full.metallib"
+      # Full nojit MLX metallib compiled for iphoneos (Scripts note: the
+      # Cmlx-bundle metallib Xcode builds is the thin JIT-era set — gitignored,
+      # rebuild via the ensure-metallib recipe with -sdk iphoneos).
+      - path: ImarelloSpikes/mlx-full.metallib
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.imarello.spikes

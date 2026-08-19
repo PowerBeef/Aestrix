@@ -180,6 +180,19 @@ Bespoke TE next (the §3 anomaly means the *relative* win is largest there), VAE
 
 **Platform strategy throughout (updated 2026-08-18, user decision):** floors raised to **macOS 26.2 / iOS 26.2** — every Apple Silicon Mac runs macOS 26, so no supported chip is dropped. The bespoke engine targets **Metal 4 as a single API surface** (MTLTensor, MPP `matmul2d` tensor ops, new command encoding) with no Metal 3 dual path; NAX execution remains runtime-gated to A19/M5-class GPUs, and MLX's own NAX host dispatch now compiles in everywhere (fork `079609a`, `MLX_METAL_NO_NAX` dropped).
 
+## N-track: NAX on the direct engine (2026-08-19)
+
+**The direct engine owns NAX now — and the A19 Pro question is answered: YES.** The engine dispatches `affine_qmm_t_nax_*` by name (ABI recovered from `quantized.cpp::qmm_nax`: byte-identical buffer layout to the Steel qmm — w/s/b/x/y at 0–4, K/N/M at 5–7 — with a 64-tile grid and the alN-by-N name; conditions K%64==0, non-f32, weights transposed). `DirectNAX.probe` mirrors core's `is_nax_available()` (OS ≥ 26.2, arch gen ≥ 17, 'p'-suffix parts ≥ 18); `DirectDiTStep(useNAXQmm:)` routes every DiT projection; `direct-generate --nax` and the adapter carry the flag, refused on ineligible GPUs.
+
+**Device gate (iPhone 17 Pro, iOS 26.6, `ImarelloSpikes` runner): PASS.** `applegpu_g18p` gen 18 → eligible. NAX vs Steel at the DiT shape M=4096/K=3072/N=3072: **cosine 1.0000000, 99.5% bit-exact, max |Δ| 0.0039 (f16-ULP class)** — and **40.0 → 11.8 ms, 3.38×**, on a low-battery phone. qmm is 44–51% of a denoise step ⇒ projected ~1.4–1.5× device denoise once the direct DiT runs there. No NAX attention kernels exist in 0.32.1 — qmm is the whole prize.
+
+Hard-won facts from the device ladder:
+- **PSO creation for NAX kernels SUCCEEDS on non-NAX GPUs** (M2 builds the pipeline fine; only execution needs the hardware) — the arch probe is the only valid gate, never a compile/creation check.
+- **The iOS app's Cmlx-bundle metallib is the thin JIT-era set (4.5 MB vs 155 MB)** — Xcode auto-compiles the .metal sources without the nojit instantiations. Under nojit this is a **latent runtime breakage of the main iOS app** (last device-validated pre-nojit, 2026-08-16): any MLX op on device aborts on kernel lookup. The spike app ships a full `-sdk iphoneos` metallib as an app resource (155 MB, all 42 kernel files incl. NAX) and the engine takes it by URL; the spike's synthetic path is deliberately MLX-free so it cannot trip over MLX's own metallib. **The main app needs the same treatment (full metallib + pointing MLX at it) before any device generate.**
+- Two more fork fixes shipped en route (`e5b42df`): 0.32.1's CPU `jit_compiler.cpp` calls `std::system` (absent on iOS) — excluded on Apple platforms with a four-symbol stub (`available()` = false → interpreted CPU fallback; GPU untouched; macOS byte-identical fox + 86/86 after the pin move).
+
+Next rungs: device dit-step spike (whole 25-block step, NAX vs Steel), then a full on-device bespoke generate — both need weights reachable from the runner; then the iOS product decision.
+
 ## 7. References
 
 - Draw Things Metal FlashAttention v2.5 shaders — BSD-3, in `ccv` (permissive FA/GEMM reference, NAX existence proof on A19 Pro).

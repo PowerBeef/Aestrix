@@ -36,9 +36,13 @@ struct SpikesApp: App {
 }
 
 enum SpikeRunner {
-    /// The Cmlx resource bundle Xcode embeds alongside the app carries the
-    /// full MLX metallib (NAX kernels included since the 26.2 floor).
+    /// Prefer the app-bundled FULL nojit metallib (the Cmlx-bundle one Xcode
+    /// builds from .metal sources is the thin JIT-era set — measured 4.5 MB
+    /// vs 155 MB, NAX and most instantiations absent).
     static func metallibURL() -> URL? {
+        if let full = Bundle.main.url(forResource: "mlx-full", withExtension: "metallib") {
+            return full
+        }
         guard let bundleURL = Bundle.main.url(forResource: "mlx-swift_Cmlx", withExtension: "bundle"),
             let cmlx = Bundle(url: bundleURL)
         else { return nil }
@@ -51,6 +55,7 @@ enum SpikeRunner {
             return out + "FATAL: mlx-swift_Cmlx.bundle/default.metallib not found in app bundle"
         }
         out += "metallib: \(metallib.lastPathComponent) ✓\n\n"
+        persist(out + "…spike running")  // breadcrumb survives a crash
         do {
             out += try DirectNAXQmmSpike.run(ditDirectory: nil, metallibURL: metallib)
         } catch {

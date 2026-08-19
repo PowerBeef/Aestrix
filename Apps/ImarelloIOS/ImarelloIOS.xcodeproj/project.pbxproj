@@ -18,6 +18,7 @@
 		4AD204347B422649206A3A79 /* StudioModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */; };
 		59240486E0E0F708F97CCCAA /* SpikesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */; };
 		701749E0BBC1AA156316225D /* PromptBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */; };
+		82BE18F5951BFFFF0581F658 /* mlx-full.metallib in Resources */ = {isa = PBXBuildFile; fileRef = 6F70151E1EFEF288C88C38AC /* mlx-full.metallib */; };
 		9A316E2FC45EA3C82B27E511 /* StudioRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */; };
 		A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */; };
 		AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */; };
@@ -36,6 +37,7 @@
 		53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ImarelloIOS.entitlements; sourceTree = "<group>"; };
 		58755645B76E510CF21B41DE /* ImarelloTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloTheme.swift; sourceTree = "<group>"; };
 		5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloIOSApp.swift; sourceTree = "<group>"; };
+		6F70151E1EFEF288C88C38AC /* mlx-full.metallib */ = {isa = PBXFileReference; lastKnownFileType = "archive.metal-library"; path = "mlx-full.metallib"; sourceTree = "<group>"; };
 		7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintViewer.swift; sourceTree = "<group>"; };
 		93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioRootView.swift; sourceTree = "<group>"; };
 		A659AF4736E8079A515B3CF3 /* StatusRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusRow.swift; sourceTree = "<group>"; };
@@ -80,6 +82,7 @@
 		8A6B59C75C1C886538213318 /* ImarelloSpikes */ = {
 			isa = PBXGroup;
 			children = (
+				6F70151E1EFEF288C88C38AC /* mlx-full.metallib */,
 				CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */,
 			);
 			path = ImarelloSpikes;
@@ -153,6 +156,7 @@
 			buildConfigurationList = 01133837D8584BCD2F43B46E /* Build configuration list for PBXNativeTarget "ImarelloSpikes" */;
 			buildPhases = (
 				A7F61F3075D667DF7AEC8799 /* Sources */,
+				BF959992ACB9F88F12B1D59A /* Resources */,
 				739CA02BE8A8411ABD5343CF /* Frameworks */,
 			);
 			buildRules = (
@@ -216,6 +220,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF959992ACB9F88F12B1D59A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				82BE18F5951BFFFF0581F658 /* mlx-full.metallib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

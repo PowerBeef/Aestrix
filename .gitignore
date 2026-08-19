@@ -34,3 +34,4 @@ Tools/Metal/*.metallib
 # mlx-swift revision stamp written by ensure-metallib.sh
 Tools/Metal/mlx.metallib.rev
 
+Apps/ImarelloIOS/ImarelloSpikes/mlx-full.metallib
