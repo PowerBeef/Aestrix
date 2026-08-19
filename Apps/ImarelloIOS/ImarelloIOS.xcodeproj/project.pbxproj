@@ -13,8 +13,10 @@
 		17C6BB20CFFC89F242F563BB /* StatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A659AF4736E8079A515B3CF3 /* StatusRow.swift */; };
 		193293953040FBA8CE5569AA /* PrintStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E47EF4A5B83E773332294A9 /* PrintStore.swift */; };
 		2109EC6B01AC4D92E7CBE3D4 /* GenerationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */; };
+		293696EAF03E3D53B24A6423 /* ImarelloDirect in Frameworks */ = {isa = PBXBuildFile; productRef = 8133F9D916F5E2A4F9E8C425 /* ImarelloDirect */; };
 		2E44DDE6AD5AE153C1FEC6C4 /* StudioPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E13C74607B6C81A8E41E1E49 /* StudioPage.swift */; };
 		4AD204347B422649206A3A79 /* StudioModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */; };
+		59240486E0E0F708F97CCCAA /* SpikesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */; };
 		701749E0BBC1AA156316225D /* PromptBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */; };
 		9A316E2FC45EA3C82B27E511 /* StudioRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */; };
 		A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */; };
@@ -40,11 +42,21 @@
 		A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationEngine.swift; sourceTree = "<group>"; };
 		ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioModel.swift; sourceTree = "<group>"; };
 		C3BBD0C89F349F329F8C50AD /* HarnessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessService.swift; sourceTree = "<group>"; };
+		CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpikesApp.swift; sourceTree = "<group>"; };
+		CF079C97FB030619C8518744 /* ImarelloSpikes.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ImarelloSpikes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13C74607B6C81A8E41E1E49 /* StudioPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioPage.swift; sourceTree = "<group>"; };
 		F87FDE8274E2450312381B47 /* ImarelloIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ImarelloIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		739CA02BE8A8411ABD5343CF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				293696EAF03E3D53B24A6423 /* ImarelloDirect in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F1731F1C1C3115699C43D55C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -60,8 +72,17 @@
 			isa = PBXGroup;
 			children = (
 				F87FDE8274E2450312381B47 /* ImarelloIOS.app */,
+				CF079C97FB030619C8518744 /* ImarelloSpikes.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		8A6B59C75C1C886538213318 /* ImarelloSpikes */ = {
+			isa = PBXGroup;
+			children = (
+				CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */,
+			);
+			path = ImarelloSpikes;
 			sourceTree = "<group>";
 		};
 		B19D826DD6551914BE35418D /* ImarelloIOS */ = {
@@ -90,6 +111,7 @@
 			isa = PBXGroup;
 			children = (
 				B19D826DD6551914BE35418D /* ImarelloIOS */,
+				8A6B59C75C1C886538213318 /* ImarelloSpikes */,
 				E6B44C17339FE453212F1424 /* Packages */,
 				634F302C42D9AEEBFC9B3526 /* Products */,
 			);
@@ -126,6 +148,25 @@
 			productReference = F87FDE8274E2450312381B47 /* ImarelloIOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		83ADD9842E057D2057BAB5D4 /* ImarelloSpikes */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 01133837D8584BCD2F43B46E /* Build configuration list for PBXNativeTarget "ImarelloSpikes" */;
+			buildPhases = (
+				A7F61F3075D667DF7AEC8799 /* Sources */,
+				739CA02BE8A8411ABD5343CF /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ImarelloSpikes;
+			packageProductDependencies = (
+				8133F9D916F5E2A4F9E8C425 /* ImarelloDirect */,
+			);
+			productName = ImarelloSpikes;
+			productReference = CF079C97FB030619C8518744 /* ImarelloSpikes.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -138,7 +179,11 @@
 					25896D23D78AD62B0ED8DCD9 = {
 						DevelopmentTeam = FK2D8X36G2;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1], \"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1], \"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1]]";
+					};
+					83ADD9842E057D2057BAB5D4 = {
+						DevelopmentTeam = FK2D8X36G2;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -160,6 +205,7 @@
 			projectRoot = "";
 			targets = (
 				25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */,
+				83ADD9842E057D2057BAB5D4 /* ImarelloSpikes */,
 			);
 		};
 /* End PBXProject section */
@@ -196,9 +242,40 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A7F61F3075D667DF7AEC8799 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				59240486E0E0F708F97CCCAA /* SpikesApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		2E916443CA52D19ACCB00D21 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = ImarelloSpikes;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.spikes;
+				PRODUCT_NAME = ImarelloSpikes;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		4D8CBD7F5C5F3B0734CECD23 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -361,6 +438,29 @@
 			};
 			name = Release;
 		};
+		6267C4AE0A31D9CE05B7061F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = ImarelloSpikes;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.spikes;
+				PRODUCT_NAME = ImarelloSpikes;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		CF24B4202A4E77D7CD35E310 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -393,6 +493,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		01133837D8584BCD2F43B46E /* Build configuration list for PBXNativeTarget "ImarelloSpikes" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6267C4AE0A31D9CE05B7061F /* Debug */,
+				2E916443CA52D19ACCB00D21 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		9E8DC6AAD8CD689517FC88DA /* Build configuration list for PBXNativeTarget "ImarelloIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -424,6 +533,10 @@
 		02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ImarelloRuntime;
+		};
+		8133F9D916F5E2A4F9E8C425 /* ImarelloDirect */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ImarelloDirect;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

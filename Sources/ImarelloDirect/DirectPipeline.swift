@@ -21,6 +21,7 @@ public final class DirectPipeline {
     let keepTE: Bool
     let keepDiT: Bool
     let keepVAE: Bool
+    public var useNAXQmm = false
     var te: DirectTEEncoder?
     let conditioner: DirectConditioner
     let config: ImarelloConfig
@@ -66,7 +67,7 @@ public final class DirectPipeline {
                 for (k, v) in try MLX.loadArrays(url: url) { arrays[k] = v }
             }
         }
-        let engine = try DirectDiTStep(lImg: lImg, metallibURL: metallibURL)
+        let engine = try DirectDiTStep(lImg: lImg, metallibURL: metallibURL, useNAXQmm: useNAXQmm)
         try engine.loadBlocks(arrays: arrays, nDouble: 5, nSingle: 20)
         let head = try engine.loadHead(arrays: arrays)
         arrays.removeAll()

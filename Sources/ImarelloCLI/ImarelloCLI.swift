@@ -1762,6 +1762,11 @@ struct DirectSpike: AsyncParsableCommand {
             let sdDirU = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
             print(try DirectVAEMicroSpike.run(
                 smallDecoderDirectory: sdDirU, metallibURL: metallib))
+        case "qmm-nax":
+            let snapN = try ModelPaths.resolveOrThrow(config: config)
+            print(try DirectNAXQmmSpike.run(
+                ditDirectory: snapN.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: metallib))
         case "vae-conv":
             print(try DirectVAESpike.run(metallibURL: metallib))
         case "conditioning":
@@ -1816,6 +1821,9 @@ struct DirectGenerate: AsyncParsableCommand {
     @Flag(name: .long, help: "Run pixel eval after each write.")
     var analyze: Bool = false
 
+    @Flag(name: .long, help: "Dispatch DiT qmm on the NAX kernels (A19/M5-class + OS 26.2 only; refused elsewhere). Device A/B research flag.")
+    var nax: Bool = false
+
     func run() async throws {
         guard !prompts.isEmpty else { throw ValidationError("at least one prompt required") }
         try ensureMLXReady()
@@ -1826,6 +1834,7 @@ struct DirectGenerate: AsyncParsableCommand {
 
         let tBuild = CFAbsoluteTimeGetCurrent()
         let pipeline = try await DirectPipeline(snapshot: snap, metallibURL: metallib, config: config)
+        pipeline.useNAXQmm = nax
         print(String(format: "direct-generate: pipeline built in %.0f ms (engines stay resident)",
                      (CFAbsoluteTimeGetCurrent() - tBuild) * 1000))
 

@@ -57,6 +57,25 @@ targets:
     dependencies:
       - package: Imarello
         product: ImarelloRuntime
+  ImarelloSpikes:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.2"
+    sources:
+      - path: ImarelloSpikes
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.imarello.spikes
+        PRODUCT_NAME: ImarelloSpikes
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ImarelloSpikes
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+    dependencies:
+      - package: Imarello
+        product: ImarelloDirect
 schemes:
   ImarelloIOS:
     build:
@@ -65,4 +84,10 @@ schemes:
     run:
       config: Debug
     profile:
+      config: Release
+  ImarelloSpikes:
+    build:
+      targets:
+        ImarelloSpikes: all
+    run:
       config: Release

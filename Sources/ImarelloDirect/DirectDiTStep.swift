@@ -41,6 +41,10 @@ public final class DirectDiTStep {
     let device: MTLDevice
     let queue: MTLCommandQueue
     let qmmPSO: MTLComputePipelineState
+    /// NAX qmm PSOs (alN_true / alN_false), built only when `useNAXQmm` was
+    /// requested AND the GPU is NAX-eligible. Nil ⇒ every qmm rides Steel.
+    let qmmNAXTruePSO: MTLComputePipelineState?
+    let qmmNAXFalsePSO: MTLComputePipelineState?
     let attnPSO: MTLComputePipelineState
     let lnModPSO, rmsPSO, ropePSO, scaleCastPSO, swigluPSO, scaleInPSO, gateAddPSO: MTLComputePipelineState
 
@@ -67,7 +71,7 @@ public final class DirectDiTStep {
     var ffWideImg, ffWideTxt, swImg, swTxt, ffOutImg, ffOutTxt: MTLBuffer!
     var nhJoint, projJoint, sQ, sK, sV, sConcat, sOut: MTLBuffer!
 
-    public init(lImg: Int, metallibURL: URL) throws {
+    public init(lImg: Int, metallibURL: URL, useNAXQmm: Bool = false) throws {
         self.lImg = lImg
         guard let dev = MTLCreateSystemDefaultDevice(), let q = dev.makeCommandQueue() else {
             throw DirectQmmSpike.SpikeError.metal("device/queue")
@@ -79,6 +83,20 @@ public final class DirectDiTStep {
             name: "affine_qmm_t_float16_t_gs_64_b_4_alN_true_batch_0")
         else { throw DirectQmmSpike.SpikeError.metal("qmm kernel") }
         qmmPSO = try dev.makeComputePipelineState(function: qmmFn)
+        if useNAXQmm {
+            let nax = DirectNAX.probe(device: dev)
+            guard nax.eligible else {
+                throw DirectQmmSpike.SpikeError.metal("NAX qmm requested but \(nax.reason)")
+            }
+            guard let fnT = mlxLib.makeFunction(name: DirectNAX.qmmF16Name(n: 64)),
+                let fnF = mlxLib.makeFunction(name: DirectNAX.qmmF16Name(n: 1))
+            else { throw DirectQmmSpike.SpikeError.metal("NAX qmm kernels missing from metallib") }
+            qmmNAXTruePSO = try dev.makeComputePipelineState(function: fnT)
+            qmmNAXFalsePSO = try dev.makeComputePipelineState(function: fnF)
+        } else {
+            qmmNAXTruePSO = nil
+            qmmNAXFalsePSO = nil
+        }
         let consts = MTLFunctionConstantValues()
         var t = true, f = false
         let jAligned = (lImg + lTxt)
@@ -355,6 +373,23 @@ public final class DirectDiTStep {
 
     private func qmm(_ enc: MTLComputeCommandEncoder, _ q: Q,
                      x: MTLBuffer, xOff: Int, y: MTLBuffer, yOff: Int, m: Int) {
+        // NAX path: same ABI, 64-wide tiles; requires K % 64 == 0 (all DiT
+        // projections satisfy it — the guard is belt-and-braces).
+        if let naxT = qmmNAXTruePSO, let naxF = qmmNAXFalsePSO, q.k % 64 == 0 {
+            enc.setComputePipelineState(q.n % 64 == 0 ? naxT : naxF)
+            enc.setBuffer(q.w, offset: 0, index: 0)
+            enc.setBuffer(q.s, offset: 0, index: 1)
+            enc.setBuffer(q.b, offset: 0, index: 2)
+            enc.setBuffer(x, offset: xOff, index: 3)
+            enc.setBuffer(y, offset: yOff, index: 4)
+            var k32 = Int32(q.k), n32 = Int32(q.n), m32 = Int32(m)
+            enc.setBytes(&k32, length: 4, index: 5)
+            enc.setBytes(&n32, length: 4, index: 6)
+            enc.setBytes(&m32, length: 4, index: 7)
+            let (grid, group) = DirectNAX.qmmGrid(m: m, n: q.n)
+            enc.dispatchThreadgroups(grid, threadsPerThreadgroup: group)
+            return
+        }
         enc.setComputePipelineState(qmmPSO)
         enc.setBuffer(q.w, offset: 0, index: 0)
         enc.setBuffer(q.s, offset: 0, index: 1)

@@ -14,10 +14,12 @@ import ImarelloRuntime
 public final class DirectDiTPackedDenoiser: PackedLatentDenoising {
     let transformerDirectory: URL
     let metallibURL: URL
+    let useNAX: Bool
 
-    public init(transformerDirectory: URL, metallibURL: URL) {
+    public init(transformerDirectory: URL, metallibURL: URL, useNAX: Bool = false) {
         self.transformerDirectory = transformerDirectory
         self.metallibURL = metallibURL
+        self.useNAX = useNAX
     }
 
     public func denoise(
@@ -38,7 +40,7 @@ public final class DirectDiTPackedDenoiser: PackedLatentDenoising {
                 for (k, v) in try MLX.loadArrays(url: url) { arrays[k] = v }
             }
         }
-        let engine = try DirectDiTStep(lImg: lImg, metallibURL: metallibURL)
+        let engine = try DirectDiTStep(lImg: lImg, metallibURL: metallibURL, useNAXQmm: useNAX)
         try engine.loadBlocks(arrays: arrays, nDouble: 5, nSingle: 20)
         let head = try engine.loadHead(arrays: arrays)
         arrays.removeAll()
