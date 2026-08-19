@@ -1651,6 +1651,14 @@ struct DirectSpike: AsyncParsableCommand {
             let sdDirT = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
             print(try await DirectVAETiledSpike.run(
                 snapshot: snapT, smallDecoderDirectory: sdDirT, metallibURL: metallib))
+        case "vae-profile":
+            let sdDirP = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+            print(try DirectVAEProfileSpike.run(
+                smallDecoderDirectory: sdDirP, metallibURL: metallib))
+        case "vae-micro":
+            let sdDirU = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+            print(try DirectVAEMicroSpike.run(
+                smallDecoderDirectory: sdDirU, metallibURL: metallib))
         case "vae-conv":
             print(try DirectVAESpike.run(metallibURL: metallib))
         case "conditioning":
@@ -1690,7 +1698,7 @@ struct DirectSpike: AsyncParsableCommand {
 struct DirectGenerate: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "direct-generate",
-        abstract: "RESEARCH (Stage 2): T2I on the bespoke persistent pipeline — direct TE + conditioner + DiT; MLX decodes. Multiple prompts reuse resident engines."
+        abstract: "RESEARCH (Stage 2): T2I on the fully bespoke pipeline — direct TE + conditioner + DiT + VAE. Multiple prompts reuse resident engines."
     )
 
     @Argument(help: "One or more prompts (each becomes an image).")

@@ -149,7 +149,19 @@ Timing honesty: at M=512 the bf16 direct encode is ≈ parity with the real resi
 
 Mechanics: convs run on the metallib's `implicit_gemm_conv_2d_float32_*` kernels with the host dispatch math mirrored from conv.cpp (all needed variants incl. the O=3 `bn8_wm4_wn1` config are in the library); everything else on seven small glue kernels (`dv_groupnorm_act` fused GN+SiLU, bias+SiLU, nearest-2× upsample, add, naive NT/NN matmuls, row softmax). The mapper's squeeze of the mid-attn 1×1 convs to dense `[C,C]` Linears means the attention projections ride the same matmul kernel. The entry (BN denorm + unpatchify) stays as trivial MLX ops; V5 reuses the product's `decodeLatentsTiled` stitcher with `DirectVAE.decodeTileNCHW` as the closure, so tiling behavior is byte-shared with the product.
 
-Timing honesty: the port is **correctness-proven, not yet fast** — V4 untiled 512² 1.96 s vs the product's ~0.93 s; V5 tiled 1024² 10.3 s vs ~4.5 s. The gap is almost entirely the naive O(HW²·C) attention matmuls (390 ms of the 64×64 mid alone; the 72² tiles pay 5184² scores through a thread-per-element loop). **Do not swap the pipeline's VAE until that attention rides a steel GEMM** (the metallib's `steel_gemm_fused` family is the obvious lever, one new ABI to prove) or the mid block is measured to not matter after it. The port's value stands regardless: every stage of the runtime now has a bespoke, oracle-exact implementation, and MLX's compute role in `direct-generate` is reduced to entry math and glue.
+Timing honesty (superseded same session — see V6): at first landing the port was correctness-proven but ~2× slow (V4 1.96 s vs ~0.93 s; V5 10.3 s vs ~4.5 s), and the pipeline swap was deliberately withheld.
+
+**V6 (2026-08-18/19): the speed levers landed and the direct VAE went into the pipeline.** Two fixes, found by measurement, not guess:
+
+1. **Steel GEMM ABI proven** (`steel_gemm_fused_{nt,nn}_float32_float32_*`): function constants 10/100/110 false + 200/201/202 align flags at PSO creation; GEMMParams (8×i32 + 3×i64 + 3×i32, pad 72) at buffer 4; A/B/D at 0/1/3 (2/5/6/7 unbound at B=1); M2 'g'-class tiles NT=bm64/bn32/bk32/wm2/wn2, NN=bm64/bn64/bk16/wm2/wn2; grid (tn,tm,1) × (32,wn,wn). All six attention matmuls rerouted: mid block 390 → 100 ms. But the per-stage profile then showed attention was never the whale —
+2. **GroupNorm was**: the one-threadgroup-per-group kernel cost **138.7 ms per call @512²×192** (32 TGs, uncoalesced group-strided reads) — ~850 ms of V4's 1632 ms across the decoder's 22 GN calls. Rewritten as a three-pass coalesced reduction (per-(channel,chunk) partials with contiguous warp reads → per-group finalize → elementwise apply): **9.07 ms** (15×).
+
+| | direct (naive) | + steel GEMM | + GN rewrite | product MLX |
+|---|---|---|---|---|
+| V4 untiled 512² | 1960 ms | 1632 ms | **808 ms** | ~932 ms |
+| V5 tiled 1024² | 10.3 s | 8.3 s | **4.16 s** | ~4.5 s |
+
+Cosine 1.0000000 at every step of the chase. **The direct decoder now beats the product decode on both canvases**, so the swap gate passed: `DirectPipeline`/`direct-generate` decode on `DirectVAE.decodePacked` (BN denorm + unpatchify as trivial MLX entry ops, UNet fully on-engine, product `decodeLatentsTiled` stitcher for 1024²). Validated end-to-end: fox 512² s42 pixel PASS + vision PASS; bikini 1024² s42 pixel PASS + full anatomy-checklist vision PASS (navel midline, proportions, no tile seams), total 64.8 s with the VAE stage at 4.9 s. **MLX's compute role in `direct-generate` is now entry math and glue only — every UNet/DiT/TE FLOP is bespoke.** Winograd conv remains the next documented conv lever (the 192-ch 3×3s run at ~1 TFLOPS vs 1.7–2.1 for 96/384-ch; V1 measured MLX-Winograd only ~6% ahead on the mid-size shape, so the ceiling is modest); per-stage profiling lives in `direct-spike --stage vae-profile` / `vae-micro`.
 
 
 

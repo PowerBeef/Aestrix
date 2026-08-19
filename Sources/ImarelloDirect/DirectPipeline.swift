@@ -24,7 +24,7 @@ public final class DirectPipeline {
     var te: DirectTEEncoder?
     let conditioner: DirectConditioner
     let config: ImarelloConfig
-    var vae: VAEModule?
+    var vae: DirectVAE?
 
     struct CanvasState {
         let width: Int
@@ -49,12 +49,7 @@ public final class DirectPipeline {
             transformerDirectory: snapshot.root.appendingPathComponent("transformer", isDirectory: true),
             metallibURL: metallibURL)
         if keepVAE {
-            let v = VAEModule(
-                snapshot: snapshot,
-                decoderVariant: .smallDecoder,
-                smallDecoderDirectory: ModelPaths.resolveSmallDecoderIfPresent(config: config))
-            try await v.load(mode: .decodeOnly)
-            vae = v
+            vae = try Self.makeVAE(snapshot: snapshot, metallibURL: metallibURL, config: config)
         }
     }
 
@@ -90,6 +85,19 @@ public final class DirectPipeline {
             rope: rope, conditioning: conditioning, dts: dts)
         if keepDiT { canvas = state }
         return state
+    }
+
+    static func makeVAE(
+        snapshot: ModelSnapshot, metallibURL: URL, config: ImarelloConfig
+    ) throws -> DirectVAE {
+        guard let smallDir = ModelPaths.resolveSmallDecoderIfPresent(config: config) else {
+            throw DirectQmmSpike.SpikeError.missingTensor("small decoder snapshot")
+        }
+        let v = try DirectVAE(
+            smallDecoderFile: smallDir.appendingPathComponent("small_decoder.safetensors"),
+            metallibURL: metallibURL)
+        try v.loadBNStats(vaeDirectory: snapshot.vaeDirectory)
+        return v
     }
 
     public struct Timings {
@@ -158,20 +166,17 @@ public final class DirectPipeline {
         _ = cOpt
 
         let tVAE = CFAbsoluteTimeGetCurrent()
-        let vaeLocal: VAEModule
+        var vaeLocal: DirectVAE?
         if let v = vae {
             vaeLocal = v
         } else {
-            vaeLocal = VAEModule(
-                snapshot: snapshot,
-                decoderVariant: .smallDecoder,
-                smallDecoderDirectory: ModelPaths.resolveSmallDecoderIfPresent(config: config))
-            try await vaeLocal.load(mode: .decodeOnly)
+            vaeLocal = try Self.makeVAE(snapshot: snapshot, metallibURL: metallibURL, config: config)
         }
         let spatial = LatentOps.unpackSequence(latents, height: height / 16, width: width / 16)
-        let rgb = try vaeLocal.decodePacked(spatial)
+        let rgb = try vaeLocal!.decodePacked(spatial)
         eval(rgb)
-        if !keepVAE { await vaeLocal.unload() }
+        if !keepVAE { vaeLocal = nil }
+        _ = vaeLocal
         try ImageExport.writePNG(rgb, to: outputURL)
         Memory.clearCache()
         tm.vaeMS = (CFAbsoluteTimeGetCurrent() - tVAE) * 1000

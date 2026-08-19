@@ -10,18 +10,41 @@ enum DirectVAEKernels {
     #include <metal_stdlib>
     using namespace metal;
 
-    // PyTorch-compatible GroupNorm over NHWC + optional fused SiLU.
-    // One threadgroup per group; stats over (H·W × C/G) in f32.
-    kernel void dv_groupnorm_act(
+    // GroupNorm, three-pass coalesced. Pass 1: per-(channel, chunk) partial
+    // sums — consecutive threads read consecutive channels, so warp reads are
+    // contiguous. partial layout: [(chunk*C + c)*2 + {sum, sumsq}].
+    kernel void dv_gn_partial(
         device const float* x [[buffer(0)]],
-        device const float* gamma [[buffer(1)]],
-        device const float* beta [[buffer(2)]],
-        device float* y [[buffer(3)]],
-        constant int& HW [[buffer(4)]],
-        constant int& C [[buffer(5)]],
-        constant int& groups [[buffer(6)]],
-        constant float& eps [[buffer(7)]],
-        constant int& doSilu [[buffer(8)]],
+        device float* partial [[buffer(1)]],
+        constant int& HW [[buffer(2)]],
+        constant int& C [[buffer(3)]],
+        constant int& chunks [[buffer(4)]],
+        uint2 gid [[thread_position_in_grid]]) {
+        int c = gid.x, chunk = gid.y;
+        if (c >= C || chunk >= chunks) return;
+        int rows = (HW + chunks - 1) / chunks;
+        int r0 = chunk * rows;
+        int r1 = min(HW, r0 + rows);
+        float sum = 0.0f, sq = 0.0f;
+        for (int r = r0; r < r1; r++) {
+            float v = x[(size_t)r * C + c];
+            sum += v;
+            sq = fma(v, v, sq);
+        }
+        size_t idx = ((size_t)chunk * C + c) * 2;
+        partial[idx] = sum;
+        partial[idx + 1] = sq;
+    }
+
+    // Pass 2: reduce a group's partials to (mean, inv_std). One TG per group.
+    kernel void dv_gn_finalize(
+        device const float* partial [[buffer(0)]],
+        device float* stats [[buffer(1)]],
+        constant int& HW [[buffer(2)]],
+        constant int& C [[buffer(3)]],
+        constant int& groups [[buffer(4)]],
+        constant int& chunks [[buffer(5)]],
+        constant float& eps [[buffer(6)]],
         uint g [[threadgroup_position_in_grid]],
         uint tid [[thread_position_in_threadgroup]],
         uint tpsz [[threads_per_threadgroup]],
@@ -29,39 +52,47 @@ enum DirectVAEKernels {
         uint sgid [[simdgroup_index_in_threadgroup]]) {
         int cg = C / groups;
         int c0 = (int)g * cg;
-        size_t total = (size_t)HW * cg;
+        int total = chunks * cg;
         float sum = 0.0f, sq = 0.0f;
-        for (size_t i = tid; i < total; i += tpsz) {
-            int hw = (int)(i / cg);
-            int c = c0 + (int)(i % cg);
-            float v = x[(size_t)hw * C + c];
-            sum += v;
-            sq = fma(v, v, sq);
+        for (int i = tid; i < total; i += tpsz) {
+            size_t idx = ((size_t)(i / cg) * C + c0 + (i % cg)) * 2;
+            sum += partial[idx];
+            sq += partial[idx + 1];
         }
         sum = simd_sum(sum);
         sq = simd_sum(sq);
         threadgroup float pSum[32], pSq[32];
-        threadgroup float meanSh, invSh;
         if (lane == 0) { pSum[sgid] = sum; pSq[sgid] = sq; }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (tid == 0) {
             float ts = 0.0f, tq = 0.0f;
             uint ng = (tpsz + 31) / 32;
             for (uint i = 0; i < ng; i++) { ts += pSum[i]; tq += pSq[i]; }
-            float mean = ts / (float)total;
-            meanSh = mean;
-            invSh = rsqrt(tq / (float)total - mean * mean + eps);
+            float n = (float)HW * (float)cg;
+            float mean = ts / n;
+            stats[g * 2] = mean;
+            stats[g * 2 + 1] = rsqrt(tq / n - mean * mean + eps);
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        float mean = meanSh, inv = invSh;
-        for (size_t i = tid; i < total; i += tpsz) {
-            int hw = (int)(i / cg);
-            int c = c0 + (int)(i % cg);
-            size_t idx = (size_t)hw * C + c;
-            float v = (x[idx] - mean) * inv * gamma[c] + beta[c];
-            if (doSilu != 0) { v = v / (1.0f + metal::exp(-v)); }
-            y[idx] = v;
-        }
+    }
+
+    // Pass 3: elementwise normalize + affine (+ optional SiLU), coalesced.
+    kernel void dv_gn_apply(
+        device const float* x [[buffer(0)]],
+        device const float* gamma [[buffer(1)]],
+        device const float* beta [[buffer(2)]],
+        device const float* stats [[buffer(3)]],
+        device float* y [[buffer(4)]],
+        constant int& C [[buffer(5)]],
+        constant int& groups [[buffer(6)]],
+        constant int& doSilu [[buffer(7)]],
+        uint2 gid [[thread_position_in_grid]]) {
+        int c = gid.x;
+        if (c >= C) return;
+        int g = c / (C / groups);
+        size_t idx = (size_t)gid.y * C + c;
+        float v = (x[idx] - stats[g * 2]) * stats[g * 2 + 1] * gamma[c] + beta[c];
+        if (doSilu != 0) { v = v / (1.0f + metal::exp(-v)); }
+        y[idx] = v;
     }
 
     // Per-channel bias (+ optional SiLU), in place over [HW, C].

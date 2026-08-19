@@ -17,10 +17,15 @@ public final class DirectVAE {
     let mlxLib: MTLLibrary
     let glue: MTLLibrary
     var convPSOs: [String: MTLComputePipelineState] = [:]
-    let gnPSO, biasPSO, upPSO, addPSO, mmNTPSO, mmNNPSO, softmaxPSO: MTLComputePipelineState
+    let gnPartialPSO, gnFinalizePSO, gnApplyPSO: MTLComputePipelineState
+    let biasPSO, upPSO, addPSO, mmNTPSO, mmNNPSO, softmaxPSO: MTLComputePipelineState
+    var gnPartial: MTLBuffer?
+    var gnStats: MTLBuffer?
 
     /// Module-named f32 weights (mapper output), uploaded once.
     var weights: [String: MTLBuffer] = [:]
+    var bnMean: MLXArray?
+    var bnStd: MLXArray?
     var shapes: [String: [Int]] = [:]
     public private(set) var ownedBytes = 0
 
@@ -39,7 +44,9 @@ public final class DirectVAE {
             }
             return try dev.makeComputePipelineState(function: f)
         }
-        gnPSO = try gpso("dv_groupnorm_act")
+        gnPartialPSO = try gpso("dv_gn_partial")
+        gnFinalizePSO = try gpso("dv_gn_finalize")
+        gnApplyPSO = try gpso("dv_gn_apply")
         biasPSO = try gpso("dv_bias_act")
         upPSO = try gpso("dv_upsample2")
         addPSO = try gpso("dv_add")
@@ -173,22 +180,52 @@ public final class DirectVAE {
         x: MTLBuffer, gamma: MTLBuffer, beta: MTLBuffer, y: MTLBuffer,
         HW: Int, C: Int, silu: Bool, groups: Int = 32, eps: Float = 1e-6
     ) {
-        enc.setComputePipelineState(gnPSO)
+        let chunks = 256
+        if gnPartial == nil {
+            // Sized for the widest channel count (384); reused across calls —
+            // hazard tracking serializes successive GNs in one command buffer.
+            gnPartial = device.makeBuffer(length: chunks * 384 * 2 * 4)
+            gnStats = device.makeBuffer(length: 32 * 2 * 4)
+        }
+        guard let partial = gnPartial, let stats = gnStats else { return }
+        var hw32 = Int32(HW), c32 = Int32(C), g32 = Int32(groups), ch32 = Int32(chunks)
+        var e = eps
+        var s32 = Int32(silu ? 1 : 0)
+
+        enc.setComputePipelineState(gnPartialPSO)
+        enc.setBuffer(x, offset: 0, index: 0)
+        enc.setBuffer(partial, offset: 0, index: 1)
+        enc.setBytes(&hw32, length: 4, index: 2)
+        enc.setBytes(&c32, length: 4, index: 3)
+        enc.setBytes(&ch32, length: 4, index: 4)
+        enc.dispatchThreads(
+            MTLSize(width: C, height: chunks, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: min(C, 64), height: 4, depth: 1))
+
+        enc.setComputePipelineState(gnFinalizePSO)
+        enc.setBuffer(partial, offset: 0, index: 0)
+        enc.setBuffer(stats, offset: 0, index: 1)
+        enc.setBytes(&hw32, length: 4, index: 2)
+        enc.setBytes(&c32, length: 4, index: 3)
+        enc.setBytes(&g32, length: 4, index: 4)
+        enc.setBytes(&ch32, length: 4, index: 5)
+        enc.setBytes(&e, length: 4, index: 6)
+        enc.dispatchThreadgroups(
+            MTLSize(width: groups, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+
+        enc.setComputePipelineState(gnApplyPSO)
         enc.setBuffer(x, offset: 0, index: 0)
         enc.setBuffer(gamma, offset: 0, index: 1)
         enc.setBuffer(beta, offset: 0, index: 2)
-        enc.setBuffer(y, offset: 0, index: 3)
-        var hw = Int32(HW), c32 = Int32(C), g32 = Int32(groups)
-        var e = eps
-        var s32 = Int32(silu ? 1 : 0)
-        enc.setBytes(&hw, length: 4, index: 4)
+        enc.setBuffer(stats, offset: 0, index: 3)
+        enc.setBuffer(y, offset: 0, index: 4)
         enc.setBytes(&c32, length: 4, index: 5)
         enc.setBytes(&g32, length: 4, index: 6)
-        enc.setBytes(&e, length: 4, index: 7)
-        enc.setBytes(&s32, length: 4, index: 8)
-        enc.dispatchThreadgroups(
-            MTLSize(width: groups, height: 1, depth: 1),
-            threadsPerThreadgroup: MTLSize(width: 1024, height: 1, depth: 1))
+        enc.setBytes(&s32, length: 4, index: 7)
+        enc.dispatchThreads(
+            MTLSize(width: C, height: HW, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: min(C, 64), height: 4, depth: 1))
     }
 
     func encodeBiasAct(
@@ -369,13 +406,13 @@ extension DirectVAE {
         encodeGroupNormAct(enc, x: x, gamma: try w("\(prefix).group_norm.weight"),
                            beta: try w("\(prefix).group_norm.bias"), y: t1,
                            HW: HW, C: C, silu: false)
-        encodeMatmulNT(enc, a: t1, b: try w("\(prefix).to_q.weight"), y: q, m: HW, n: C, k: C)
+        try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_q.weight"), d: q, m: HW, n: C, k: C, transB: true)
         encodeBiasAct(enc, x: q, bias: try w("\(prefix).to_q.bias"), HW: HW, C: C, silu: false)
-        encodeMatmulNT(enc, a: t1, b: try w("\(prefix).to_k.weight"), y: k, m: HW, n: C, k: C)
+        try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_k.weight"), d: k, m: HW, n: C, k: C, transB: true)
         encodeBiasAct(enc, x: k, bias: try w("\(prefix).to_k.bias"), HW: HW, C: C, silu: false)
-        encodeMatmulNT(enc, a: t1, b: try w("\(prefix).to_v.weight"), y: v, m: HW, n: C, k: C)
+        try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_v.weight"), d: v, m: HW, n: C, k: C, transB: true)
         encodeBiasAct(enc, x: v, bias: try w("\(prefix).to_v.bias"), HW: HW, C: C, silu: false)
-        encodeMatmulNT(enc, a: q, b: k, y: scores, m: HW, n: HW, k: C)
+        try encodeSteelGemm(enc, a: q, b: k, d: scores, m: HW, n: HW, k: C, transB: true)
         // softmax rows with scale 1/√C
         enc.setComputePipelineState(softmaxPSO)
         enc.setBuffer(scores, offset: 0, index: 0)
@@ -387,8 +424,8 @@ extension DirectVAE {
         enc.dispatchThreadgroups(
             MTLSize(width: HW, height: 1, depth: 1),
             threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
-        encodeMatmulNN(enc, p: scores, v: v, y: t1, m: HW, n: C, k: HW)
-        encodeMatmulNT(enc, a: t1, b: try w("\(prefix).to_out.weight"), y: q, m: HW, n: C, k: C)
+        try encodeSteelGemm(enc, a: scores, b: v, d: t1, m: HW, n: C, k: HW, transB: false)
+        try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_out.weight"), d: q, m: HW, n: C, k: C, transB: true)
         encodeBiasAct(enc, x: q, bias: try w("\(prefix).to_out.bias"), HW: HW, C: C, silu: false)
         encodeAdd(enc, a: x, b: q, y: y, n: HW * C)
     }
@@ -794,5 +831,250 @@ public enum DirectVAETiledSpike {
           tiled_wall:       \(String(format: "%.1f", ms)) ms
           verdict:          \(cosine >= 0.9999 ? "PASS" : "investigate")
         """
+    }
+}
+
+// MARK: - Steel GEMM attention (V6)
+
+extension DirectVAE {
+
+    /// PSO for `steel_gemm_fused` with function constants applied.
+    /// M2 'g'-class tiles: f32 NT → bm64/bn32/bk32/wm2/wn2, f32 NN → bm64/bn64/bk16/wm2/wn2.
+    func steelGemmPSO(
+        transB: Bool, bm: Int, bn: Int, bk: Int, wm: Int, wn: Int,
+        alignM: Bool, alignN: Bool, alignK: Bool
+    ) throws -> MTLComputePipelineState {
+        let base = "steel_gemm_fused_n\(transB ? "t" : "n")_float32_float32_bm\(bm)_bn\(bn)_bk\(bk)_wm\(wm)_wn\(wn)"
+        let key = "\(base)_\(alignM)_\(alignN)_\(alignK)"
+        if let p = convPSOs[key] { return p }
+        let consts = MTLFunctionConstantValues()
+        var f = false
+        var aM = alignM, aN = alignN, aK = alignK
+        consts.setConstantValue(&f, type: .bool, index: 10)   // has_batch
+        consts.setConstantValue(&f, type: .bool, index: 100)  // use_out_source
+        consts.setConstantValue(&f, type: .bool, index: 110)  // do_axpby
+        consts.setConstantValue(&aM, type: .bool, index: 200)
+        consts.setConstantValue(&aN, type: .bool, index: 201)
+        consts.setConstantValue(&aK, type: .bool, index: 202)
+        let fn = try mlxLib.makeFunction(name: base, constantValues: consts)
+        let p = try device.makeComputePipelineState(function: fn)
+        convPSOs[key] = p
+        return p
+    }
+
+    /// D[M,N] = A[M,K] · op(B) on the metallib's fused steel GEMM (f32, B=1).
+    /// `transB: true` → B is [N,K] (NT: projections, Q·Kᵀ); false → B is [K,N] (NN: P·V).
+    func encodeSteelGemm(
+        _ enc: MTLComputeCommandEncoder,
+        a: MTLBuffer, b: MTLBuffer, d: MTLBuffer,
+        m: Int, n: Int, k: Int, transB: Bool
+    ) throws {
+        let bm = 64
+        let bn = transB ? 32 : 64
+        let bk = transB ? 32 : 16
+        let pso = try steelGemmPSO(
+            transB: transB, bm: bm, bn: bn, bk: bk, wm: 2, wn: 2,
+            alignM: m % bm == 0, alignN: n % bn == 0, alignK: k % bk == 0)
+        enc.setComputePipelineState(pso)
+        enc.setBuffer(a, offset: 0, index: 0)
+        enc.setBuffer(b, offset: 0, index: 1)
+        enc.setBuffer(d, offset: 0, index: 3)
+        let tn = (n + bn - 1) / bn
+        let tm = (m + bm - 1) / bm
+        var params = Data()
+        func i32(_ v: Int) { var t = Int32(v); withUnsafeBytes(of: &t) { params.append(contentsOf: $0) } }
+        func i64(_ v: Int) { var t = Int64(v); withUnsafeBytes(of: &t) { params.append(contentsOf: $0) } }
+        i32(m); i32(n); i32(k)
+        i32(k)                    // lda: A row-major [M,K]
+        i32(transB ? k : n)       // ldb: [N,K] or [K,N]
+        i32(n)                    // ldd
+        i32(tn); i32(tm)
+        i64(0); i64(0); i64(0)    // batch strides (grid depth 1)
+        i32(0)                    // swizzle_log
+        i32(k / bk)               // gemm_k_iterations_aligned
+        i32(1)                    // batch_ndim
+        params.append(Data(repeating: 0, count: (8 - params.count % 8) % 8))
+        params.withUnsafeBytes { enc.setBytes($0.baseAddress!, length: params.count, index: 4) }
+        enc.dispatchThreadgroups(
+            MTLSize(width: tn, height: tm, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 32, height: 2, depth: 2))
+    }
+}
+
+/// Per-stage GPU timing of the direct decoder walk @512² (one command buffer
+/// per stage, so waits mark stage boundaries). Correctness lives in V4.
+public enum DirectVAEProfileSpike {
+    public static func run(smallDecoderDirectory: URL, metallibURL: URL) throws -> String {
+        let H8 = 64, W8 = 64
+        let vae = try DirectVAE(
+            smallDecoderFile: smallDecoderDirectory.appendingPathComponent("small_decoder.safetensors"),
+            metallibURL: metallibURL)
+        MLXRandom.seed(11)
+        let z = MLXRandom.normal([1, H8, W8, 32]).asType(.float32)
+        eval(z)
+        let zData = z.asData(noCopy: false)
+        let zBuf = try zData.withUnsafeBytes { rawB -> MTLBuffer in
+            guard let base = rawB.baseAddress,
+                let bb = vae.device.makeBuffer(bytes: base, length: rawB.count)
+            else { throw DirectQmmSpike.SpikeError.metal("z") }
+            return bb
+        }
+        let outH = 8 * H8, outW = 8 * W8
+        let bigBytes = outH * outW * 192 * 4
+        let midBytes = H8 * W8 * 384 * 4
+        let a = try vae.scratch(bigBytes, "a")
+        let b = try vae.scratch(bigBytes, "b")
+        let t1 = try vae.scratch(bigBytes, "t1")
+        let t2 = try vae.scratch(bigBytes, "t2")
+        let t3 = try vae.scratch(midBytes, "t3")
+        let t4 = try vae.scratch(midBytes, "t4")
+        let scores = try vae.scratch(H8 * W8 * H8 * W8 * 4, "scores")
+        let rgbBuf = try vae.scratch(outH * outW * 3 * 4, "rgb")
+
+        var report = "direct-vae profile @512² (per-stage command buffers)\n"
+        func stage(_ name: String, _ body: (MTLComputeCommandEncoder) throws -> Void) throws {
+            guard let cb = vae.queue.makeCommandBuffer(),
+                let enc = cb.makeComputeCommandEncoder()
+            else { throw DirectQmmSpike.SpikeError.metal("cb") }
+            try body(enc)
+            enc.endEncoding()
+            let t0 = CFAbsoluteTimeGetCurrent()
+            cb.commit()
+            cb.waitUntilCompleted()
+            let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("\(name): \(e)") }
+            report += String(format: "  %-22s %7.1f ms\n", (name as NSString).utf8String!, ms)
+        }
+
+        var H = H8, W = W8
+        try stage("post_quant+conv_in") { enc in
+            try vae.encodeConv(enc, x: zBuf, wt: try vae.w("post_quant_conv.weight"), y: a,
+                               H: H, W: W, C: 32, O: 32, k: 1)
+            vae.encodeBiasAct(enc, x: a, bias: try vae.w("post_quant_conv.bias"), HW: H * W, C: 32, silu: false)
+            try vae.encodeConv(enc, x: a, wt: try vae.w("decoder.conv_in.weight"), y: b,
+                               H: H, W: W, C: 32, O: 384, k: 3)
+            vae.encodeBiasAct(enc, x: b, bias: try vae.w("decoder.conv_in.bias"), HW: H * W, C: 384, silu: false)
+        }
+        try stage("mid (r·attn·r)") { enc in
+            try vae.encodeMid(enc, x: b, y: a, t1: t1, t2: t2, t3: t3, t4: t4,
+                              scores: scores, H: H, W: W, C: 384)
+        }
+        var cur = a, alt = b
+        for (i, spec) in DirectVAE.upSpecs.enumerated() {
+            let hNow = H, wNow = W
+            try stage("up\(i) resnets ×3 @\(hNow)²") { enc in
+                for r in 0 ..< 3 {
+                    let cIn = r == 0 ? spec.cIn : spec.cOut
+                    try vae.encodeResnet(enc, prefix: "decoder.up_blocks.\(i).resnets.\(r)",
+                                         x: cur, y: alt, t1: t1, t2: t2,
+                                         H: hNow, W: wNow, cIn: cIn, cOut: spec.cOut)
+                    swap(&cur, &alt)
+                }
+            }
+            if spec.upsample {
+                try stage("up\(i) upsample → \(2 * hNow)²") { enc in
+                    try vae.encodeUpsample(enc, prefix: "decoder.up_blocks.\(i).upsamplers.0",
+                                           x: cur, y: alt, t: t1, H: hNow, W: wNow, C: spec.cOut)
+                }
+                swap(&cur, &alt)
+                H *= 2
+                W *= 2
+            }
+        }
+        try stage("tail GN+conv_out") { enc in
+            vae.encodeGroupNormAct(enc, x: cur, gamma: try vae.w("decoder.conv_norm_out.weight"),
+                                   beta: try vae.w("decoder.conv_norm_out.bias"), y: alt,
+                                   HW: H * W, C: 96, silu: true)
+            try vae.encodeConv(enc, x: alt, wt: try vae.w("decoder.conv_out.weight"), y: rgbBuf,
+                               H: H, W: W, C: 96, O: 3, k: 3)
+            vae.encodeBiasAct(enc, x: rgbBuf, bias: try vae.w("decoder.conv_out.bias"), HW: H * W, C: 3, silu: false)
+        }
+        return report
+    }
+}
+
+/// Micro-profile of the up3-stage components @512² (GN vs conv vs bias vs add).
+public enum DirectVAEMicroSpike {
+    public static func run(smallDecoderDirectory: URL, metallibURL: URL) throws -> String {
+        let H = 512, W = 512
+        let vae = try DirectVAE(
+            smallDecoderFile: smallDecoderDirectory.appendingPathComponent("small_decoder.safetensors"),
+            metallibURL: metallibURL)
+        let hw = H * W
+        let a = try vae.scratch(hw * 192 * 4, "a")
+        let b = try vae.scratch(hw * 192 * 4, "b")
+        memset(a.contents(), 0, hw * 192 * 4)
+
+        var report = "direct-vae micro @512² (each ×6, per-call ms)\n"
+        func time(_ name: String, reps: Int = 6, _ body: (MTLComputeCommandEncoder) throws -> Void) throws {
+            guard let cb = vae.queue.makeCommandBuffer(),
+                let enc = cb.makeComputeCommandEncoder()
+            else { throw DirectQmmSpike.SpikeError.metal("cb") }
+            for _ in 0 ..< reps { try body(enc) }
+            enc.endEncoding()
+            let t0 = CFAbsoluteTimeGetCurrent()
+            cb.commit()
+            cb.waitUntilCompleted()
+            let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000 / Double(reps)
+            if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("\(name): \(e)") }
+            report += String(format: "  %-26s %7.2f ms\n", (name as NSString).utf8String!, ms)
+        }
+
+        let g0 = try vae.w("decoder.up_blocks.3.resnets.0.norm1.weight")
+        let b0 = try vae.w("decoder.up_blocks.3.resnets.0.norm1.bias")
+        try time("groupnorm+silu 192ch") { enc in
+            vae.encodeGroupNormAct(enc, x: a, gamma: g0, beta: b0, y: b, HW: hw, C: 192, silu: true)
+        }
+        let cw = try vae.w("decoder.up_blocks.3.resnets.1.conv1.weight")  // 96→96
+        try time("conv3x3 96→96") { enc in
+            try vae.encodeConv(enc, x: a, wt: cw, y: b, H: H, W: W, C: 96, O: 96, k: 3)
+        }
+        let cw0 = try vae.w("decoder.up_blocks.3.resnets.0.conv1.weight")  // 192→96
+        try time("conv3x3 192→96") { enc in
+            try vae.encodeConv(enc, x: a, wt: cw0, y: b, H: H, W: W, C: 192, O: 96, k: 3)
+        }
+        let bias = try vae.w("decoder.up_blocks.3.resnets.1.conv1.bias")
+        try time("bias+silu 96ch") { enc in
+            vae.encodeBiasAct(enc, x: a, bias: bias, HW: hw, C: 96, silu: true)
+        }
+        try time("add 96ch") { enc in
+            vae.encodeAdd(enc, a: a, b: a, y: b, n: hw * 96)
+        }
+        return report
+    }
+}
+
+// MARK: - Production decode API
+
+extension DirectVAE {
+
+    /// Load the BN denorm stats (klein `vae/` pack — never the Small Decoder file).
+    public func loadBNStats(vaeDirectory: URL) throws {
+        let arrays = try MLX.loadArrays(
+            url: vaeDirectory.appendingPathComponent("0.safetensors"))
+        guard let mean = arrays["bn.running_mean"], let v = arrays["bn.running_var"] else {
+            throw DirectQmmSpike.SpikeError.missingTensor("bn stats")
+        }
+        bnMean = mean.asType(.float32).reshaped([1, -1, 1, 1])
+        bnStd = sqrt(v.asType(.float32).reshaped([1, -1, 1, 1]) + 1e-4)
+        eval(bnMean!, bnStd!)
+    }
+
+    /// Product-shaped entry: packed spatial latents NCHW [1,128,h16,w16] → RGB
+    /// NCHW. BN denorm + unpatchify are trivial MLX ops; the UNet runs on the
+    /// engine, tiled per `VAETileConfig` (same stitcher as the product).
+    public func decodePacked(_ spatial: MLXArray, tileConfig: VAETileConfig = .current) throws -> MLXArray {
+        guard let mean = bnMean, let std = bnStd else {
+            throw DirectQmmSpike.SpikeError.missingTensor("bn stats not loaded")
+        }
+        let denormed = spatial.asType(.float32) * std + mean
+        let latents = Flux2VAE.unpatchify(denormed)
+        eval(latents)
+        if tileConfig.shouldTile(height: latents.dim(2), width: latents.dim(3)) {
+            return Flux2VAE.decodeLatentsTiled(
+                latents, decode: { tile in try! self.decodeTileNCHW(tile) },
+                config: tileConfig)
+        }
+        return try decodeTileNCHW(latents)
     }
 }
