@@ -1628,6 +1628,18 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "vae-resnet":
+            let snapV = try ModelPaths.resolveOrThrow(config: config)
+            _ = snapV
+            let sdDir = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+            print(try DirectVAEResnetSpike.run(
+                smallDecoderFile: sdDir.appendingPathComponent("small_decoder.safetensors"),
+                metallibURL: metallib))
+        case "vae-mid":
+            let sdDirM = ModelPaths.smallDecoderSnapshotRoot(modelsDirectory: config.modelsDirectory)
+            print(try DirectVAEMidSpike.run(
+                smallDecoderFile: sdDirM.appendingPathComponent("small_decoder.safetensors"),
+                metallibURL: metallib))
         case "vae-conv":
             print(try DirectVAESpike.run(metallibURL: metallib))
         case "conditioning":
