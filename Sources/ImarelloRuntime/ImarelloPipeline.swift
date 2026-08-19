@@ -7,12 +7,26 @@ import ImarelloDiT
 import ImarelloVAE
 
 /// Public entry point. All MLX work is isolated on this actor.
+/// Injectable packed-latent decoder (Stage-2 engine work: the bespoke VAE).
+/// When set on the pipeline, the T2I decode stage uses it instead of loading
+/// the MLX VAE module; the engine builds lazily at decode time (staged).
+public protocol PackedLatentDecoding: AnyObject {
+    /// spatial NCHW [1,128,h16,w16] → RGB NCHW.
+    func decodePacked(_ spatial: MLXArray) throws -> MLXArray
+}
+
 public actor ImarelloPipeline {
     public let config: ImarelloConfig
     /// Local HF snapshot when present under the Imarello models cache.
     public let snapshot: ModelSnapshot?
     private let orchestrator: StageOrchestrator
     private var generationInFlight = false
+    private var packedDecoder: (any PackedLatentDecoding)?
+
+    /// Route T2I decode through an external engine (nil restores the MLX VAE).
+    public func setPackedDecoder(_ decoder: sending (any PackedLatentDecoding)?) {
+        packedDecoder = decoder
+    }
 
     public init(config: ImarelloConfig = .autoDetectingTier()) {
         self.config = config
@@ -532,7 +546,14 @@ public actor ImarelloPipeline {
         try Task.checkCancellation()
         onProgress?(PipelineProgress(phase: .decoding))
         trace?.emit(.stageBegin("load_vae"))
-        try await orchestrator.loadVAEExclusive(mode: .decodeOnly)
+        if packedDecoder != nil {
+            // Direct engine: the DiT must still stage out first (exclusive
+            // residency); the engine itself builds lazily inside decodePacked.
+            try await orchestrator.unloadDiTIfStaged()
+            Memory.clearCache()
+        } else {
+            try await orchestrator.loadVAEExclusive(mode: .decodeOnly)
+        }
         trace?.emit(.stageEnd("load_vae"))
         trace?.emit(.memorySample(label: "after_load_vae"))
         let rgb: MLXArray
@@ -540,7 +561,12 @@ public actor ImarelloPipeline {
             trace?.emit(.stageBegin("decode_vae"))
             let spatial = LatentOps.unpackSequence(
                 latents, height: packedH, width: packedW)
-            let decoded = try orchestrator.vae.decodePacked(spatial)
+            let decoded: MLXArray
+            if let packedDecoder {
+                decoded = try packedDecoder.decodePacked(spatial)
+            } else {
+                decoded = try orchestrator.vae.decodePacked(spatial)
+            }
             eval(decoded)
             rgb = decoded
             trace?.emit(.stageEnd("decode_vae"))

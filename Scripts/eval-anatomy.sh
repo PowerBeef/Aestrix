@@ -7,6 +7,7 @@
 # leg-to-torso ratio, face symmetry.
 #
 #   IMARELLO=.build/release/imarello ./Scripts/eval-anatomy.sh [--canvas 512|1024]
+# Extra t2i flags: T2I_EXTRA='--vae-engine direct'  (same contract as eval-regression.sh).
 set -euo pipefail
 
 IMARELLO="${IMARELLO:-.build/release/imarello}"
@@ -33,7 +34,7 @@ for i in "${!PROMPTS[@]}"; do
     echo "== ${name} seed ${seed} (${CANVAS}²) =="
     if ! "$IMARELLO" t2i "${PROMPTS[$i]}" \
         --width "$CANVAS" --height "$CANVAS" --steps 4 --seed "$seed" \
-        --output "$png" --analyze --fail-on-pixel-gate; then
+        --output "$png" --analyze --fail-on-pixel-gate ${T2I_EXTRA:-}; then
       echo "   -> PIXEL FAIL ${name}-s${seed}"
       FAILED=$((FAILED + 1))
     fi

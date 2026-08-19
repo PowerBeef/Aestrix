@@ -479,6 +479,9 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "TE engine: direct (default since 2026-08-18 — bare-metal encoder, FULL gate passed: 22/22 pixel + vision incl. 1024² anatomy probes) | mlx (previous product path).")
     var teEngine: String = "direct"
 
+    @Option(name: .long, help: "VAE decode engine: direct (default since 2026-08-19 — bare-metal decoder, gate: 15/15 regression + ≤1 LSB output equivalence both canvases + vision) | mlx (previous product path).")
+    var vaeEngine: String = "direct"
+
     @Flag(name: .long, help: "EXPERIMENT (engine plan Q2): compose at 512² (clean anatomy), then refine at the target size via a low-strength I2I pass. Square canvases > 512 only.")
     var twoStage: Bool = false
 
@@ -574,6 +577,28 @@ struct T2I: AsyncParsableCommand {
             print("error: no local snapshot for \(config.modelID) @ \(config.revision)")
             print("hint: \(config.downloadCommand)")
             throw ExitCode.failure
+        }
+
+        switch vaeEngine {
+        case "direct":
+            guard vaeVariant == "small-decoder" else {
+                throw ValidationError("--vae-engine direct implements the Small Decoder only; drop --vae-variant full")
+            }
+            guard let snapV = ModelPaths.resolveIfPresent(config: config),
+                let smallDir = ModelPaths.resolveSmallDecoderIfPresent(config: config)
+            else {
+                print("error: --vae-engine direct needs the klein and Small Decoder snapshots")
+                throw ExitCode.failure
+            }
+            let exeV = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+            await pipeline.setPackedDecoder(DirectVAEPackedDecoder(
+                smallDecoderDirectory: smallDir,
+                vaeDirectory: snapV.vaeDirectory,
+                metallibURL: exeV.deletingLastPathComponent().appendingPathComponent("mlx.metallib")))
+        case "mlx":
+            break
+        default:
+            throw ValidationError("unknown --vae-engine " + vaeEngine + "; use mlx | direct")
         }
 
         guard let padContentMode = T2IRequest.PadContentMode(rawValue: padContent) else {
@@ -1202,6 +1227,9 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "VAE decode graph: small-decoder (default) | full (klein pack).")
     var vaeVariant: String = "small-decoder"
 
+    @Option(name: .long, help: "VAE decode engine for trials: direct (product default since 2026-08-19) | mlx (previous product path).")
+    var vaeEngine: String = "direct"
+
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"
 
@@ -1327,6 +1355,7 @@ struct Bench: AsyncParsableCommand {
             // provenance must live in the report, not the filename label.
             textTokens: textTokens ?? TextTokenMode.full512.rawValue,
             padContent: benchPadContent ?? "prompt",
+            vaeEngine: vaeEngine,
             vaeVariant: vaeVariant,
             evalCache: evalCache ?? EvalCachePolicy.current.profileName,
             vaeAttnChunk: vaeAttnChunk
@@ -1379,6 +1408,30 @@ struct Bench: AsyncParsableCommand {
         guard await pipeline.hasLocalSnapshot else {
             print("error: no local snapshot for \(imarelloConfig.modelID) @ \(imarelloConfig.revision)")
             print("hint: \(imarelloConfig.downloadCommand)")
+            throw ExitCode.failure
+        }
+
+        switch vaeEngine {
+        case "direct":
+            guard vaeVariant == "small-decoder" else {
+                print("error: --vae-engine direct implements the Small Decoder only")
+                throw ExitCode.failure
+            }
+            guard let snapV = ModelPaths.resolveIfPresent(config: imarelloConfig),
+                let smallDir = ModelPaths.resolveSmallDecoderIfPresent(config: imarelloConfig)
+            else {
+                print("error: --vae-engine direct needs the klein and Small Decoder snapshots")
+                throw ExitCode.failure
+            }
+            let exeV = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+            await pipeline.setPackedDecoder(DirectVAEPackedDecoder(
+                smallDecoderDirectory: smallDir,
+                vaeDirectory: snapV.vaeDirectory,
+                metallibURL: exeV.deletingLastPathComponent().appendingPathComponent("mlx.metallib")))
+        case "mlx":
+            break
+        default:
+            print("error: unknown --vae-engine \(vaeEngine); use mlx | direct")
             throw ExitCode.failure
         }
 

@@ -1078,3 +1078,30 @@ extension DirectVAE {
         return try decodeTileNCHW(latents)
     }
 }
+
+// MARK: - Product-pipeline adapter
+
+/// Lazy `PackedLatentDecoding` for `ImarelloPipeline`: the engine (and its
+/// ~97 MB of f32 weights) builds on the first decode call, preserving staged
+/// residency — nothing VAE-related is resident during the TE/DiT stages.
+public final class DirectVAEPackedDecoder: PackedLatentDecoding {
+    let smallDecoderFile: URL
+    let vaeDirectory: URL
+    let metallibURL: URL
+    var engine: DirectVAE?
+
+    public init(smallDecoderDirectory: URL, vaeDirectory: URL, metallibURL: URL) {
+        self.smallDecoderFile = smallDecoderDirectory.appendingPathComponent("small_decoder.safetensors")
+        self.vaeDirectory = vaeDirectory
+        self.metallibURL = metallibURL
+    }
+
+    public func decodePacked(_ spatial: MLXArray) throws -> MLXArray {
+        if engine == nil {
+            let v = try DirectVAE(smallDecoderFile: smallDecoderFile, metallibURL: metallibURL)
+            try v.loadBNStats(vaeDirectory: vaeDirectory)
+            engine = v
+        }
+        return try engine!.decodePacked(spatial)
+    }
+}
