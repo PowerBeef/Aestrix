@@ -46,6 +46,11 @@ public final class DirectDiTStep {
 
     var doubles: [DoubleWeights] = []
     var singles: [SingleWeights] = []
+    var scratchHeap: MTLHeap!
+    var heapComputeBase = 0
+    var heapComputeSize = 0
+    private var headCursor = 0
+    lazy var fence: MTLFence = device.makeFence()!
 
     // Conditioning (uploaded once per generate/step set)
     var modBufs: [String: MTLBuffer] = [:]
@@ -56,11 +61,11 @@ public final class DirectDiTStep {
     var hA, hB, eA, eB: MTLBuffer!      // f32 double-phase ping-pong
     var jointXA, jointXB: MTLBuffer!    // f32 single-phase ping-pong
     var nhImg, neTxt, projImg, projTxt: MTLBuffer!
-    var jointQ, jointK, jointV, jointQr, jointKr, jointO: MTLBuffer!
+    var jointQ, jointK, jointV, jointO: MTLBuffer!
     var outImg, outTxt: MTLBuffer!
     var y1Img, y1Txt: MTLBuffer!
     var ffWideImg, ffWideTxt, swImg, swTxt, ffOutImg, ffOutTxt: MTLBuffer!
-    var nhJoint, projJoint, sQ, sK, sQr, sKr, sV, sConcat, sOut: MTLBuffer!
+    var nhJoint, projJoint, sQ, sK, sV, sConcat, sOut: MTLBuffer!
 
     public init(lImg: Int, metallibURL: URL) throws {
         self.lImg = lImg
@@ -131,41 +136,123 @@ public final class DirectDiTStep {
 
     private func allocateScratch() throws {
         let d = Self.dim
-        hA = try scratch(lImg * d * 4, "hA")
-        hB = try scratch(lImg * d * 4, "hB")
-        eA = try scratch(lTxt * d * 4, "eA")
-        eB = try scratch(lTxt * d * 4, "eB")
-        jointXA = try scratch(J * d * 4, "jointXA")
-        jointXB = try scratch(J * d * 4, "jointXB")
-        nhImg = try scratch(lImg * d * 2, "nhImg")
-        neTxt = try scratch(lTxt * d * 2, "neTxt")
-        projImg = try scratch(lImg * d * 2, "projImg")
-        projTxt = try scratch(lTxt * d * 2, "projTxt")
-        jointQ = try scratch(J * d * 2, "jointQ")
-        jointK = try scratch(J * d * 2, "jointK")
-        jointV = try scratch(J * d * 2, "jointV")
-        jointQr = try scratch(J * d * 2, "jointQr")
-        jointKr = try scratch(J * d * 2, "jointKr")
-        jointO = try scratch(J * d * 2, "jointO")
-        outImg = try scratch(lImg * d * 2, "outImg")
-        outTxt = try scratch(lTxt * d * 2, "outTxt")
-        y1Img = try scratch(lImg * d * 4, "y1Img")
-        y1Txt = try scratch(lTxt * d * 4, "y1Txt")
-        ffWideImg = try scratch(lImg * Self.ffWide * 2, "ffWideImg")
-        ffWideTxt = try scratch(lTxt * Self.ffWide * 2, "ffWideTxt")
-        swImg = try scratch(lImg * Self.ffInner * 2, "swImg")
-        swTxt = try scratch(lTxt * Self.ffInner * 2, "swTxt")
-        ffOutImg = try scratch(lImg * d * 2, "ffOutImg")
-        ffOutTxt = try scratch(lTxt * d * 2, "ffOutTxt")
-        nhJoint = try scratch(J * d * 2, "nhJoint")
-        projJoint = try scratch(J * Self.projWidth * 2, "projJoint")
-        sQ = try scratch(J * d * 2, "sQ")
-        sK = try scratch(J * d * 2, "sK")
-        sQr = try scratch(J * d * 2, "sQr")
-        sKr = try scratch(J * d * 2, "sKr")
-        sV = try scratch(J * d * 2, "sV")
-        sConcat = try scratch(J * Self.concatWidth * 2, "sConcat")
-        sOut = try scratch(J * d * 2, "sOut")
+        // Placement heap with two zones. Persistent zone: the f32 residual
+        // ping-pongs, where jointXA/B alias the halves of h/e that are
+        // provably dead at the phase boundary (5 doubles -> cur lands on
+        // hB/eB, so hA/eA are free for jointXA; hB/eB free after the blit
+        // for jointXB). Compute zone: double-phase and single-phase scratch
+        // are disjoint in time, so they overlay -> max instead of sum.
+        // The heap is UNTRACKED; every encoder joins the MTLFence chain.
+        func aligned(_ bytes: Int) -> Int {
+            let a = device.heapBufferSizeAndAlign(length: bytes, options: [.storageModeShared])
+            return (bytes + a.align - 1) / a.align * a.align
+        }
+        let hBytes = aligned(lImg * d * 4)
+        let eBytes = aligned(lTxt * d * 4)
+        let jxBytes = aligned(J * d * 4)
+        // Persistent zone layout: [hA][hB][eA][eB]; jointXA at hA, jointXB at hB.
+        let pZone = hBytes * 2 + eBytes * 2
+        precondition(jxBytes <= hBytes + eBytes, "jointX must fit the aliased half")
+
+        // Compute-zone layouts.
+        var dOff = 0
+        func dPlace(_ bytes: Int) -> Int { let o = dOff; dOff += aligned(bytes); return o }
+        var doubleOffsets: [String: Int] = [:]
+        doubleOffsets["nhImg"] = dPlace(lImg * d * 2)
+        doubleOffsets["neTxt"] = dPlace(lTxt * d * 2)
+        doubleOffsets["projImg"] = dPlace(lImg * d * 2)
+        doubleOffsets["projTxt"] = dPlace(lTxt * d * 2)
+        doubleOffsets["jointQ"] = dPlace(J * d * 2)
+        doubleOffsets["jointK"] = dPlace(J * d * 2)
+        doubleOffsets["jointV"] = dPlace(J * d * 2)
+        doubleOffsets["jointO"] = dPlace(J * d * 2)
+        doubleOffsets["outImg"] = dPlace(lImg * d * 2)
+        doubleOffsets["outTxt"] = dPlace(lTxt * d * 2)
+        doubleOffsets["y1Img"] = dPlace(lImg * d * 4)
+        doubleOffsets["y1Txt"] = dPlace(lTxt * d * 4)
+        doubleOffsets["ffWideImg"] = dPlace(lImg / 2 * Self.ffWide * 2)
+        doubleOffsets["ffWideTxt"] = dPlace(lTxt * Self.ffWide * 2)
+        doubleOffsets["swImg"] = dPlace(lImg / 2 * Self.ffInner * 2)
+        doubleOffsets["swTxt"] = dPlace(lTxt * Self.ffInner * 2)
+        doubleOffsets["ffOutImg"] = dPlace(lImg * d * 2)
+        doubleOffsets["ffOutTxt"] = dPlace(lTxt * d * 2)
+        let doubleZone = dOff
+
+        var sOff = 0
+        func sPlace(_ bytes: Int) -> Int { let o = sOff; sOff += aligned(bytes); return o }
+        var singleOffsets: [String: Int] = [:]
+        singleOffsets["nhJoint"] = sPlace(J * d * 2)
+        singleOffsets["projJoint"] = sPlace(J / 2 * Self.projWidth * 2)
+        singleOffsets["sQ"] = sPlace(J * d * 2)
+        singleOffsets["sK"] = sPlace(J * d * 2)
+        singleOffsets["sV"] = sPlace(J * d * 2)
+        singleOffsets["sConcat"] = sPlace(J * Self.concatWidth * 2)
+        singleOffsets["sOut"] = sPlace(J * d * 2)
+        let singleZone = sOff
+
+        let cZone = max(doubleZone, singleZone)
+        let heapDesc = MTLHeapDescriptor()
+        heapDesc.type = .placement
+        heapDesc.storageMode = .shared
+        heapDesc.hazardTrackingMode = .untracked
+        heapDesc.size = pZone + cZone
+        guard let heap = device.makeHeap(descriptor: heapDesc) else {
+            throw DirectQmmSpike.SpikeError.metal("heap \(pZone + cZone) bytes")
+        }
+        scratchHeap = heap
+        heapComputeBase = pZone
+        heapComputeSize = cZone
+        ownedBytes += pZone + cZone
+
+        func hb(_ bytes: Int, _ offset: Int, _ label: String) throws -> MTLBuffer {
+            guard let b = heap.makeBuffer(
+                length: bytes, options: [.storageModeShared], offset: offset)
+            else { throw DirectQmmSpike.SpikeError.metal("place \(label)") }
+            b.label = label
+            return b
+        }
+        // Persistent zone, ordered so the dead-at-blit halves are CONTIGUOUS:
+        // [hA][eA][hB][eB]. After 5 doubles cur = hB/eB, so hA+eA (offset 0,
+        // exactly jxBytes) back jointXA; hB+eB back jointXB once the blit is
+        // done. The single-phase ping-pong walks those two aliases only.
+        hA = try hb(lImg * d * 4, 0, "hA")
+        eA = try hb(lTxt * d * 4, hBytes, "eA")
+        hB = try hb(lImg * d * 4, hBytes + eBytes, "hB")
+        eB = try hb(lTxt * d * 4, hBytes + eBytes + hBytes, "eB")
+        jointXA = try hb(J * d * 4, 0, "jointXA")                    // over hA+eA
+        jointXB = try hb(J * d * 4, hBytes + eBytes, "jointXB")      // over hB+eB
+        // Compute zone (base pZone).
+        func dz(_ name: String, _ bytes: Int) throws -> MTLBuffer {
+            try hb(bytes, pZone + doubleOffsets[name]!, name)
+        }
+        func sz(_ name: String, _ bytes: Int) throws -> MTLBuffer {
+            try hb(bytes, pZone + singleOffsets[name]!, name)
+        }
+        nhImg = try dz("nhImg", lImg * d * 2)
+        neTxt = try dz("neTxt", lTxt * d * 2)
+        projImg = try dz("projImg", lImg * d * 2)
+        projTxt = try dz("projTxt", lTxt * d * 2)
+        jointQ = try dz("jointQ", J * d * 2)
+        jointK = try dz("jointK", J * d * 2)
+        jointV = try dz("jointV", J * d * 2)
+        jointO = try dz("jointO", J * d * 2)
+        outImg = try dz("outImg", lImg * d * 2)
+        outTxt = try dz("outTxt", lTxt * d * 2)
+        y1Img = try dz("y1Img", lImg * d * 4)
+        y1Txt = try dz("y1Txt", lTxt * d * 4)
+        ffWideImg = try dz("ffWideImg", lImg / 2 * Self.ffWide * 2)
+        ffWideTxt = try dz("ffWideTxt", lTxt * Self.ffWide * 2)
+        swImg = try dz("swImg", lImg / 2 * Self.ffInner * 2)
+        swTxt = try dz("swTxt", lTxt * Self.ffInner * 2)
+        ffOutImg = try dz("ffOutImg", lImg * d * 2)
+        ffOutTxt = try dz("ffOutTxt", lTxt * d * 2)
+        nhJoint = try sz("nhJoint", J * d * 2)
+        projJoint = try sz("projJoint", J / 2 * Self.projWidth * 2)
+        sQ = try sz("sQ", J * d * 2)
+        sK = try sz("sK", J * d * 2)
+        sV = try sz("sV", J * d * 2)
+        sConcat = try sz("sConcat", J * Self.concatWidth * 2)
+        sOut = try sz("sOut", J * d * 2)
     }
 
     // MARK: - Weight loading
@@ -396,12 +483,13 @@ public final class DirectDiTStep {
             threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
     }
 
-    private func swiglu(_ enc: MTLComputeCommandEncoder, _ x: MTLBuffer, _ y: MTLBuffer,
+    private func swiglu(_ enc: MTLComputeCommandEncoder, _ x: MTLBuffer, xByteOff: Int = 0,
+                        _ y: MTLBuffer, yByteOff: Int = 0,
                         pitch: Int, gOff: Int, uOff: Int, width: Int,
                         outPitch: Int, outOff: Int, rows: Int) {
         enc.setComputePipelineState(swigluPSO)
-        enc.setBuffer(x, offset: 0, index: 0)
-        enc.setBuffer(y, offset: 0, index: 1)
+        enc.setBuffer(x, offset: xByteOff, index: 0)
+        enc.setBuffer(y, offset: yByteOff, index: 1)
         var p = Int32(pitch), g = Int32(gOff), u = Int32(uOff)
         var w32 = Int32(width), op = Int32(outPitch), oo = Int32(outOff)
         var inS = Float(16), outS = Float(1.0 / 16.0)
@@ -438,19 +526,23 @@ public final class DirectDiTStep {
         rms(enc, x: projImg, pitch: d, off: 0, w: w.normK, y: jointK, yOff: txtByteOff, rows: lImg)
         qmm(enc, w.toV, x: nhImg, xOff: 0, y: projImg, yOff: 0, m: lImg)
         scaleCast(enc, x: projImg, pitch: d, off: 0, width: d, y: jointV, yOff: txtByteOff, rows: lImg, scale: 16)
-        rope(enc, jointQ, jointQr, rows: J)
-        rope(enc, jointK, jointKr, rows: J)
-        attention(enc, q: jointQr, k: jointKr, v: jointV, o: jointO, oPitch: d)
+        rope(enc, jointQ, jointQ, rows: J)  // in-place: each thread owns its pair
+        rope(enc, jointK, jointK, rows: J)
+        attention(enc, q: jointQ, k: jointK, v: jointV, o: jointO, oPitch: d)
         scaleInPlace(enc, jointO, pitch: d, off: 0, width: d, rows: J, scale: 1.0 / 16.0)
         qmm(enc, w.toAddOut, x: jointO, xOff: 0, y: outTxt, yOff: 0, m: lTxt)
         qmm(enc, w.toOut, x: jointO, xOff: txtByteOff, y: outImg, yOff: 0, m: lImg)
         gateAdd(enc, x: hIn, xOff: 0, "img.msa", v: outImg, y: y1Img, yOff: 0, rows: lImg)
         gateAdd(enc, x: eIn, xOff: 0, "txt.msa", v: outTxt, y: y1Txt, yOff: 0, rows: lTxt)
         lnMod(enc, y1Img, xOff: 0, "img.mlp", nhImg, rows: lImg)
-        qmm(enc, w.ffIn, x: nhImg, xOff: 0, y: ffWideImg, yOff: 0, m: lImg)
-        swiglu(enc, ffWideImg, swImg, pitch: Self.ffWide, gOff: 0, uOff: Self.ffInner,
-               width: Self.ffInner, outPitch: Self.ffInner, outOff: 0, rows: lImg)
-        qmm(enc, w.ffOut, x: swImg, xOff: 0, y: ffOutImg, yOff: 0, m: lImg)
+        let ffHalf = lImg / 2
+        for c in 0 ..< 2 {
+            let rowOff = c * ffHalf
+            qmm(enc, w.ffIn, x: nhImg, xOff: rowOff * Self.dim * 2, y: ffWideImg, yOff: 0, m: ffHalf)
+            swiglu(enc, ffWideImg, swImg, pitch: Self.ffWide, gOff: 0, uOff: Self.ffInner,
+                   width: Self.ffInner, outPitch: Self.ffInner, outOff: 0, rows: ffHalf)
+            qmm(enc, w.ffOut, x: swImg, xOff: 0, y: ffOutImg, yOff: rowOff * Self.dim * 2, m: ffHalf)
+        }
         gateAdd(enc, x: y1Img, xOff: 0, "img.mlp", v: ffOutImg, y: hOut, yOff: 0, rows: lImg)
         lnMod(enc, y1Txt, xOff: 0, "txt.mlp", neTxt, rows: lTxt)
         qmm(enc, w.ffcIn, x: neTxt, xOff: 0, y: ffWideTxt, yOff: 0, m: lTxt)
@@ -464,17 +556,27 @@ public final class DirectDiTStep {
                               xIn: MTLBuffer, xOut: MTLBuffer) {
         let d = Self.dim
         lnMod(enc, xIn, xOff: 0, "single", nhJoint, rows: J)
-        qmm(enc, w.proj, x: nhJoint, xOff: 0, y: projJoint, yOff: 0, m: J)
-        rms(enc, x: projJoint, pitch: Self.projWidth, off: 0, w: w.normQ, y: sQ, yOff: 0, rows: J)
-        rms(enc, x: projJoint, pitch: Self.projWidth, off: d, w: w.normK, y: sK, yOff: 0, rows: J)
-        rope(enc, sQ, sQr, rows: J)
-        rope(enc, sK, sKr, rows: J)
-        scaleCast(enc, x: projJoint, pitch: Self.projWidth, off: 2 * d, width: d,
-                  y: sV, yOff: 0, rows: J, scale: 16)
-        attention(enc, q: sQr, k: sKr, v: sV, o: sConcat, oPitch: Self.concatWidth)
-        swiglu(enc, projJoint, sConcat, pitch: Self.projWidth, gOff: Self.qkvWidth,
-               uOff: Self.qkvWidth + Self.ffWide / 2, width: Self.ffWide / 2,
-               outPitch: Self.concatWidth, outOff: d, rows: J)
+        // The fused 27648-wide proj runs in row-halves so its scratch is half
+        // the sequence; every pitched consumer indexes chunk-locally with a
+        // global byte offset on its output.
+        let half = J / 2
+        for c in 0 ..< 2 {
+            let rowOff = c * half
+            qmm(enc, w.proj, x: nhJoint, xOff: rowOff * d * 2, y: projJoint, yOff: 0, m: half)
+            rms(enc, x: projJoint, pitch: Self.projWidth, off: 0, w: w.normQ,
+                y: sQ, yOff: rowOff * d * 2, rows: half)
+            rms(enc, x: projJoint, pitch: Self.projWidth, off: d, w: w.normK,
+                y: sK, yOff: rowOff * d * 2, rows: half)
+            scaleCast(enc, x: projJoint, pitch: Self.projWidth, off: 2 * d, width: d,
+                      y: sV, yOff: rowOff * d * 2, rows: half, scale: 16)
+            swiglu(enc, projJoint, sConcat, yByteOff: rowOff * Self.concatWidth * 2,
+                   pitch: Self.projWidth, gOff: Self.qkvWidth,
+                   uOff: Self.qkvWidth + Self.ffWide / 2, width: Self.ffWide / 2,
+                   outPitch: Self.concatWidth, outOff: d, rows: half)
+        }
+        rope(enc, sQ, sQ, rows: J)
+        rope(enc, sK, sK, rows: J)
+        attention(enc, q: sQ, k: sK, v: sV, o: sConcat, oPitch: Self.concatWidth)
         scaleInPlace(enc, sConcat, pitch: Self.concatWidth, off: 0, width: d, rows: J, scale: 1.0 / 16.0)
         qmm(enc, w.toOut, x: sConcat, xOff: 0, y: sOut, yOff: 0, m: J)
         gateAdd(enc, x: xIn, xOff: 0, "single", v: sOut, y: xOut, yOff: 0, rows: J)
@@ -502,10 +604,12 @@ public final class DirectDiTStep {
         guard let inBlit = cb.makeBlitCommandEncoder() else {
             throw DirectQmmSpike.SpikeError.metal("blit-in")
         }
+        inBlit.waitForFence(fence)
         inBlit.copy(from: hIn, sourceOffset: 0, to: hA, destinationOffset: 0,
                     size: lImg * Self.dim * 4)
         inBlit.copy(from: eIn, sourceOffset: 0, to: eA, destinationOffset: 0,
                     size: lTxt * Self.dim * 4)
+        inBlit.updateFence(fence)
         inBlit.endEncoding()
         var curH = hA!, curE = eA!
         var altH = hB!, altE = eB!
@@ -513,7 +617,9 @@ public final class DirectDiTStep {
             guard let enc = cb.makeComputeCommandEncoder() else {
                 throw DirectQmmSpike.SpikeError.metal("enc")
             }
+            enc.waitForFence(fence)
             encodeDouble(enc, w, hIn: curH, eIn: curE, hOut: altH, eOut: altE)
+            enc.updateFence(fence)
             enc.endEncoding()
             swap(&curH, &altH)
             swap(&curE, &altE)
@@ -522,17 +628,21 @@ public final class DirectDiTStep {
         guard let blit = cb.makeBlitCommandEncoder() else {
             throw DirectQmmSpike.SpikeError.metal("blit")
         }
+        blit.waitForFence(fence)
         blit.copy(from: curE, sourceOffset: 0, to: jointXA, destinationOffset: 0,
                   size: lTxt * Self.dim * 4)
         blit.copy(from: curH, sourceOffset: 0, to: jointXA, destinationOffset: lTxt * Self.dim * 4,
                   size: lImg * Self.dim * 4)
+        blit.updateFence(fence)
         blit.endEncoding()
         var curX = jointXA!, altX = jointXB!
         for w in singles {
             guard let enc = cb.makeComputeCommandEncoder() else {
                 throw DirectQmmSpike.SpikeError.metal("enc")
             }
+            enc.waitForFence(fence)
             encodeSingle(enc, w, xIn: curX, xOut: altX)
+            enc.updateFence(fence)
             enc.endEncoding()
             swap(&curX, &altX)
         }
@@ -680,6 +790,22 @@ extension DirectDiTStep {
         let latB: MTLBuffer
     }
 
+    /// Place a head/embedder buffer inside the heap's compute zone: the
+    /// pre-phase runs before any block scratch is live and the head phase
+    /// after all of it is dead, so these overlay the block scratch for free
+    /// (fence chain orders the phases).
+    private func headPlace(_ bytes: Int, _ label: String) throws -> MTLBuffer {
+        let a = device.heapBufferSizeAndAlign(length: bytes, options: [.storageModeShared])
+        let aligned = (headCursor + a.align - 1) / a.align * a.align
+        precondition(aligned + bytes <= heapComputeSize, "head overlay exceeds compute zone")
+        guard let b = scratchHeap.makeBuffer(
+            length: bytes, options: [.storageModeShared], offset: heapComputeBase + aligned)
+        else { throw DirectQmmSpike.SpikeError.metal("headPlace \(label)") }
+        b.label = label
+        headCursor = aligned + bytes
+        return b
+    }
+
     public func loadHead(arrays: [String: MLXArray]) throws -> Head {
         func conv(_ name: String) throws -> Q {
             guard let w = arrays["\(name).weight"], let sc = arrays["\(name).scales"],
@@ -713,12 +839,12 @@ extension DirectDiTStep {
             castPrePSO: try pso("dd_cast_prescale"),
             castPostPSO: try pso("dd_cast_postscale"),
             onesGate: onesBuf,
-            lat16: try scratch(lImg * 128 * 2, "lat16"),
-            hEmb16: try scratch(lImg * Self.dim * 2, "hEmb16"),
-            h0: try scratch(lImg * Self.dim * 4, "h0"),
-            nhHead: try scratch(lImg * Self.dim * 2, "nhHead"),
-            pred16: try scratch(lImg * 128 * 2, "pred16"),
-            latA: try scratch(lImg * 128 * 4, "latA"),
+            lat16: try headPlace(lImg * 128 * 2, "lat16"),
+            hEmb16: try headPlace(lImg * Self.dim * 2, "hEmb16"),
+            h0: try headPlace(lImg * Self.dim * 4, "h0"),
+            nhHead: try headPlace(lImg * Self.dim * 2, "nhHead"),
+            pred16: try headPlace(lImg * 128 * 2, "pred16"),
+            latA: try scratch(lImg * 128 * 4, "latA"),   // persists across steps
             latB: try scratch(lImg * 128 * 4, "latB"))
     }
 
@@ -754,6 +880,7 @@ extension DirectDiTStep {
         guard let pre = cb.makeComputeCommandEncoder() else {
             throw DirectQmmSpike.SpikeError.metal("enc")
         }
+        pre.waitForFence(fence)
         pre.setComputePipelineState(head.castPrePSO)
         pre.setBuffer(latIn, offset: 0, index: 0)
         pre.setBuffer(head.lat16, offset: 0, index: 1)
@@ -775,6 +902,7 @@ extension DirectDiTStep {
         pre.dispatchThreads(
             MTLSize(width: lImg * Self.dim, height: 1, depth: 1),
             threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+        pre.updateFence(fence)
         pre.endEncoding()
 
         // 25 blocks (shared encoder machinery; input blit inside encodeBlocks)
@@ -784,6 +912,7 @@ extension DirectDiTStep {
         guard let henc = cb.makeComputeCommandEncoder() else {
             throw DirectQmmSpike.SpikeError.metal("enc")
         }
+        henc.waitForFence(fence)
         lnMod(henc, finalJoint, xOff: lTxt * Self.dim * 4, "out", head.nhHead, rows: lImg)
         qmm(henc, head.projOut, x: head.nhHead, xOff: 0, y: head.pred16, yOff: 0, m: lImg)
         henc.setComputePipelineState(gateAddPSO)
@@ -798,6 +927,7 @@ extension DirectDiTStep {
         henc.dispatchThreads(
             MTLSize(width: 128, height: lImg, depth: 1),
             threadsPerThreadgroup: MTLSize(width: 128, height: 1, depth: 1))
+        henc.updateFence(fence)
         henc.endEncoding()
 
         cb.commit()
