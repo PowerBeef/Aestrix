@@ -232,7 +232,7 @@ Working on this repo with an AI agent? [CLAUDE.md](CLAUDE.md) is the contract �
 |----------------|--------------------|
 | macOS library + CLI: generate, edit, identity edit — 1024² on 8 GB | A19 Pro / M5 **Neural Accelerator** path (probe + iOS 26.2 floor shipped; blocked on a device running iOS ≥ 26.2) |
 | iOS studio: 512² generate + edit on device, durable print history | 1024² anatomy: `--two-stage` rescue works, texture re-gate awaits an SR-stage decision |
-| mlx core 0.32.1 (fork) · hardened scripts/CI · 18-suite CI gate | Re-sync to upstream mlx-swift when it ships 0.32.x |
+| mlx core 0.32.1 (fork) · hardened scripts/CI · 18-suite CI gate | **Bare-metal direct-dispatch engine** (mainline direction): TE landed opt-in (`--te-engine direct`, splice 1.6 s → 0.2 s); DiT/VAE next through gates |
 
 Not in scope for v1: Klein 9B / FLUX.2 Dev, multi-reference editing, LoRA, CFG, bf16 paths.
 
