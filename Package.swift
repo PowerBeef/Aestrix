@@ -50,6 +50,7 @@ let package = Package(
                 "ImarelloCore",
                 "ImarelloWeights",
                 "ImarelloText",
+                "ImarelloDiT",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),

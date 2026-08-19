@@ -1627,13 +1627,18 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "dit-block":
+            let snap = try ModelPaths.resolveOrThrow(config: config)
+            print(try DirectDiTBlockSpike.run(
+                transformerDirectory: snap.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: metallib))
         case "encode":
             let snap = try ModelPaths.resolveOrThrow(config: config)
             print(try await DirectTEEncodeSpike.run(
                 snapshot: snap, metallibURL: metallib,
                 prompt: "A red fox sitting in a snowy forest clearing at golden hour, professional wildlife photography"))
         default:
-            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode")
+            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode | dit-block")
         }
     }
 }
