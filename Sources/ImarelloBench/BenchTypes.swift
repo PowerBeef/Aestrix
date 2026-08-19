@@ -79,6 +79,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var padContent: String?
     /// VAE decode engine for T2I trials: "mlx" (product) | "direct" (bare-metal).
     public var vaeEngine: String?
+    /// DiT denoise engine for T2I trials: "mlx" (product) | "direct" (bare-metal).
+    public var ditEngine: String?
     /// VAE decode variant for provenance: "small-decoder" | "full".
     public var vaeVariant: String?
     /// Resolved eval/cache profile for provenance: "product" | "mid".
@@ -134,6 +136,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         textTokens: String? = nil,
         padContent: String? = nil,
         vaeEngine: String? = nil,
+        ditEngine: String? = nil,
         vaeVariant: String? = nil,
         evalCache: String? = nil,
         vaeAttnChunk: Int? = nil,
@@ -180,6 +183,7 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.textTokens = textTokens
         self.padContent = padContent
         self.vaeEngine = vaeEngine
+        self.ditEngine = ditEngine
         self.vaeVariant = vaeVariant
         self.evalCache = evalCache
         self.vaeAttnChunk = vaeAttnChunk
@@ -555,5 +559,5 @@ public struct BenchReport: Sendable, Codable, Equatable {
     public var pressure: PressureReport?
 
     /// 1.4 (2026-08-18): + evalCache, vaeAttnChunk, vaeTile{Size,Overlap,Blend} provenance.
-    public static let currentSchema = "1.5"
+    public static let currentSchema = "1.6"
 }

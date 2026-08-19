@@ -482,6 +482,9 @@ struct T2I: AsyncParsableCommand {
     @Option(name: .long, help: "VAE decode engine: direct (default since 2026-08-19 — bare-metal decoder, gate: 15/15 regression + ≤1 LSB output equivalence both canvases + vision) | mlx (previous product path).")
     var vaeEngine: String = "direct"
 
+    @Option(name: .long, help: "DiT denoise engine: direct (default since 2026-08-19 — FULL gate: 15/15 regression + 12 anatomy probes + 1024² trio, e2e −6.7/−9.0%; requires --text-tokens 512, no pad-keep/pad-bias) | mlx (previous product path).")
+    var ditEngine: String = "direct"
+
     @Flag(name: .long, help: "EXPERIMENT (engine plan Q2): compose at 512² (clean anatomy), then refine at the target size via a low-strength I2I pass. Square canvases > 512 only.")
     var twoStage: Bool = false
 
@@ -599,6 +602,28 @@ struct T2I: AsyncParsableCommand {
             break
         default:
             throw ValidationError("unknown --vae-engine " + vaeEngine + "; use mlx | direct")
+        }
+
+        switch ditEngine {
+        case "direct":
+            guard textTokens == "512" else {
+                throw ValidationError("--dit-engine direct assumes the 512-token joint sequence; drop --text-tokens auto")
+            }
+            guard padKeep == nil, !padBias else {
+                throw ValidationError("--dit-engine direct does not implement the R3 pad diagnostics (--pad-keep/--pad-bias)")
+            }
+            guard let snapD = ModelPaths.resolveIfPresent(config: config) else {
+                print("error: --dit-engine direct needs the klein snapshot")
+                throw ExitCode.failure
+            }
+            let exeD = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+            await pipeline.setPackedDenoiser(DirectDiTPackedDenoiser(
+                transformerDirectory: snapD.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: exeD.deletingLastPathComponent().appendingPathComponent("mlx.metallib")))
+        case "mlx":
+            break
+        default:
+            throw ValidationError("unknown --dit-engine " + ditEngine + "; use mlx | direct")
         }
 
         guard let padContentMode = T2IRequest.PadContentMode(rawValue: padContent) else {
@@ -1230,6 +1255,9 @@ struct Bench: AsyncParsableCommand {
     @Option(name: .long, help: "VAE decode engine for trials: direct (product default since 2026-08-19) | mlx (previous product path).")
     var vaeEngine: String = "direct"
 
+    @Option(name: .long, help: "DiT denoise engine for trials: direct (product default since 2026-08-19) | mlx (previous product path).")
+    var ditEngine: String = "direct"
+
     @Option(name: .long, help: "Probe density: off | stages | denoise | blocks | max")
     var probeDensity: String = "denoise"
 
@@ -1356,6 +1384,7 @@ struct Bench: AsyncParsableCommand {
             textTokens: textTokens ?? TextTokenMode.full512.rawValue,
             padContent: benchPadContent ?? "prompt",
             vaeEngine: vaeEngine,
+            ditEngine: ditEngine,
             vaeVariant: vaeVariant,
             evalCache: evalCache ?? EvalCachePolicy.current.profileName,
             vaeAttnChunk: vaeAttnChunk
@@ -1432,6 +1461,27 @@ struct Bench: AsyncParsableCommand {
             break
         default:
             print("error: unknown --vae-engine \(vaeEngine); use mlx | direct")
+            throw ExitCode.failure
+        }
+
+        switch ditEngine {
+        case "direct":
+            guard (textTokens ?? "512") == "512" else {
+                print("error: --dit-engine direct assumes 512 text tokens")
+                throw ExitCode.failure
+            }
+            guard let snapD = ModelPaths.resolveIfPresent(config: imarelloConfig) else {
+                print("error: --dit-engine direct needs the klein snapshot")
+                throw ExitCode.failure
+            }
+            let exeD = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+            await pipeline.setPackedDenoiser(DirectDiTPackedDenoiser(
+                transformerDirectory: snapD.root.appendingPathComponent("transformer", isDirectory: true),
+                metallibURL: exeD.deletingLastPathComponent().appendingPathComponent("mlx.metallib")))
+        case "mlx":
+            break
+        default:
+            print("error: unknown --dit-engine \(ditEngine); use mlx | direct")
             throw ExitCode.failure
         }
 

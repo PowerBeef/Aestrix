@@ -15,6 +15,18 @@ public protocol PackedLatentDecoding: AnyObject {
     func decodePacked(_ spatial: MLXArray) throws -> MLXArray
 }
 
+/// Injectable T2I denoiser (Stage-2 engine work: the bespoke DiT).
+/// Consumes the pipeline's own noise + prompt embeds and returns the final
+/// packed latents; `onStep` fires before each step (cancellation + trace).
+/// The engine loads and frees its weights inside the call (staged residency).
+public protocol PackedLatentDenoising: AnyObject {
+    func denoise(
+        noise: MLXArray, embeds: MLXArray,
+        width: Int, height: Int, steps: Int,
+        onStep: ((Int) throws -> Void)?
+    ) throws -> MLXArray
+}
+
 public actor ImarelloPipeline {
     public let config: ImarelloConfig
     /// Local HF snapshot when present under the Imarello models cache.
@@ -22,10 +34,16 @@ public actor ImarelloPipeline {
     private let orchestrator: StageOrchestrator
     private var generationInFlight = false
     private var packedDecoder: (any PackedLatentDecoding)?
+    private var packedDenoiser: (any PackedLatentDenoising)?
 
     /// Route T2I decode through an external engine (nil restores the MLX VAE).
     public func setPackedDecoder(_ decoder: sending (any PackedLatentDecoding)?) {
         packedDecoder = decoder
+    }
+
+    /// Route T2I denoise through an external engine (nil restores the MLX DiT).
+    public func setPackedDenoiser(_ denoiser: sending (any PackedLatentDenoising)?) {
+        packedDenoiser = denoiser
     }
 
     public init(config: ImarelloConfig = .autoDetectingTier()) {
@@ -444,100 +462,133 @@ public actor ImarelloPipeline {
 
             // --- Stage 2: DiT denoise ---
             try Task.checkCancellation()
-            trace?.emit(.stageBegin("load_dit"))
-            try await orchestrator.loadDiTExclusive()
-            trace?.emit(.stageEnd("load_dit"))
-            trace?.emit(.memorySample(label: "after_load_dit"))
-            do {
-                // RoPE + ids are constant across steps for fixed canvas + text length.
-                eval(imgIds, txtIds, promptEmbeds)
-                let projectedContext = try orchestrator.dit.projectContext(promptEmbeds)
-                let rope = try orchestrator.dit.prepareRotaryEmbeddings(
-                    imgIds: imgIds, txtIds: txtIds)
-                trace?.emit(.memorySample(label: "after_rope"))
-                // Host-built training-scale timesteps + Euler dts (eval once before loop).
-                let stepTimesteps: [MLXArray] = scheduler.timesteps.map {
-                    MLXArray([$0]).asType(.float32)
-                }
-                let stepDts = LatentOps.eulerDts(sigmas: scheduler.sigmas)
-                eval(stepTimesteps)
-                // Timestep-only conditioning (temb + modulations + AdaLN-out) for
-                // every step, computed once instead of per forward.
-                let stepConditioning = try orchestrator.dit.precomputeStepConditioning(
-                    timesteps: stepTimesteps, batch: 1, dtype: .float32, guidance: guidance)
-                // R3 EXPERIMENT: joint-key attention bias for this generate only.
-                AttentionTuning.experimentalAttnBias = padBiasVector
-                defer { AttentionTuning.experimentalAttnBias = nil }
-                // High-res (768²+) on unified memory: drop Metal buffer pool after every
-                // step so activation temporaries don't accumulate (8 GB M2 OOMs at 1024²).
-                let largeCanvas = Self.isLargeCanvasForCache(
-                    maxSide: max(request.width, request.height))
-                var restoreCacheLimit: Int?
-                if largeCanvas {
-                    restoreCacheLimit = Self.applyPreDenoiseCacheClamp()
-                    trace?.emit(.memorySample(label: "after_clear_pre_denoise"))
-                }
-                defer {
-                    if let restoreCacheLimit {
-                        Memory.cacheLimit = restoreCacheLimit
-                    }
-                }
-                if let trace, trace.density != .off {
-                    trace.emit(.peakReset(label: "before_denoise"))
-                }
+            if let packedDenoiser {
+                // Bespoke DiT engine (opt-in): conditioning, RoPE, scheduler,
+                // and the step loop live on the engine; weights load and free
+                // inside the call, so staged residency is preserved. R3 pad
+                // diagnostics (pad-keep/pad-bias) are MLX-path-only — the CLI
+                // rejects them with this engine.
+                trace?.emit(.stageBegin("load_dit"))
+                trace?.emit(.stageEnd("load_dit"))
+                trace?.emit(.memorySample(label: "after_load_dit"))
                 trace?.emit(.stageBegin("denoise"))
-                for step in 0 ..< scheduler.numInferenceSteps {
-                    try Task.checkCancellation()
-                    onProgress?(
-                        PipelineProgress(
-                            phase: .denoising, step: step, totalSteps: request.steps))
-                    trace?.emit(.denoiseStepBegin(index: step, total: request.steps))
-                    trace?.probe(
-                        "dit.step\(step).begin", phase: "dit", step: step, minDensity: .denoise)
-                    let noisePred = try orchestrator.dit.forward(
-                        hiddenStates: latents,
-                        encoderHiddenStates: projectedContext,
-                        timestep: stepTimesteps[step],
-                        imgIds: imgIds,
-                        txtIds: txtIds,
-                        guidance: guidance,
-                        imageRotaryEmb: rope,
-                        contextIsProjected: true,
-                        stepConditioning: stepConditioning[step],
-                        trace: trace,
-                        stepIndex: step
-                    )
-                    // Single eval per step: materialize Euler result (pulls noisePred graph).
-                    latents = LatentOps.eulerStep(
-                        sample: latents,
-                        modelOutput: noisePred,
-                        dt: stepDts[step]
-                    )
-                    eval(latents)
-                    trace?.probe(
-                        "dit.step\(step).after_euler", phase: "dit", step: step, minDensity: .denoise)
-                    if largeCanvas, EvalCachePolicy.current.clearCacheAfterDenoiseStep {
-                        Memory.clearCache()
-                        trace?.probe(
-                            "dit.step\(step).after_clear", phase: "dit", step: step,
-                            minDensity: .denoise)
-                    }
-                    trace?.emit(.denoiseStepEnd(index: step, total: request.steps))
-                    if step == 0 || step + 1 == scheduler.numInferenceSteps
-                        || (trace?.density.instrumentsEveryDenoiseStep == true)
-                    {
-                        trace?.emit(.memorySample(label: "denoise_step_\(step)"))
-                    }
+                var lastStep = -1
+                latents = try packedDenoiser.denoise(
+                    noise: latents, embeds: promptEmbeds,
+                    width: request.width, height: request.height, steps: request.steps,
+                    onStep: { step in
+                        try Task.checkCancellation()
+                        if step > 0 {
+                            trace?.emit(.denoiseStepEnd(index: step - 1, total: request.steps))
+                        }
+                        trace?.emit(.denoiseStepBegin(index: step, total: request.steps))
+                        onProgress?(
+                            PipelineProgress(
+                                phase: .denoising, step: step, totalSteps: request.steps))
+                        lastStep = step
+                    })
+                if lastStep >= 0 {
+                    trace?.emit(.denoiseStepEnd(index: lastStep, total: request.steps))
                 }
+                eval(latents)
                 trace?.emit(.stageEnd("denoise"))
-                trace?.emit(.stageBegin("unload_dit"))
-                try await orchestrator.unloadDiTIfStaged()
-                trace?.emit(.stageEnd("unload_dit"))
                 trace?.emit(.memorySample(label: "after_unload_dit"))
-            } catch {
-                try? await orchestrator.unloadDiTIfStaged()
-                throw error
-            }
+            } else {
+                trace?.emit(.stageBegin("load_dit"))
+                try await orchestrator.loadDiTExclusive()
+                trace?.emit(.stageEnd("load_dit"))
+                trace?.emit(.memorySample(label: "after_load_dit"))
+                do {
+                    // RoPE + ids are constant across steps for fixed canvas + text length.
+                    eval(imgIds, txtIds, promptEmbeds)
+                    let projectedContext = try orchestrator.dit.projectContext(promptEmbeds)
+                    let rope = try orchestrator.dit.prepareRotaryEmbeddings(
+                        imgIds: imgIds, txtIds: txtIds)
+                    trace?.emit(.memorySample(label: "after_rope"))
+                    // Host-built training-scale timesteps + Euler dts (eval once before loop).
+                    let stepTimesteps: [MLXArray] = scheduler.timesteps.map {
+                        MLXArray([$0]).asType(.float32)
+                    }
+                    let stepDts = LatentOps.eulerDts(sigmas: scheduler.sigmas)
+                    eval(stepTimesteps)
+                    // Timestep-only conditioning (temb + modulations + AdaLN-out) for
+                    // every step, computed once instead of per forward.
+                    let stepConditioning = try orchestrator.dit.precomputeStepConditioning(
+                        timesteps: stepTimesteps, batch: 1, dtype: .float32, guidance: guidance)
+                    // R3 EXPERIMENT: joint-key attention bias for this generate only.
+                    AttentionTuning.experimentalAttnBias = padBiasVector
+                    defer { AttentionTuning.experimentalAttnBias = nil }
+                    // High-res (768²+) on unified memory: drop Metal buffer pool after every
+                    // step so activation temporaries don't accumulate (8 GB M2 OOMs at 1024²).
+                    let largeCanvas = Self.isLargeCanvasForCache(
+                        maxSide: max(request.width, request.height))
+                    var restoreCacheLimit: Int?
+                    if largeCanvas {
+                        restoreCacheLimit = Self.applyPreDenoiseCacheClamp()
+                        trace?.emit(.memorySample(label: "after_clear_pre_denoise"))
+                    }
+                    defer {
+                        if let restoreCacheLimit {
+                            Memory.cacheLimit = restoreCacheLimit
+                        }
+                    }
+                    if let trace, trace.density != .off {
+                        trace.emit(.peakReset(label: "before_denoise"))
+                    }
+                    trace?.emit(.stageBegin("denoise"))
+                    for step in 0 ..< scheduler.numInferenceSteps {
+                        try Task.checkCancellation()
+                        onProgress?(
+                            PipelineProgress(
+                                phase: .denoising, step: step, totalSteps: request.steps))
+                        trace?.emit(.denoiseStepBegin(index: step, total: request.steps))
+                        trace?.probe(
+                            "dit.step\(step).begin", phase: "dit", step: step, minDensity: .denoise)
+                        let noisePred = try orchestrator.dit.forward(
+                            hiddenStates: latents,
+                            encoderHiddenStates: projectedContext,
+                            timestep: stepTimesteps[step],
+                            imgIds: imgIds,
+                            txtIds: txtIds,
+                            guidance: guidance,
+                            imageRotaryEmb: rope,
+                            contextIsProjected: true,
+                            stepConditioning: stepConditioning[step],
+                            trace: trace,
+                            stepIndex: step
+                        )
+                        // Single eval per step: materialize Euler result (pulls noisePred graph).
+                        latents = LatentOps.eulerStep(
+                            sample: latents,
+                            modelOutput: noisePred,
+                            dt: stepDts[step]
+                        )
+                        eval(latents)
+                        trace?.probe(
+                            "dit.step\(step).after_euler", phase: "dit", step: step, minDensity: .denoise)
+                        if largeCanvas, EvalCachePolicy.current.clearCacheAfterDenoiseStep {
+                            Memory.clearCache()
+                            trace?.probe(
+                                "dit.step\(step).after_clear", phase: "dit", step: step,
+                                minDensity: .denoise)
+                        }
+                        trace?.emit(.denoiseStepEnd(index: step, total: request.steps))
+                        if step == 0 || step + 1 == scheduler.numInferenceSteps
+                            || (trace?.density.instrumentsEveryDenoiseStep == true)
+                        {
+                            trace?.emit(.memorySample(label: "denoise_step_\(step)"))
+                        }
+                    }
+                    trace?.emit(.stageEnd("denoise"))
+                    trace?.emit(.stageBegin("unload_dit"))
+                    try await orchestrator.unloadDiTIfStaged()
+                    trace?.emit(.stageEnd("unload_dit"))
+                    trace?.emit(.memorySample(label: "after_unload_dit"))
+                } catch {
+                    try? await orchestrator.unloadDiTIfStaged()
+                    throw error
+                }
+        }
         }
         // Drop TE embeddings / RoPE / ids; keep only latents for VAE.
         Memory.clearCache()
