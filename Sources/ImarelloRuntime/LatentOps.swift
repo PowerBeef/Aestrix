@@ -4,7 +4,7 @@ import ImarelloCore
 import ImarelloVAE
 
 /// Packed-latent helpers for FLUX.2 klein T2I (patchify / pack / ids / Euler).
-enum LatentOps {
+public enum LatentOps {
     /// Channels after 2×2 patchify: VAE latent 32 → 128.
     static let packedChannels = Flux2VAE.latentChannels * 4  // 128
 
@@ -15,7 +15,7 @@ enum LatentOps {
     }
 
     /// Sample noise already in packed sequence form: `[B, H·W, 128]`.
-    static func samplePackedNoise(
+    public static func samplePackedNoise(
         batch: Int = 1,
         width: Int,
         height: Int,
@@ -32,7 +32,7 @@ enum LatentOps {
     /// Image position ids `[1, H·W, 4]` with coords `(t, h, w, l=0)`.
     /// - Parameter tCoord: Denoise target uses **0**; reference frames use **10, 20, …**
     ///   so RoPE separates “edit this” from “attend only”.
-    static func imageIds(width: Int, height: Int, tCoord: Int = 0) -> MLXArray {
+    public static func imageIds(width: Int, height: Int, tCoord: Int = 0) -> MLXArray {
         let (h, w) = packedSpatial(width: width, height: height)
         let rows = Flux2RoPE.prepareGridIDs(height: h, width: w, tCoord: tCoord)
         let flat = rows.flatMap { $0 }
@@ -152,7 +152,7 @@ enum LatentOps {
     }
 
     /// Text position ids `[1, L, 4]` with coords `(t=0, h=0, w=0, l=i)`.
-    static func textIds(length: Int = ModelConstants.maxSequenceLength) -> MLXArray {
+    public static func textIds(length: Int = ModelConstants.maxSequenceLength) -> MLXArray {
         let rows = Flux2RoPE.prepareTextIDs(length: length)
         let flat = rows.flatMap { $0 }
         return MLXArray(flat).reshaped([1, length, 4])
@@ -178,7 +178,7 @@ enum LatentOps {
     /// Euler: `x + (σ_{t+1} − σ_t) · e`.
     ///
     /// Uses a compiled kernel so the cheap residual add is fused across denoise steps.
-    static func eulerStep(
+    public static func eulerStep(
         sample: MLXArray,
         modelOutput: MLXArray,
         sigma: Float,
@@ -188,7 +188,7 @@ enum LatentOps {
     }
 
     /// Euler with a **precomputed** `dt` array (preferred in the denoise loop).
-    static func eulerStep(
+    public static func eulerStep(
         sample: MLXArray,
         modelOutput: MLXArray,
         dt: MLXArray
@@ -197,7 +197,7 @@ enum LatentOps {
     }
 
     /// Precompute per-step `σ_{t+1} − σ_t` for a schedule (eval once before denoise).
-    static func eulerDts(sigmas: [Float]) -> [MLXArray] {
+    public static func eulerDts(sigmas: [Float]) -> [MLXArray] {
         precondition(sigmas.count >= 2)
         var dts: [MLXArray] = []
         dts.reserveCapacity(sigmas.count - 1)

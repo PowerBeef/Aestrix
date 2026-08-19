@@ -105,6 +105,10 @@ public final class DirectDiTStep {
         try allocateScratch()
     }
 
+    /// Bytes of every buffer THIS engine owns (weights + scratch + conditioning)
+    /// — the deterministic static-plan footprint, distinct from device-wide use.
+    public private(set) var ownedBytes = 0
+
     func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
         let d = a.asData(noCopy: false)
         return try d.withUnsafeBytes { raw -> MTLBuffer in
@@ -112,6 +116,7 @@ public final class DirectDiTStep {
                 let b = device.makeBuffer(bytes: base, length: raw.count)
             else { throw DirectQmmSpike.SpikeError.metal("upload \(l)") }
             b.label = l
+            ownedBytes += raw.count
             return b
         }
     }
@@ -120,6 +125,7 @@ public final class DirectDiTStep {
             throw DirectQmmSpike.SpikeError.metal("scratch \(l)")
         }
         b.label = l
+        ownedBytes += bytes
         return b
     }
 
@@ -482,6 +488,15 @@ public final class DirectDiTStep {
         guard let cb = queue.makeCommandBuffer() else {
             throw DirectQmmSpike.SpikeError.metal("cb")
         }
+        let out = try encodeBlocks(cb: cb, hIn: hIn, eIn: eIn)
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("exec: \(e)") }
+        return out
+    }
+
+    /// Encode the 25 blocks into an existing command buffer (no commit).
+    func encodeBlocks(cb: MTLCommandBuffer, hIn: MTLBuffer, eIn: MTLBuffer) throws -> MTLBuffer {
         // Copy inputs into the internal ping-pong so callers' buffers are
         // never written (the step is re-runnable with pristine inputs).
         guard let inBlit = cb.makeBlitCommandEncoder() else {
@@ -521,9 +536,6 @@ public final class DirectDiTStep {
             enc.endEncoding()
             swap(&curX, &altX)
         }
-        cb.commit()
-        cb.waitUntilCompleted()
-        if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("exec: \(e)") }
         return curX
     }
 }
@@ -645,5 +657,156 @@ public enum DirectDiTStepSpike {
           direct_per_step:        \(String(format: "%.1f", directMS)) ms (single CB, blocking wait)
           verdict:                \(cosine >= 0.9999 ? "PASS" : "investigate")
         """
+    }
+}
+
+// MARK: - F4: the complete denoise stage
+
+extension DirectDiTStep {
+
+    /// Head + embedder state (loaded once).
+    public struct Head {
+        let xEmb: Q
+        let projOut: Q
+        let castPrePSO: MTLComputePipelineState
+        let castPostPSO: MTLComputePipelineState
+        let onesGate: MTLBuffer
+        let lat16: MTLBuffer      // [lImg, 128] f16 (embedder input)
+        let hEmb16: MTLBuffer     // [lImg, 3072] f16 (embedder output)
+        let h0: MTLBuffer         // [lImg, 3072] f32 (step input)
+        let nhHead: MTLBuffer     // [lImg, 3072] f16 (norm_out output, ÷16)
+        let pred16: MTLBuffer     // [lImg, 128] f16 (proj_out output)
+        let latA: MTLBuffer       // [lImg, 128] f32 ping-pong
+        let latB: MTLBuffer
+    }
+
+    public func loadHead(arrays: [String: MLXArray]) throws -> Head {
+        func conv(_ name: String) throws -> Q {
+            guard let w = arrays["\(name).weight"], let sc = arrays["\(name).scales"],
+                let bi = arrays["\(name).biases"]
+            else { throw DirectQmmSpike.SpikeError.missingTensor(name) }
+            let s16 = sc.asType(.float16)
+            let b16 = bi.asType(.float16)
+            eval(s16, b16)
+            let n = w.dim(0)
+            let k = w.dim(1) * 8
+            return Q(w: try upload(w, "\(name).w"), s: try upload(s16, "\(name).s"),
+                     b: try upload(b16, "\(name).b"), n: n, k: k)
+        }
+        let glue = try DirectDiTKernels.makeLibrary(device: device)
+        func pso(_ n: String) throws -> MTLComputePipelineState {
+            guard let fn = glue.makeFunction(name: n) else {
+                throw DirectQmmSpike.SpikeError.metal("glue \(n)")
+            }
+            return try device.makeComputePipelineState(function: fn)
+        }
+        let ones = [Float](repeating: 1, count: Self.dim)
+        let onesBuf = try ones.withUnsafeBufferPointer { p -> MTLBuffer in
+            guard let b = device.makeBuffer(bytes: p.baseAddress!, length: Self.dim * 4) else {
+                throw DirectQmmSpike.SpikeError.metal("ones")
+            }
+            return b
+        }
+        return Head(
+            xEmb: try conv("x_embedder"),
+            projOut: try conv("proj_out"),
+            castPrePSO: try pso("dd_cast_prescale"),
+            castPostPSO: try pso("dd_cast_postscale"),
+            onesGate: onesBuf,
+            lat16: try scratch(lImg * 128 * 2, "lat16"),
+            hEmb16: try scratch(lImg * Self.dim * 2, "hEmb16"),
+            h0: try scratch(lImg * Self.dim * 4, "h0"),
+            nhHead: try scratch(lImg * Self.dim * 2, "nhHead"),
+            pred16: try scratch(lImg * 128 * 2, "pred16"),
+            latA: try scratch(lImg * 128 * 4, "latA"),
+            latB: try scratch(lImg * 128 * 4, "latB"))
+    }
+
+    /// Upload one denoise step's conditioning (product-computed).
+    public func setStepConditioning(_ sc: Flux2StepConditioning, cos: MLXArray, sin: MLXArray) throws {
+        func put(_ t: (MLXArray, MLXArray, MLXArray), _ tag: String) throws {
+            modBufs["\(tag).shift"] = try upload(t.0.asType(.float32), "\(tag).shift")
+            modBufs["\(tag).scale"] = try upload(t.1.asType(.float32), "\(tag).scale")
+            modBufs["\(tag).gate"] = try upload(t.2.asType(.float32), "\(tag).gate")
+        }
+        try put(sc.doubleImg[0], "img.msa")
+        try put(sc.doubleImg[1], "img.mlp")
+        try put(sc.doubleTxt[0], "txt.msa")
+        try put(sc.doubleTxt[1], "txt.mlp")
+        try put(sc.single, "single")
+        modBufs["out.scale"] = try upload(sc.outConditioning.scale.asType(.float32), "out.scale")
+        modBufs["out.shift"] = try upload(sc.outConditioning.shift.asType(.float32), "out.shift")
+        if cosBuf == nil {
+            cosBuf = try upload(cos, "cos")
+            sinBuf = try upload(sin, "sin")
+        }
+    }
+
+    /// One full denoise step: x_embedder → 25 blocks → norm_out/proj_out →
+    /// Euler, all in ONE command buffer. latIn/latOut are f32 [lImg, 128].
+    public func encodeDenoiseStep(
+        latIn: MTLBuffer, latOut: MTLBuffer, e0: MTLBuffer, head: Head, dt: Float
+    ) throws {
+        guard let cb = queue.makeCommandBuffer() else {
+            throw DirectQmmSpike.SpikeError.metal("cb")
+        }
+        // Embedder
+        guard let pre = cb.makeComputeCommandEncoder() else {
+            throw DirectQmmSpike.SpikeError.metal("enc")
+        }
+        pre.setComputePipelineState(head.castPrePSO)
+        pre.setBuffer(latIn, offset: 0, index: 0)
+        pre.setBuffer(head.lat16, offset: 0, index: 1)
+        var n1 = UInt32(lImg * 128)
+        var inv16 = Float(1.0 / 16.0)
+        pre.setBytes(&n1, length: 4, index: 2)
+        pre.setBytes(&inv16, length: 4, index: 3)
+        pre.dispatchThreads(
+            MTLSize(width: lImg * 128, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+        qmm(pre, head.xEmb, x: head.lat16, xOff: 0, y: head.hEmb16, yOff: 0, m: lImg)
+        pre.setComputePipelineState(head.castPostPSO)
+        pre.setBuffer(head.hEmb16, offset: 0, index: 0)
+        pre.setBuffer(head.h0, offset: 0, index: 1)
+        var n2 = UInt32(lImg * Self.dim)
+        var sixteen = Float(16)
+        pre.setBytes(&n2, length: 4, index: 2)
+        pre.setBytes(&sixteen, length: 4, index: 3)
+        pre.dispatchThreads(
+            MTLSize(width: lImg * Self.dim, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+        pre.endEncoding()
+
+        // 25 blocks (shared encoder machinery; input blit inside encodeBlocks)
+        let finalJoint = try encodeBlocks(cb: cb, hIn: head.h0, eIn: e0)
+
+        // Head: norm_out over image rows (+÷16), proj_out, Euler
+        guard let henc = cb.makeComputeCommandEncoder() else {
+            throw DirectQmmSpike.SpikeError.metal("enc")
+        }
+        lnMod(henc, finalJoint, xOff: lTxt * Self.dim * 4, "out", head.nhHead, rows: lImg)
+        qmm(henc, head.projOut, x: head.nhHead, xOff: 0, y: head.pred16, yOff: 0, m: lImg)
+        henc.setComputePipelineState(gateAddPSO)
+        henc.setBuffer(latIn, offset: 0, index: 0)
+        henc.setBuffer(head.onesGate, offset: 0, index: 1)
+        henc.setBuffer(head.pred16, offset: 0, index: 2)
+        henc.setBuffer(latOut, offset: 0, index: 3)
+        var d128 = Int32(128)
+        var eulerScale = Float(16.0 * dt)
+        henc.setBytes(&d128, length: 4, index: 4)
+        henc.setBytes(&eulerScale, length: 4, index: 5)
+        henc.dispatchThreads(
+            MTLSize(width: 128, height: lImg, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 128, height: 1, depth: 1))
+        henc.endEncoding()
+
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("exec: \(e)") }
+    }
+
+    /// Total bytes of every MTLBuffer the engine holds (its full "watermark").
+    public var allocatedBytes: Int {
+        device.currentAllocatedSize
     }
 }

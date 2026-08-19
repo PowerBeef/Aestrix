@@ -172,6 +172,28 @@ enum DirectDiTKernels {
         x[idx] = (half)((float)x[idx] * scale);
     }
 
+    // f32 → f16 with scale (latents → qmm input, ÷16).
+    kernel void dd_cast_prescale(
+        device const float* x [[buffer(0)]],
+        device half* y [[buffer(1)]],
+        constant uint& n [[buffer(2)]],
+        constant float& s [[buffer(3)]],
+        uint gid [[thread_position_in_grid]]) {
+        if (gid >= n) return;
+        y[gid] = (half)(x[gid] * s);
+    }
+
+    // f16 → f32 with scale (qmm out ×16 → residual stream).
+    kernel void dd_cast_postscale(
+        device const half* x [[buffer(0)]],
+        device float* y [[buffer(1)]],
+        constant uint& n [[buffer(2)]],
+        constant float& s [[buffer(3)]],
+        uint gid [[thread_position_in_grid]]) {
+        if (gid >= n) return;
+        y[gid] = (float)x[gid] * s;
+    }
+
     // Gated residual: y = x + gate ⊙ (v · scale); x f32, v f16 (qmm out), y f32.
     kernel void dd_gate_add(
         device const float* x [[buffer(0)]],

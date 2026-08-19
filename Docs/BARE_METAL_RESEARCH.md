@@ -112,7 +112,15 @@ Three conclusions. **(1)** The production TE's ~1.6 s was never an irreducible M
 
 **F3 landed (same session): the full 25-block step PASSES** — `DirectDiTStep`, the engine's DiT core: 5 doubles + 20 singles in ONE command buffer (~355 dispatches) over a static scratch plan, with Klein's shared modulation (15 vectors condition the whole step). Cosine vs the product block loop **0.9999996** (maxAbs 0.116 — 25 blocks of f16 rounding), **10.2% faster** (3859.5 vs 4299.1 ms) — precisely the eval-boundary gap Stage 0 measured, now recovered by the recorded structure. One composition bug found and fixed: the ping-pong originally wrote back into the caller's input buffers, corrupting re-runs (inputs now blit into internal ping-pongs).
 
-Next: **F4** — embedders + norm_out/proj_out + the 4-step loop with per-step conditioning, the pipeline seam (`--dit-engine direct` class), and the decisive 1024² watermark measurement against the ≥0.5 GiB gate.
+**F4 landed (same session): the COMPLETE denoise stage PASSES at both canvases.** `x_embedder → 25 blocks → norm_out/proj_out → Euler`, one command buffer per step, product-computed per-step conditioning uploaded between steps (~50 KB). Verified against the full product DiT module end to end:
+
+| | 512² | 1024² |
+|---|---|---|
+| final-latent cosine (4 steps) | 0.9999266 | 0.9998499 |
+| product 4-step (warm) | 16.84 s | 60.37 s |
+| direct 4-step | **15.21 s (1.11×)** | **52.31 s (1.15×)** |
+
+The 1024² result lands **without chunk-streaming** — the engine materializes the full 255 MB single-proj and still beats the product's chunked path. **Gate status (≥1.25× or ≥0.5 GiB at ≤5%): not yet met on either arm, with the path clear.** Speed sits at 1.15×; memory: the engine's static plan currently sums to ≈1.46 GiB scratch + 1.93 GiB weights ≈ 3.4 GiB at 1024² vs the product's 3.00 GiB watermark, because the double-phase and single-phase scratch sets — disjoint in time — are allocated side by side instead of aliased over one slab (max ≈ 0.86 GiB instead of sum), rope buffers can rotate in place (−113 MB; each thread owns its pair), and the single-proj can run in fixed chunks (255 → 128 MB). That pass targets ≈ 2.6–2.7 GiB total, with the remaining distance to the −0.5 GiB gate coming from chunking the double-phase FF (−130 MB class). Precisely scoped; next session's work alongside the `--dit-engine direct` pipeline seam and the first direct-engine image.
 
 Timing honesty: at M=512 the bf16 direct encode is ≈ parity with the real resident TE (~1.6 s — bf16 qmm is slower than f16 on M2); the engine's speed prize remains the splice regime (M≈30 → ~0.1–0.2 s class) and everything the working cache now makes free. Next: the splice integration on the direct engine, then the DiT-side decision.
 

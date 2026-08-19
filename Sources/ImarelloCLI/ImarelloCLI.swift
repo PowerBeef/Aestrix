@@ -1627,6 +1627,11 @@ struct DirectSpike: AsyncParsableCommand {
             print(try DirectTELayerSpike.run(teDirectory: dir, metallibURL: metallib))
         case "forward":
             print(try DirectTEForward.run(teDirectory: dir, metallibURL: metallib, seqLen: seq))
+        case "dit-denoise":
+            let snap4 = try ModelPaths.resolveOrThrow(config: config)
+            print(try await DirectDiTDenoiseSpike.run(
+                snapshot: snap4, metallibURL: metallib, width: seq >= 1024 ? 1024 : 512,
+                height: seq >= 1024 ? 1024 : 512))
         case "dit-step":
             let snap3 = try ModelPaths.resolveOrThrow(config: config)
             print(try DirectDiTStepSpike.run(
@@ -1648,7 +1653,7 @@ struct DirectSpike: AsyncParsableCommand {
                 snapshot: snap, metallibURL: metallib,
                 prompt: "A red fox sitting in a snowy forest clearing at golden hour, professional wildlife photography"))
         default:
-            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode | dit-block | dit-double | dit-step")
+            throw ValidationError("unknown --stage '\(stage)'; use qmm | layer | forward | encode | dit-block | dit-double | dit-step | dit-denoise (--seq 512|1024)")
         }
     }
 }
