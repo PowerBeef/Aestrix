@@ -115,7 +115,10 @@ public enum DirectDiTDoubleBlockSpike {
             function: try mlxLib.makeFunction(
                 name: "steel_attention_float16_bq32_bk16_bd128_wm4_wn1_maskfloat16",
                 constantValues: consts))
-        let glue = try DirectDiTKernels.makeLibrary(device: device)
+        let glue = try DirectDiTKernels.makeLibrary(
+            device: device,
+            directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                beside: metallibURL))
         func pso(_ n: String) throws -> MTLComputePipelineState {
             guard let f = glue.makeFunction(name: n) else {
                 throw DirectQmmSpike.SpikeError.metal("glue \(n)")

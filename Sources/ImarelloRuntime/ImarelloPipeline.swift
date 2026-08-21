@@ -27,6 +27,27 @@ public protocol PackedLatentDenoising: AnyObject {
     ) throws -> MLXArray
 }
 
+/// Optional whole-pipeline T2I engine.
+///
+/// The pipeline owns the backend inside its actor isolation. Implementations
+/// deliberately do not conform to `Sendable`: model and Metal state must stay
+/// in the isolation domain that accepted the `sending` transfer.
+public protocol TextToImageGenerationBackend: AnyObject {
+    /// Stable provenance identifier written into `PipelineTrace`.
+    var identifier: String { get }
+
+    /// Capability selection happens before any stage loads. Returning `false`
+    /// selects the built-in staged path; an error after `generate` begins is
+    /// propagated and never triggers a mid-generation fallback.
+    func supports(_ request: T2IRequest) -> Bool
+
+    func generate(
+        _ request: T2IRequest,
+        onProgress: (@Sendable (PipelineProgress) -> Void)?,
+        trace: PipelineTrace?
+    ) throws -> URL
+}
+
 public actor ImarelloPipeline {
     public let config: ImarelloConfig
     /// Local HF snapshot when present under the Imarello models cache.
@@ -35,15 +56,47 @@ public actor ImarelloPipeline {
     private var generationInFlight = false
     private var packedDecoder: (any PackedLatentDecoding)?
     private var packedDenoiser: (any PackedLatentDenoising)?
+    private var textToImageBackend: (any TextToImageGenerationBackend)?
+    private var pendingPackedDecoder: (any PackedLatentDecoding)?
+    private var pendingPackedDenoiser: (any PackedLatentDenoising)?
+    private var pendingTextToImageBackend: (any TextToImageGenerationBackend)?
+    private var hasPendingPackedDecoder = false
+    private var hasPendingPackedDenoiser = false
+    private var hasPendingTextToImageBackend = false
 
     /// Route T2I decode through an external engine (nil restores the MLX VAE).
     public func setPackedDecoder(_ decoder: sending (any PackedLatentDecoding)?) {
-        packedDecoder = decoder
+        if generationInFlight {
+            pendingPackedDecoder = decoder
+            hasPendingPackedDecoder = true
+        } else {
+            packedDecoder = decoder
+        }
     }
 
     /// Route T2I denoise through an external engine (nil restores the MLX DiT).
     public func setPackedDenoiser(_ denoiser: sending (any PackedLatentDenoising)?) {
-        packedDenoiser = denoiser
+        if generationInFlight {
+            pendingPackedDenoiser = denoiser
+            hasPendingPackedDenoiser = true
+        } else {
+            packedDenoiser = denoiser
+        }
+    }
+
+    /// Route supported T2I requests through a whole-pipeline engine. Passing
+    /// `nil` restores the built-in staged implementation. A swap requested
+    /// while generation is suspended is applied only after that generation
+    /// has released all staged resources.
+    public func setTextToImageBackend(
+        _ backend: sending (any TextToImageGenerationBackend)?
+    ) {
+        if generationInFlight {
+            pendingTextToImageBackend = backend
+            hasPendingTextToImageBackend = true
+        } else {
+            textToImageBackend = backend
+        }
     }
 
     public init(config: ImarelloConfig = .autoDetectingTier()) {
@@ -68,6 +121,14 @@ public actor ImarelloPipeline {
         case .bits4: return 4
         case .bits6: return 6
         case .bits8: return 8
+        }
+    }
+
+    private func withMetalLease<T: Sendable>(
+        _ operation: @Sendable (isolated ImarelloPipeline) async throws -> T
+    ) async throws -> T {
+        try await MetalWorkLease.withLease {
+            try await operation(self)
         }
     }
 
@@ -102,12 +163,20 @@ public actor ImarelloPipeline {
 
     /// Load DiT quant weights from snapshot, return leaf parameter count, unload if staged.
     public func loadDiT() async throws -> Int {
-        try await orchestrator.loadDiTAndCountParameters()
+        try await withMetalLease { pipeline in
+            try await pipeline.orchestrator.loadDiTAndCountParameters()
+        }
     }
 
     /// Load DiT, run one synthetic 512-class forward, print activation/weight dtypes, unload.
     /// Does not change product numerics (probe is off unless this method enables it).
     public func probeComputeDtypes(width: Int, height: Int) async throws -> String {
+        try await withMetalLease { pipeline in
+            try await pipeline.probeComputeDtypesUnderLease(width: width, height: height)
+        }
+    }
+
+    private func probeComputeDtypesUnderLease(width: Int, height: Int) async throws -> String {
         ComputeDTypeProbe.reset()
         ComputeDTypeProbe.enabled = true
         defer { ComputeDTypeProbe.reset() }
@@ -147,15 +216,26 @@ public actor ImarelloPipeline {
     /// Load VAE weights from snapshot, return leaf parameter count, unload if staged.
     /// Small Decoder is decode-only (full AE graph is the klein pack).
     public func loadVAE() async throws -> Int {
-        let mode: VAELoadMode = config.vaeDecoderVariant == .smallDecoder ? .decodeOnly : .full
-        try await orchestrator.loadVAEExclusive(mode: mode)
-        let count = orchestrator.vae.parameterLeafCount
-        try await orchestrator.unloadVAEIfStaged()
-        return count
+        try await withMetalLease { pipeline in
+            let mode: VAELoadMode = pipeline.config.vaeDecoderVariant == .smallDecoder
+                ? .decodeOnly : .full
+            try await pipeline.orchestrator.loadVAEExclusive(mode: mode)
+            let count = pipeline.orchestrator.vae.parameterLeafCount
+            try await pipeline.orchestrator.unloadVAEIfStaged()
+            return count
+        }
     }
 
     /// Decode-only packed noise at `width`×`height` (bench `vae-decode`).
     public func decodePackedNoise(width: Int, height: Int, seed: UInt64 = 42) async throws {
+        try await withMetalLease { pipeline in
+            try await pipeline.decodePackedNoiseUnderLease(width: width, height: height, seed: seed)
+        }
+    }
+
+    private func decodePackedNoiseUnderLease(
+        width: Int, height: Int, seed: UInt64
+    ) async throws {
         try DimensionValidation.validate(
             width: width, height: height, maxSide: config.maxSide, tier: config.tier)
         let noise = LatentOps.samplePackedNoise(width: width, height: height, seed: seed)
@@ -174,11 +254,21 @@ public actor ImarelloPipeline {
 
     /// Load Qwen3 TE quant weights from snapshot, return leaf parameter count, unload if staged.
     public func loadTextEncoder() async throws -> Int {
-        try await orchestrator.loadTextEncoderAndCountParameters()
+        try await withMetalLease { pipeline in
+            try await pipeline.orchestrator.loadTextEncoderAndCountParameters()
+        }
     }
 
     /// Load TE, encode prompt to embeddings, unload TE. Returns shape description.
     public func encodePrompt(_ prompt: String) async throws -> (shape: [Int], realTokens: Int) {
+        try await withMetalLease { pipeline in
+            try await pipeline.encodePromptUnderLease(prompt)
+        }
+    }
+
+    private func encodePromptUnderLease(
+        _ prompt: String
+    ) async throws -> (shape: [Int], realTokens: Int) {
         try await orchestrator.loadTextEncoderExclusive()
         do {
             let (embeds, real) = try orchestrator.textEncoder.encode(prompt)
@@ -196,6 +286,14 @@ public actor ImarelloPipeline {
     /// materialization from steady-state encode cost — `encodePrompt` stages
     /// (load/unload) internally, so back-to-back calls to it never go warm.
     public func encodePromptPairResident(
+        _ first: String, _ second: String
+    ) async throws -> (firstMS: Double, secondMS: Double) {
+        try await withMetalLease { pipeline in
+            try await pipeline.encodePromptPairResidentUnderLease(first, second)
+        }
+    }
+
+    private func encodePromptPairResidentUnderLease(
         _ first: String, _ second: String
     ) async throws -> (firstMS: Double, secondMS: Double) {
         try await orchestrator.loadTextEncoderExclusive()
@@ -218,15 +316,36 @@ public actor ImarelloPipeline {
     }
 
     public func purge() async {
-        await orchestrator.purge()
+        while true {
+            do {
+                try await withMetalLease { pipeline in
+                    await pipeline.orchestrator.purge()
+                }
+                return
+            } catch ImarelloError.concurrentMetalWorkNotAllowed {
+                await Task.yield()
+            } catch {
+                return
+            }
+        }
     }
 
     public func memorySelfTest() async throws -> [MemorySample] {
-        try await orchestrator.runMemorySelfTest()
+        try await withMetalLease { pipeline in
+            try await pipeline.orchestrator.runMemorySelfTest()
+        }
     }
 
     /// Load TE, invoke `body` while loaded, then unload under staged policy. For benchmarks.
     public func withTextEncoderLoaded(
+        _ body: @Sendable () async throws -> Void
+    ) async throws {
+        try await withMetalLease { pipeline in
+            try await pipeline.withTextEncoderLoadedUnderLease(body)
+        }
+    }
+
+    private func withTextEncoderLoadedUnderLease(
         _ body: @Sendable () async throws -> Void
     ) async throws {
         try await orchestrator.loadTextEncoderExclusive()
@@ -243,6 +362,14 @@ public actor ImarelloPipeline {
     public func withDiTLoaded(
         _ body: @Sendable () async throws -> Void
     ) async throws {
+        try await withMetalLease { pipeline in
+            try await pipeline.withDiTLoadedUnderLease(body)
+        }
+    }
+
+    private func withDiTLoadedUnderLease(
+        _ body: @Sendable () async throws -> Void
+    ) async throws {
         try await orchestrator.loadDiTExclusive()
         do {
             try await body()
@@ -255,6 +382,14 @@ public actor ImarelloPipeline {
 
     /// Load VAE, invoke `body` while loaded, then unload under staged policy. For benchmarks.
     public func withVAELoaded(
+        _ body: @Sendable () async throws -> Void
+    ) async throws {
+        try await withMetalLease { pipeline in
+            try await pipeline.withVAELoadedUnderLease(body)
+        }
+    }
+
+    private func withVAELoadedUnderLease(
         _ body: @Sendable () async throws -> Void
     ) async throws {
         try await orchestrator.loadVAEExclusive()
@@ -276,8 +411,21 @@ public actor ImarelloPipeline {
         onProgress: (@Sendable (PipelineProgress) -> Void)? = nil,
         trace: PipelineTrace? = nil
     ) async throws -> URL {
+        try await withMetalLease { pipeline in
+            try await pipeline.generateUnderLease(
+                request, onProgress: onProgress, trace: trace)
+        }
+    }
+
+    private func generateUnderLease(
+        _ request: T2IRequest,
+        onProgress: (@Sendable (PipelineProgress) -> Void)?,
+        trace: PipelineTrace?
+    ) async throws -> URL {
         try beginGeneration()
-        defer { generationInFlight = false }
+        defer { endGeneration() }
+
+        try RequestValidation.validate(request)
 
         guard snapshot != nil else {
             throw ImarelloError.weightsNotFound(
@@ -295,6 +443,18 @@ public actor ImarelloPipeline {
             maxSide: config.maxSide,
             tier: config.tier
         )
+
+        if let backend = textToImageBackend {
+            if backend.supports(request) {
+                trace?.emit(.note("t2i_backend=\(backend.identifier)"))
+                return try backend.generate(
+                    request, onProgress: onProgress, trace: trace)
+            }
+            trace?.emit(
+                .note("t2i_backend=runtime-v1 reason=unsupported-by-\(backend.identifier)"))
+        } else {
+            trace?.emit(.note("t2i_backend=runtime-v1 reason=no-external-backend"))
+        }
 
         onProgress?(PipelineProgress(phase: .preparing))
         trace?.emit(.memorySample(label: "prepare"))
@@ -322,10 +482,11 @@ public actor ImarelloPipeline {
             onProgress?(PipelineProgress(phase: .encodingText))
             var promptEmbeds: MLXArray
             var realTokens = 0
+            let cacheIdentity = PromptEmbedCache.identity(config: config, snapshot: snapshot!)
             let embedURL = request.embedCache
                 ? PromptEmbedCache.entryURL(
                     prompt: request.prompt, modelID: config.modelID,
-                    padContent: request.padContent.rawValue)
+                    padContent: request.padContent.rawValue, identity: cacheIdentity)
                 : nil
             if let embedURL, let cached = PromptEmbedCache.load(url: embedURL) {
                 promptEmbeds = cached.embeds
@@ -344,7 +505,8 @@ public actor ImarelloPipeline {
                 // The pad bank is engine infrastructure (prompt-independent),
                 // so it is cached regardless of the request's embedCache flag —
                 // otherwise --no-embed-cache would re-encode the bank per run.
-                let bankURL = PromptEmbedCache.entryURL(prompt: "", modelID: config.modelID)
+                let bankURL = PromptEmbedCache.entryURL(
+                    prompt: "", modelID: config.modelID, identity: cacheIdentity)
                 var padBank: MLXArray? = PromptEmbedCache.load(url: bankURL)?.embeds
                 trace?.emit(.stageBegin("load_te"))
                 try await orchestrator.loadTextEncoderExclusive()
@@ -654,8 +816,21 @@ public actor ImarelloPipeline {
         onProgress: (@Sendable (PipelineProgress) -> Void)? = nil,
         trace: PipelineTrace? = nil
     ) async throws -> URL {
+        try await withMetalLease { pipeline in
+            try await pipeline.editUnderLease(
+                request, onProgress: onProgress, trace: trace)
+        }
+    }
+
+    private func editUnderLease(
+        _ request: I2IRequest,
+        onProgress: (@Sendable (PipelineProgress) -> Void)?,
+        trace: PipelineTrace?
+    ) async throws -> URL {
         try beginGeneration()
-        defer { generationInFlight = false }
+        defer { endGeneration() }
+
+        try RequestValidation.validate(request)
 
         guard snapshot != nil else {
             throw ImarelloError.weightsNotFound(
@@ -665,10 +840,6 @@ public actor ImarelloPipeline {
                     modelsDirectory: config.modelsDirectory
                 ).path
             )
-        }
-
-        if request.strength <= 0 || request.strength > 1 {
-            throw ImarelloError.invalidStrength(request.strength)
         }
 
         let identity = request.identity
@@ -787,8 +958,10 @@ public actor ImarelloPipeline {
             onProgress?(PipelineProgress(phase: .encodingText))
             var promptEmbeds: MLXArray
             var realTokens = 0
+            let cacheIdentity = PromptEmbedCache.identity(config: config, snapshot: snapshot!)
             let embedURL = request.embedCache
-                ? PromptEmbedCache.entryURL(prompt: request.prompt, modelID: config.modelID)
+                ? PromptEmbedCache.entryURL(
+                    prompt: request.prompt, modelID: config.modelID, identity: cacheIdentity)
                 : nil
             if let embedURL, let cached = PromptEmbedCache.load(url: embedURL) {
                 promptEmbeds = cached.embeds
@@ -1051,6 +1224,25 @@ public actor ImarelloPipeline {
             throw ImarelloError.concurrentGenerationNotAllowed
         }
         generationInFlight = true
+    }
+
+    private func endGeneration() {
+        generationInFlight = false
+        if hasPendingPackedDecoder {
+            packedDecoder = pendingPackedDecoder
+            pendingPackedDecoder = nil
+            hasPendingPackedDecoder = false
+        }
+        if hasPendingPackedDenoiser {
+            packedDenoiser = pendingPackedDenoiser
+            pendingPackedDenoiser = nil
+            hasPendingPackedDenoiser = false
+        }
+        if hasPendingTextToImageBackend {
+            textToImageBackend = pendingTextToImageBackend
+            pendingTextToImageBackend = nil
+            hasPendingTextToImageBackend = false
+        }
     }
 
     private static func defaultOutputURL(seed: UInt64?, prefix: String = "t2i") -> URL {

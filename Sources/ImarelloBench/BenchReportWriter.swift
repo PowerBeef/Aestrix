@@ -103,6 +103,10 @@ public enum BenchReportWriter {
                         hostTag
                     )
                 )
+                if let status = t.qualityStatus, status != .notRequested {
+                    let detail = t.qualityError.map { " — \($0)" } ?? ""
+                    lines.append("    quality: \(status.rawValue)\(detail)")
+                }
                 if contaminated {
                     let notes = (t.hostBefore?.notes ?? []) + (t.hostAfter?.notes ?? [])
                     if !notes.isEmpty {
@@ -187,11 +191,138 @@ public enum BenchReportWriter {
         return lines.joined(separator: "\n")
     }
 
-    public static func compareText(baseline: BenchReport, candidate: BenchReport) -> String {
+    public static func comparisonIssues(
+        baseline: BenchReport, candidate: BenchReport
+    ) -> [String] {
+        var issues: [String] = []
+        if baseline.schemaVersion != BenchReport.currentSchema
+            || candidate.schemaVersion != BenchReport.currentSchema {
+            issues.append("both reports must use schema \(BenchReport.currentSchema)")
+        }
+        guard let a = baseline.provenance, let b = candidate.provenance else {
+            issues.append("schema 1.7 provenance is required on both reports")
+            return issues
+        }
+        func requireEqual<T: Equatable>(_ lhs: T, _ rhs: T, _ label: String) {
+            if lhs != rhs { issues.append("\(label) differs") }
+        }
+        requireEqual(baseline.config.mode, candidate.config.mode, "mode")
+        requireEqual(baseline.config.prompt, candidate.config.prompt, "prompt")
+        requireEqual(baseline.config.width, candidate.config.width, "width")
+        requireEqual(baseline.config.height, candidate.config.height, "height")
+        requireEqual(baseline.config.steps, candidate.config.steps, "steps")
+        requireEqual(baseline.config.seed, candidate.config.seed, "seed")
+        requireEqual(baseline.config.textTokens, candidate.config.textTokens, "text-token mode")
+        requireEqual(baseline.config.padContent, candidate.config.padContent, "pad-content mode")
+        requireEqual(baseline.config.vaeVariant, candidate.config.vaeVariant, "VAE variant")
+        requireEqual(baseline.config.vaeEngine, candidate.config.vaeEngine, "VAE engine")
+        requireEqual(baseline.config.ditEngine, candidate.config.ditEngine, "DiT engine")
+        requireEqual(baseline.config.cacheLimitBytes, candidate.config.cacheLimitBytes, "MLX cache limit")
+        requireEqual(baseline.config.warmup, candidate.config.warmup, "warmup count")
+        requireEqual(baseline.config.cooldownSeconds, candidate.config.cooldownSeconds, "cooldown")
+        requireEqual(baseline.config.probeDensity, candidate.config.probeDensity, "probe density")
+        requireEqual(baseline.config.resetPeakEachPhase, candidate.config.resetPeakEachPhase, "peak-reset mode")
+        requireEqual(baseline.config.withQuality, candidate.config.withQuality, "quality-evaluation mode")
+        requireEqual(baseline.config.opProfile, candidate.config.opProfile, "operation profiling")
+        requireEqual(baseline.config.attentionQueryChunkSize, candidate.config.attentionQueryChunkSize, "attention query chunk")
+        requireEqual(baseline.config.attentionQueryChunkThreshold, candidate.config.attentionQueryChunkThreshold, "attention query threshold")
+        requireEqual(baseline.config.attentionF16SeqThreshold, candidate.config.attentionF16SeqThreshold, "attention f16 threshold")
+        requireEqual(baseline.config.attentionLinearF16, candidate.config.attentionLinearF16, "attention linear compute")
+        requireEqual(baseline.config.attentionLinearChunkSize, candidate.config.attentionLinearChunkSize, "attention linear chunk")
+        requireEqual(baseline.config.attentionLinearChunkThreshold, candidate.config.attentionLinearChunkThreshold, "attention linear threshold")
+        requireEqual(baseline.config.attentionBackend, candidate.config.attentionBackend, "attention backend")
+        requireEqual(baseline.config.attentionBlockClearSeqThreshold, candidate.config.attentionBlockClearSeqThreshold, "attention cache-clear threshold")
+        requireEqual(baseline.config.attentionBlockClearInterval, candidate.config.attentionBlockClearInterval, "attention cache-clear interval")
+        requireEqual(baseline.config.attentionAsyncEvalInterval, candidate.config.attentionAsyncEvalInterval, "attention async-eval interval")
+        requireEqual(baseline.config.attentionJointSeqF16, candidate.config.attentionJointSeqF16, "joint attention dtype")
+        requireEqual(baseline.config.attentionF16FullEpilogue, candidate.config.attentionF16FullEpilogue, "f16 epilogue")
+        requireEqual(baseline.config.attentionDynamicScale, candidate.config.attentionDynamicScale, "dynamic scaling")
+        requireEqual(baseline.config.attentionQkvCheckpoint, candidate.config.attentionQkvCheckpoint, "QKV checkpointing")
+        requireEqual(baseline.config.vaeTileThreshold, candidate.config.vaeTileThreshold, "VAE tile threshold")
+        requireEqual(baseline.config.vaeTileSize, candidate.config.vaeTileSize, "VAE tile size")
+        requireEqual(baseline.config.vaeTileOverlap, candidate.config.vaeTileOverlap, "VAE tile overlap")
+        requireEqual(baseline.config.vaeTileBlend, candidate.config.vaeTileBlend, "VAE tile blend")
+        requireEqual(baseline.config.vaeAttnChunk, candidate.config.vaeAttnChunk, "VAE attention chunk")
+        requireEqual(baseline.config.evalCache, candidate.config.evalCache, "evaluation cache profile")
+        requireEqual(baseline.config.strength, candidate.config.strength, "I2I strength")
+        requireEqual(baseline.config.identity, candidate.config.identity, "identity mode")
+        requireEqual(baseline.config.imagePath, candidate.config.imagePath, "input image")
+        requireEqual(a.teEngine, b.teEngine, "TE engine")
+        requireEqual(a.cachePolicy, b.cachePolicy, "cache policy")
+        requireEqual(a.cacheHitState, b.cacheHitState, "cache hit state")
+        requireEqual(a.modelRevision, b.modelRevision, "model revision")
+        requireEqual(a.detectedSnapshotRevision, b.detectedSnapshotRevision, "snapshot revision")
+        requireEqual(a.tokenizerFingerprint, b.tokenizerFingerprint, "tokenizer fingerprint")
+        requireEqual(a.metallibRevision, b.metallibRevision, "metallib revision")
+        requireEqual(a.metallibByteCount, b.metallibByteCount, "metallib size")
+        requireEqual(a.buildDirty, b.buildDirty, "build dirty state")
+        requireEqual(baseline.system.hostname, candidate.system.hostname, "host")
+        requireEqual(baseline.system.osVersion, candidate.system.osVersion, "OS")
+        requireEqual(baseline.system.physicalMemoryBytes, candidate.system.physicalMemoryBytes, "physical memory")
+        requireEqual(baseline.system.gpuName, candidate.system.gpuName, "GPU")
+        requireEqual(baseline.system.metalSupport, candidate.system.metalSupport, "Metal support")
+        requireEqual(baseline.system.appleGpuFamilyRaw, candidate.system.appleGpuFamilyRaw, "GPU family")
+        requireEqual(baseline.system.mlxCacheLimitBytes, candidate.system.mlxCacheLimitBytes, "effective MLX cache limit")
+        requireEqual(baseline.system.mlxMemoryLimitBytes, candidate.system.mlxMemoryLimitBytes, "MLX memory limit")
+        requireEqual(a.successfulSamples, b.successfulSamples, "successful sample count")
+        let requiredStrings: [(String, String?)] = [
+            ("model revision", a.modelRevision),
+            ("snapshot revision", a.detectedSnapshotRevision),
+            ("tokenizer fingerprint", a.tokenizerFingerprint),
+            ("metallib revision", a.metallibRevision),
+            ("TE engine", a.teEngine),
+            ("cache policy", a.cachePolicy),
+            ("cache hit state", a.cacheHitState),
+            ("build revision", a.buildRevision),
+            ("candidate model revision", b.modelRevision),
+            ("candidate snapshot revision", b.detectedSnapshotRevision),
+            ("candidate tokenizer fingerprint", b.tokenizerFingerprint),
+            ("candidate metallib revision", b.metallibRevision),
+            ("candidate TE engine", b.teEngine),
+            ("candidate cache policy", b.cachePolicy),
+            ("candidate cache hit state", b.cacheHitState),
+            ("candidate build revision", b.buildRevision),
+        ]
+        for (label, value) in requiredStrings where value?.isEmpty != false {
+            issues.append("\(label) is missing")
+        }
+        if a.metallibByteCount == nil || b.metallibByteCount == nil {
+            issues.append("metallib size is missing")
+        }
+        if a.buildDirty == nil || b.buildDirty == nil {
+            issues.append("build dirty state is missing")
+        }
+        if a.failedSamples > 0 || b.failedSamples > 0 {
+            issues.append("one or more samples failed")
+        }
+        if a.successfulSamples == 0 || b.successfulSamples == 0 {
+            issues.append("both reports need successful samples")
+        }
+        if a.contaminated || b.contaminated {
+            issues.append("host contention/thermal contamination was recorded")
+        }
+        return issues
+    }
+
+    public static func compareText(
+        baseline: BenchReport, candidate: BenchReport, forceIncomparable: Bool = false
+    ) -> String {
         var lines: [String] = []
         lines.append("imarello bench-compare")
         lines.append("  baseline:  \(baseline.label)")
         lines.append("  candidate: \(candidate.label)")
+        let issues = comparisonIssues(baseline: baseline, candidate: candidate)
+        if !issues.isEmpty {
+            lines.append("  comparable: no")
+            for issue in issues { lines.append("    - \(issue)") }
+            if !forceIncomparable {
+                lines.append("  comparison refused; pass --force to print unlabeled raw deltas")
+                return lines.joined(separator: "\n")
+            }
+            lines.append("  forced: raw deltas only; no better/worse conclusion is valid")
+        } else {
+            lines.append("  comparable: yes")
+        }
 
         func padName(_ name: String) -> String {
             name.padding(toLength: 16, withPad: " ", startingAt: 0)
@@ -201,7 +332,8 @@ public enum BenchReportWriter {
             guard let a, let b else { return }
             let pct = MetricsAggregator.percentDelta(baseline: a.mean, candidate: b.mean)
             let arrow: String
-            if abs(pct) < 0.5 { arrow = "≈" }
+            if !issues.isEmpty { arrow = "raw" }
+            else if abs(pct) < 0.5 { arrow = "≈" }
             else if (pct < 0) == lowerIsBetter { arrow = "✓ better" }
             else { arrow = "✗ worse" }
             lines.append(

@@ -38,7 +38,7 @@ public enum TechnicalQuality {
         /// Horizontal lag-2 luminance autocorrelation on a subsample (1 ≈ structured, ~0 ≈ speckle).
         public var spatialAutocorrLag2: Float
 
-        /// True when max(side) ≥ 768 — Imarello VAE tiles unpatchified latents at spatial ≥ 96 (~768 px).
+        /// True when the recorded VAE tile configuration says this decode tiled.
         public var expectsVAETiling: Bool
         /// Peak midline discontinuity / global gradient (higher ⇒ more tile-seam-like). Typical clean <1.5.
         public var tileSeamScore: Float
@@ -51,7 +51,10 @@ public enum TechnicalQuality {
         public var technicalScore: Float
     }
 
-    public static func analyze(_ pixels: PixelBuffer) -> Metrics {
+    public static func analyze(
+        _ pixels: PixelBuffer,
+        vaeTileConfiguration: VAETileEvaluationConfig = .productDefault
+    ) -> Metrics {
         let n = pixels.pixelCount
         let lum = pixels.luminances()
         let (meanL, stdL) = meanStd(lum)
@@ -65,7 +68,8 @@ public enum TechnicalQuality {
         let entropy = luminanceEntropy(lum)
         let autocorr = spatialAutocorr(lum, width: pixels.width, height: pixels.height, lag: 2)
         let seams = tileSeamDiscontinuities(lum, width: pixels.width, height: pixels.height, meanGradient: grad)
-        let expectsTile = max(pixels.width, pixels.height) >= 768
+        let expectsTile = vaeTileConfiguration.tiles(
+            outputWidth: pixels.width, outputHeight: pixels.height)
 
         let score = compositeScore(
             sharp: sharp,

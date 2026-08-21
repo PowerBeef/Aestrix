@@ -76,6 +76,12 @@ Measured on Hub API (2026-08-10):
 3. **Integrity**: `hf download` metadata SHA is compared to the pin by `imarello info` (`snapshot_revision_match`). Size checks after download; content-hash of shards is still optional.
 4. Maintainer-only bf16/oracle tools stay under `Tools/` and are never product defaults.
 
+### Metal Engine V2 loader status
+
+V2 has a strict safetensors index/parser and mapped-loader foundation. It validates header length, JSON descriptors, dtype/shape products, duplicates, overlaps, bounds, truncation, expected tensor names, and the transform manifest. A mapped segment is page-rounded and may expose multiple tensors through exact subranges; a `MTLBuffer(bytesNoCopy:)` retains that mapping until the buffer is released. Layout-compatible tensors may use shared views, while future transforms declare destination dtype/layout/quantization and stage ownership.
+
+This is not yet the promoted stage loader: TE/DiT/VAE still require completion of their transform catalogs, GPU transforms, mapping release gates, parity captures, and failure qualification. Loader failure never silently rebuilds an MLX graph after V2 execution starts; engine selection must choose V1 before loading. The product pin, prequantized 4-bit lock, module layout, and i2i route are unchanged.
+
 ```bash
 hf download mlx-community/FLUX.2-Klein-4B-4bit \
   --revision 1cebb9b45c21ece14a42615b16bf5fa4de9b56da \
@@ -93,4 +99,4 @@ hf download mlx-community/FLUX.2-Klein-4B-4bit \
 ## Related
 
 - Model card: https://huggingface.co/black-forest-labs/FLUX.2-klein-4B  
-- BFL prompting skill: `.claude/skills/flux-best-practices/`  
+- BFL prompting skill: `.agents/skills/flux-best-practices/`

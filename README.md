@@ -15,7 +15,7 @@ from hand-built command buffers. No cloud, no accounts, no data leaving your mac
 [![Weights Apache-2.0](https://img.shields.io/badge/weights-Apache--2.0-green)](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 [![Eval floors](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml/badge.svg)](https://github.com/PowerBeef/Imarello/actions/workflows/eval-floors.yml)
 
-**512² in ~21 s · 1024² in ~60 s — on an 8 GB M2 Mac mini.** Also runs on iPhone.
+**512² in ~21 s · 1024² in ~60 s — on an 8 GB M2 Mac mini.** The iPhone studio is currently UI-only while its full no-JIT kernel pack is integrated.
 
 <img src="Docs/assets/readme/hero-coffee-1024.jpg" width="640" alt="Cozy coffee shop interior, warm afternoon light — Imarello T2I, 1024², 4 steps, seed 42">
 
@@ -128,7 +128,7 @@ To **edit** an image:
 
 ## Getting better images
 
-**Write prompts like captions, not keyword lists.** Klein responds best to narrative prose with the subject first and the lighting spelled out. Don't list what you *don't* want — there are no negative prompts; just describe what you do want. Exact colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Full recipes: [flux-best-practices](.claude/skills/flux-best-practices).
+**Write prompts like captions, not keyword lists.** Klein responds best to narrative prose with the subject first and the lighting spelled out. Don't list what you *don't* want — there are no negative prompts; just describe what you do want. Exact colors (`#C45C26`) and quoted text (`"OPEN STUDIO"`) work. Full recipes: [flux-best-practices](.agents/skills/flux-best-practices).
 
 **Editing strength matters.** `--strength 0.8` or higher for color and material changes; people need `0.85–0.9` *plus* `--identity`. Guide: [Docs/I2I_STRENGTH.md](Docs/I2I_STRENGTH.md).
 
@@ -142,12 +142,14 @@ Every command and flag: `imarello --help`.
 
 ## The iPhone studio
 
-`Apps/ImarelloIOS` is a full photo-studio app on the same engine — generation happens **on the phone** (iPhone 17-class recommended; ~12 s for a 512² image on an iPhone 17 Pro).
+`Apps/ImarelloIOS` is the photo-studio host for the same engine. Historical pre-no-JIT evidence measured about 12 seconds for a 512² image on an iPhone 17 Pro, but current device generation is deliberately blocked before MLX until the app embeds and selects a verified full `iphoneos` no-JIT metallib.
 
-- **Stage** — your print fills the screen; one glass status row tells you everything (progress, errors, a working Stop); a gold **Develop** button runs it.
-- **Contact Sheet** — every print you've made. Tap one to zoom, share, save to Photos, delete — or **Edit**, which develops a new print from that one.
+- **Studio** — your uncropped print owns an atmospheric stage; a compact composer keeps the Plate, prompt, and gold **Develop** action close.
+- **Prints** — a native newest-first contact sheet. Push any print into an immersive, swipeable, zoomable detail to edit, share, save, or delete it.
 
-Your prints are stored durably (they survive iOS cache cleanups and app reinstalls). Building and installing it requires Xcode and a paired iPhone on iOS 26.2+ — the full recipe, including how weights get onto the device, is in [Docs/IOS.md](Docs/IOS.md).
+Generation status follows you in the native tab accessory, including phase, human-readable step, elapsed time, cancellation, completion, and retry. Studio and Prints retain independent navigation histories.
+
+Your prints are stored in Application Support and survive iOS cache cleanups; uninstalling the app still removes its container. Building and installing it requires Xcode and a paired iPhone on iOS 26.2+ — the full recipe, blocker, and weight-sync workflow are in [Docs/IOS.md](Docs/IOS.md).
 
 ---
 
@@ -226,9 +228,9 @@ IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh
 | [EVAL_WORKFLOW.md](Docs/EVAL_WORKFLOW.md) | The pixel + vision quality gate |
 | [I2I_STRENGTH.md](Docs/I2I_STRENGTH.md) · [TEXT_TOKENS.md](Docs/TEXT_TOKENS.md) | Edit-strength recipes · the pad-512 conditioning decision |
 | [IOS.md](Docs/IOS.md) | iOS build, install, device weight sync, headless device harness |
-| [ROADMAP.md](Docs/ROADMAP.md) · [CLAUDE.md](CLAUDE.md) | Backlog + decision log · agent/contributor ground rules |
+| [ROADMAP.md](Docs/ROADMAP.md) · [AGENTS.md](AGENTS.md) | Backlog + decision log · agent/contributor ground rules |
 
-Working on this repo with an AI agent? [CLAUDE.md](CLAUDE.md) is the contract — host safety on 8 GB machines, quality gates, and product locks live there.
+Working on this repo with an AI agent? [AGENTS.md](AGENTS.md) is the contract — host safety on 8 GB machines, quality gates, and product locks live there.
 
 ## Status
 

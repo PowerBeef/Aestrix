@@ -3,6 +3,7 @@ import CryptoKit
 import MLX
 import ImarelloCore
 import ImarelloText
+import ImarelloWeights
 
 /// Disk cache for Qwen3 prompt embeddings (`[1, 512, 7680]`, ~16 MB f32 per prompt).
 ///
@@ -13,9 +14,49 @@ public enum PromptEmbedCache {
     /// Bump when `QwenChatTemplate` or tap/concat behavior changes.
     /// v2: tokenizer gained NFC + the reference pre-tokenizer (2026-08-16) —
     /// ids changed for digit/punctuation prompts, so v1 embeds must miss.
-    /// v3: pad-content mode joined the key (TE-splice, 2026-08-18) — spliced
-    /// and full-window entries must never alias.
-    private static let formatVersion = "v3"
+    /// v4: pinned/model-detected revisions plus tokenizer/template fingerprints
+    /// joined the key. A new snapshot under the same repository id must miss.
+    private static let formatVersion = "v4"
+
+    public struct Identity: Sendable {
+        public var modelRevision: String
+        public var snapshotRevision: String
+        public var tokenizerFingerprint: String
+        public var templateFingerprint: String
+
+        public init(
+            modelRevision: String = "unspecified",
+            snapshotRevision: String = "undetected",
+            tokenizerFingerprint: String = "unspecified",
+            templateFingerprint: String = "qwen-chat-v1"
+        ) {
+            self.modelRevision = modelRevision
+            self.snapshotRevision = snapshotRevision
+            self.tokenizerFingerprint = tokenizerFingerprint
+            self.templateFingerprint = templateFingerprint
+        }
+    }
+
+    public static func identity(config: ImarelloConfig, snapshot: ModelSnapshot) -> Identity {
+        Identity(
+            modelRevision: config.revision.lowercased(),
+            snapshotRevision: snapshot.detectedRevision ?? "undetected",
+            tokenizerFingerprint: tokenizerFingerprint(directory: snapshot.tokenizerDirectory))
+    }
+
+    public static func tokenizerFingerprint(directory: URL) -> String {
+        var source = Data()
+        for name in ["tokenizer.json", "tokenizer_config.json", "chat_template.jinja"] {
+            let url = directory.appendingPathComponent(name)
+            source.append(Data(name.utf8))
+            guard let data = try? Data(contentsOf: url) else {
+                source.append(Data("missing".utf8))
+                continue
+            }
+            source.append(data)
+        }
+        return SHA256.hash(data: source).map { String(format: "%02x", $0) }.joined()
+    }
 
     public struct Entry {
         public let embeds: MLXArray
@@ -31,14 +72,17 @@ public enum PromptEmbedCache {
         modelID: String,
         bits: Int = TextEncoderWeights.defaultBits,
         maxLength: Int = ModelConstants.maxSequenceLength,
-        padContent: String = "prompt"
+        padContent: String = "prompt",
+        identity: Identity = Identity()
     ) -> String {
         // The tap layers and concat width are part of the key so changing them
         // invalidates entries automatically instead of relying on a manual
         // formatVersion bump.
         let taps = ModelConstants.textEncoderLayers.map(String.init).joined(separator: ",")
         let keySource =
-            "\(formatVersion)|\(modelID)|bits\(bits)|len\(maxLength)"
+            "\(formatVersion)|\(modelID)|revision\(identity.modelRevision)"
+            + "|snapshot\(identity.snapshotRevision)|tokenizer\(identity.tokenizerFingerprint)"
+            + "|template\(identity.templateFingerprint)|bits\(bits)|len\(maxLength)"
             + "|taps\(taps)|dim\(ModelConstants.jointAttentionDim)"
             + "|pad\(padContent)|\(prompt)"
         let digest = SHA256.hash(data: Data(keySource.utf8))
@@ -51,11 +95,12 @@ public enum PromptEmbedCache {
         modelID: String,
         bits: Int = TextEncoderWeights.defaultBits,
         maxLength: Int = ModelConstants.maxSequenceLength,
-        padContent: String = "prompt"
+        padContent: String = "prompt",
+        identity: Identity = Identity()
     ) -> URL {
         let name = entryFilename(
             prompt: prompt, modelID: modelID, bits: bits, maxLength: maxLength,
-            padContent: padContent)
+            padContent: padContent, identity: identity)
         return AppCache.resolvedItem(under: "embeds", item: name)
     }
 

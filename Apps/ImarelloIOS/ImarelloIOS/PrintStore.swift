@@ -1,7 +1,53 @@
 import Foundation
-import UIKit
 import ImageIO
 import ImarelloCore
+
+enum PrintStoreError: LocalizedError {
+    case invalidPNG(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPNG(let detail):
+            return "The generated image could not be saved: \(detail)"
+        }
+    }
+}
+
+/// Narrow filesystem seam used by the iOS durability tests to inject failures
+/// at copy, rename, delete, and index-write boundaries.
+@MainActor
+protocol PrintStoreFileIO: AnyObject {
+    func fileExists(at url: URL) -> Bool
+    func createDirectory(at url: URL) throws
+    func contentsOfDirectory(at url: URL) throws -> [URL]
+    func copyItem(at source: URL, to destination: URL) throws
+    func moveItem(at source: URL, to destination: URL) throws
+    func removeItem(at url: URL) throws
+    func readData(at url: URL) throws -> Data
+    func write(_ data: Data, to url: URL) throws
+}
+
+@MainActor
+final class SystemPrintStoreFileIO: PrintStoreFileIO {
+    private let fm = FileManager.default
+
+    func fileExists(at url: URL) -> Bool { fm.fileExists(atPath: url.path) }
+    func createDirectory(at url: URL) throws {
+        try fm.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+    }
+    func copyItem(at source: URL, to destination: URL) throws {
+        try fm.copyItem(at: source, to: destination)
+    }
+    func moveItem(at source: URL, to destination: URL) throws {
+        try fm.moveItem(at: source, to: destination)
+    }
+    func removeItem(at url: URL) throws { try fm.removeItem(at: url) }
+    func readData(at url: URL) throws -> Data { try Data(contentsOf: url) }
+    func write(_ data: Data, to url: URL) throws { try data.write(to: url, options: .atomic) }
+}
 
 /// One finished print. Records and canonical pixels live in Application
 /// Support (durable); the harness copy in `Caches/Imarello/outputs/` stays
@@ -19,7 +65,7 @@ struct PrintRecord: Codable, Identifiable, Equatable {
     /// Caption contract: `{side} · seed {n}` for the print that actually ran.
     var caption: String {
         if let seed { return "\(side) · seed \(seed)" }
-        return side > 0 ? "\(side)" : "print"
+        return side > 0 ? "\(side)" : "image"
     }
 }
 
@@ -42,30 +88,34 @@ final class PrintStore {
     private let printsDir: URL
     private let outputsDir: URL
     private let legacyIndexURL: URL
+    private let fileIO: any PrintStoreFileIO
     /// Metadata for records whose file is currently missing from both
     /// locations. Not rendered, but persisted so nothing is destroyed.
     private var unresolved: [PrintRecord] = []
-    private let thumbnails = NSCache<NSString, UIImage>()
-
     private static let indexVersion = 1
 
-    init() {
-        outputsDir = AppCache.directory("outputs")
-        let durableRoot = Self.durableRoot()
+    convenience init() {
+        self.init(
+            durableRoot: Self.durableRoot(),
+            outputsDirectory: AppCache.directory("outputs"),
+            legacyIndexURL: AppCache.productRoot().appendingPathComponent("prints-index.json"),
+            fileIO: SystemPrintStoreFileIO()
+        )
+    }
+
+    init(
+        durableRoot: URL,
+        outputsDirectory: URL,
+        legacyIndexURL: URL,
+        fileIO: any PrintStoreFileIO
+    ) {
+        self.fileIO = fileIO
+        outputsDir = outputsDirectory
         printsDir = durableRoot.appendingPathComponent("prints", isDirectory: true)
         indexURL = durableRoot.appendingPathComponent("prints-index.json")
-        legacyIndexURL = AppCache.productRoot().appendingPathComponent("prints-index.json")
-        let fm = FileManager.default
-        try? fm.createDirectory(at: outputsDir, withIntermediateDirectories: true)
-        try? fm.createDirectory(at: printsDir, withIntermediateDirectories: true)
-        thumbnails.countLimit = 64
-        // The store lives for the app's lifetime; the observer is never removed.
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil, queue: .main
-        ) { [weak thumbnails] _ in
-            thumbnails?.removeAllObjects()
-        }
+        self.legacyIndexURL = legacyIndexURL
+        try? fileIO.createDirectory(at: outputsDir)
+        try? fileIO.createDirectory(at: printsDir)
         load()
         adoptUnindexedPNGs()
     }
@@ -81,19 +131,37 @@ final class PrintStore {
 
     func url(for record: PrintRecord) -> URL {
         let durable = printsDir.appendingPathComponent(record.fileName)
-        if FileManager.default.fileExists(atPath: durable.path) { return durable }
+        if fileIO.fileExists(at: durable) { return durable }
         return outputsDir.appendingPathComponent(record.fileName)
     }
 
+    @discardableResult
     func record(
         outputURL: URL, prompt: String, seed: UInt64?, side: Int, mode: String
-    ) {
-        // Canonical copy into durable storage; the Caches original stays for
-        // the harness to pull.
+    ) throws -> PrintRecord {
+        try Self.validatePNG(at: outputURL, expectedSide: side)
         let durable = printsDir.appendingPathComponent(outputURL.lastPathComponent)
+        let transactionID = UUID().uuidString
+        let incoming = printsDir.appendingPathComponent(".incoming-\(transactionID).png")
+        let backup = printsDir.appendingPathComponent(".backup-\(transactionID).png")
+        var hadPrevious = false
+
         if durable != outputURL {
-            try? FileManager.default.removeItem(at: durable)
-            try? FileManager.default.copyItem(at: outputURL, to: durable)
+            try fileIO.copyItem(at: outputURL, to: incoming)
+            do {
+                try Self.validatePNG(at: incoming, expectedSide: side)
+                if fileIO.fileExists(at: durable) {
+                    try fileIO.moveItem(at: durable, to: backup)
+                    hadPrevious = true
+                }
+                try fileIO.moveItem(at: incoming, to: durable)
+            } catch {
+                try? fileIO.removeItem(at: incoming)
+                if hadPrevious, !fileIO.fileExists(at: durable) {
+                    try? fileIO.moveItem(at: backup, to: durable)
+                }
+                throw error
+            }
         }
         let record = PrintRecord(
             id: outputURL.deletingPathExtension().lastPathComponent,
@@ -104,53 +172,57 @@ final class PrintStore {
             mode: mode,
             createdAt: Date()
         )
-        prints.removeAll { $0.id == record.id }
-        unresolved.removeAll { $0.id == record.id }
-        prints.insert(record, at: 0)
-        save()
+        var proposedPrints = prints.filter { $0.id != record.id }
+        let proposedUnresolved = unresolved.filter { $0.id != record.id }
+        proposedPrints.insert(record, at: 0)
+        do {
+            try save(prints: proposedPrints, unresolved: proposedUnresolved)
+        } catch {
+            if durable != outputURL {
+                try? fileIO.removeItem(at: durable)
+                if hadPrevious { try? fileIO.moveItem(at: backup, to: durable) }
+            }
+            throw error
+        }
+        if hadPrevious { try? fileIO.removeItem(at: backup) }
+        prints = proposedPrints
+        unresolved = proposedUnresolved
+        return record
     }
 
-    func delete(_ record: PrintRecord) {
-        try? FileManager.default.removeItem(at: printsDir.appendingPathComponent(record.fileName))
-        try? FileManager.default.removeItem(at: outputsDir.appendingPathComponent(record.fileName))
-        removeThumbnails(for: record.id)
-        prints.removeAll { $0.id == record.id }
-        unresolved.removeAll { $0.id == record.id }
-        save()
+    func delete(_ record: PrintRecord) throws {
+        let transactionID = UUID().uuidString
+        let sources = [
+            printsDir.appendingPathComponent(record.fileName),
+            outputsDir.appendingPathComponent(record.fileName),
+        ]
+        var staged: [(original: URL, staged: URL)] = []
+        do {
+            for (index, source) in sources.enumerated() where fileIO.fileExists(at: source) {
+                let destination = source.deletingLastPathComponent()
+                    .appendingPathComponent(".deleted-\(transactionID)-\(index)")
+                try fileIO.moveItem(at: source, to: destination)
+                staged.append((source, destination))
+            }
+        } catch {
+            restore(staged)
+            throw error
+        }
+
+        let proposedPrints = prints.filter { $0.id != record.id }
+        let proposedUnresolved = unresolved.filter { $0.id != record.id }
+        do {
+            try save(prints: proposedPrints, unresolved: proposedUnresolved)
+        } catch {
+            restore(staged)
+            throw error
+        }
+        prints = proposedPrints
+        unresolved = proposedUnresolved
+        for item in staged { try? fileIO.removeItem(at: item.staged) }
     }
 
     var latest: PrintRecord? { prints.first }
-
-    /// Downsampled image for the contact sheet (full decode stays in the viewer).
-    /// Cached per (record, size bucket) so callers with different sizes don't
-    /// alias each other's thumbnails.
-    func thumbnail(for record: PrintRecord, maxPixel: CGFloat = 480) -> UIImage? {
-        let key = "\(record.id)#\(Int(maxPixel))" as NSString
-        if let cached = thumbnails.object(forKey: key) { return cached }
-        let source = url(for: record)
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel * 2,
-        ]
-        guard
-            let src = CGImageSourceCreateWithURL(source as CFURL, nil),
-            let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
-        else { return nil }
-        let image = UIImage(cgImage: cg)
-        thumbnails.setObject(image, forKey: key)
-        return image
-    }
-
-    private func removeThumbnails(for id: String) {
-        for bucket in [480, 512] {
-            thumbnails.removeObject(forKey: "\(id)#\(bucket)" as NSString)
-        }
-    }
-
-    func image(for record: PrintRecord) -> UIImage? {
-        UIImage(contentsOfFile: url(for: record).path)
-    }
 
     // MARK: - persistence
 
@@ -172,33 +244,39 @@ final class PrintStore {
     }
 
     private func load() {
-        let decoded = decodeIndex(at: indexURL)
-            ?? decodeIndex(at: legacyIndexURL)  // pre-durable-storage builds
+        let current = decodeIndex(at: indexURL)
+        let decoded = current ?? decodeIndex(at: legacyIndexURL)
         guard let decoded else { return }
-        let fm = FileManager.default
         var visible: [PrintRecord] = []
+        var missing: [PrintRecord] = []
         for record in decoded {
-            let inDurable = fm.fileExists(atPath: printsDir.appendingPathComponent(record.fileName).path)
-            let inOutputs = fm.fileExists(atPath: outputsDir.appendingPathComponent(record.fileName).path)
+            let durable = printsDir.appendingPathComponent(record.fileName)
+            let output = outputsDir.appendingPathComponent(record.fileName)
+            let inDurable = fileIO.fileExists(at: durable)
+            let inOutputs = fileIO.fileExists(at: output)
             if inDurable || inOutputs {
                 if !inDurable, inOutputs {
                     // Pull the Caches copy into durable storage.
-                    try? fm.copyItem(
-                        at: outputsDir.appendingPathComponent(record.fileName),
-                        to: printsDir.appendingPathComponent(record.fileName))
+                    try? fileIO.copyItem(at: output, to: durable)
                 }
                 visible.append(record)
             } else {
                 // Keep the metadata; the file may reappear (weight resync,
                 // partial Caches purge). Never destroy it on the next save.
-                unresolved.append(record)
+                missing.append(record)
             }
         }
         prints = visible
+        unresolved = missing
+        // A successfully decoded legacy index is migrated immediately while
+        // every original metadata field is still available.
+        if current == nil {
+            try? save(prints: visible, unresolved: missing)
+        }
     }
 
     private func decodeIndex(at url: URL) -> [PrintRecord]? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? fileIO.readData(at: url) else { return nil }
         let decoder = JSONDecoder()
         if let envelope = try? decoder.decode(LossyIndexFile.self, from: data) {
             return envelope.prints.compactMap(\.value)
@@ -211,18 +289,14 @@ final class PrintStore {
         let stamp = Int(Date().timeIntervalSince1970)
         let aside = url.deletingLastPathComponent()
             .appendingPathComponent("prints-index.bad-\(stamp).json")
-        try? FileManager.default.moveItem(at: url, to: aside)
+        try? fileIO.moveItem(at: url, to: aside)
         return nil
     }
 
-    private func save() {
+    private func save(prints: [PrintRecord], unresolved: [PrintRecord]) throws {
         let index = IndexFile(version: Self.indexVersion, prints: prints + unresolved)
-        do {
-            let data = try JSONEncoder().encode(index)
-            try data.write(to: indexURL, options: .atomic)
-        } catch {
-            print("PrintStore: failed to save index: \(error)")
-        }
+        let data = try JSONEncoder().encode(index)
+        try fileIO.write(data, to: indexURL)
     }
 
     /// Adopt PNGs present on disk but absent from the index (pre-history
@@ -230,14 +304,15 @@ final class PrintStore {
     /// tell us. A file matching an unresolved record restores that record's
     /// full metadata instead.
     private func adoptUnindexedPNGs() {
-        let fm = FileManager.default
         let known = Set(prints.map(\.fileName))
         var candidates: [URL] = []
         for dir in [printsDir, outputsDir] {
-            if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+            if let files = try? fileIO.contentsOfDirectory(at: dir) {
                 candidates.append(contentsOf: files)
             }
         }
+        var proposedPrints = prints
+        var proposedUnresolved = unresolved
         var adopted = false
         var seen = Set<String>()
         for file in candidates
@@ -245,8 +320,10 @@ final class PrintStore {
             && !known.contains(file.lastPathComponent)
             && !seen.contains(file.lastPathComponent) {
             seen.insert(file.lastPathComponent)
-            if let restoredIndex = unresolved.firstIndex(where: { $0.fileName == file.lastPathComponent }) {
-                prints.append(unresolved.remove(at: restoredIndex))
+            if let restoredIndex = proposedUnresolved.firstIndex(
+                where: { $0.fileName == file.lastPathComponent }
+            ) {
+                proposedPrints.append(proposedUnresolved.remove(at: restoredIndex))
                 adopted = true
                 continue
             }
@@ -255,7 +332,7 @@ final class PrintStore {
             let mode = parts.first.map(String.init) ?? "t2i"
             let epoch = parts.count > 1 ? TimeInterval(parts[1]) : nil
             let side = Self.pixelSide(of: file)
-            prints.append(
+            proposedPrints.append(
                 PrintRecord(
                     id: stem,
                     fileName: file.lastPathComponent,
@@ -268,8 +345,40 @@ final class PrintStore {
             adopted = true
         }
         if adopted {
-            prints.sort { $0.createdAt > $1.createdAt }
-            save()
+            proposedPrints.sort { $0.createdAt > $1.createdAt }
+            do {
+                try save(prints: proposedPrints, unresolved: proposedUnresolved)
+                prints = proposedPrints
+                unresolved = proposedUnresolved
+            } catch {
+                print("PrintStore: failed to adopt recovered PNG metadata: \(error)")
+            }
+        }
+    }
+
+    private func restore(_ staged: [(original: URL, staged: URL)]) {
+        for item in staged.reversed() where fileIO.fileExists(at: item.staged) {
+            try? fileIO.moveItem(at: item.staged, to: item.original)
+        }
+    }
+
+    private static func validatePNG(at url: URL, expectedSide: Int) throws {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetCount(source) == 1,
+              CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0,
+              height > 0
+        else {
+            throw PrintStoreError.invalidPNG("the PNG is incomplete or unreadable")
+        }
+        if expectedSide > 0, width != expectedSide || height != expectedSide {
+            throw PrintStoreError.invalidPNG(
+                "expected \(expectedSide)×\(expectedSide) pixels, got \(width)×\(height)"
+            )
         }
     }
 

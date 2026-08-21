@@ -1,50 +1,89 @@
-// DIRECTION CONTRACT (impeccable; seed 72f2b522, surface scope, mode operate)
-// THESIS: Two full-bleed pages — the Stage and the Contact Sheet — swiped like
-//   camera modes; each page owns the whole screen for its one job. Refuses the
-//   category default (prompt-form above a result card with a history tab).
-// OWN-WORLD: espresso ground, iris-gold accent, cream ink; Liquid Glass Regular
-//   only; darkroom register (prints, stage, plate); recognizable with all
-//   content removed by the gold shutter on espresso and the flip-cell status row.
-// STORY: the owner opens onto their print, tweaks the plate, taps the gold
-//   shutter, watches the row develop, swipes left to live among their prints.
-// FIRST VIEWPORT: the print full-bleed to the safe area; plate chip top-trailing;
-//   one glass status row (single flip-cell grammar for caption, gate, progress,
-//   and errors) above a floating prompt bar with the circular gold Generate;
-//   a slim glass Sheet handle on the trailing edge invites the swipe.
-// FORM: Spread Deck — index 5 of 7 on the ordered structure list (the roll).
-// FINISH: unreviewed and undocumented is unfinished; this build ends with the
-//   finish review, the verdict, and DESIGN.md.
-
 import SwiftUI
+import UIKit
 
-/// Root: the two-page spread. Page one is the Stage, page two the Contact Sheet.
 struct StudioRootView: View {
-    @Environment(StudioModel.self) private var model
-    @State private var page = 0
-    @State private var viewerSelection: PrintRecord?
+    @Environment(StudioSession.self) private var session
+    @Environment(AppNavigation.self) private var navigation
+    @Environment(\.printImageLoader) private var imageLoader
 
     var body: some View {
-        TabView(selection: $page) {
-            StudioPage(openSheet: { withAnimation(.snappy) { page = 1 } },
-                       openViewer: { viewerSelection = $0 })
-                .tag(0)
-            ContactSheetPage(openViewer: { viewerSelection = $0 },
-                             backToStage: { withAnimation(.snappy) { page = 0 } })
-                .tag(1)
+        @Bindable var navigation = navigation
+        TabView(selection: $navigation.selectedTab) {
+            NavigationStack(path: $navigation.createPath) {
+                CreatePage()
+                    .withImageDestinations()
+            }
+            .tabItem {
+                Label("Create", systemImage: "sparkles")
+            }
+            .tag(AppTab.create)
+            .accessibilityIdentifier("tab.create")
+
+            NavigationStack(path: $navigation.editPath) {
+                EditPage()
+                    .withImageDestinations()
+            }
+            .tabItem {
+                Label("Edit", systemImage: "wand.and.sparkles")
+            }
+            .tag(AppTab.edit)
+            .accessibilityIdentifier("tab.edit")
+
+            NavigationStack(path: $navigation.galleryPath) {
+                GalleryView()
+                    .withImageDestinations()
+            }
+            .tabItem {
+                Label("Gallery", systemImage: "square.grid.2x2")
+            }
+            .tag(AppTab.gallery)
+            .accessibilityIdentifier("tab.gallery")
+
+            NavigationStack(path: $navigation.settingsPath) {
+                SettingsPage()
+                    .withImageDestinations()
+            }
+            .tabItem {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .tag(AppTab.settings)
+            .accessibilityIdentifier("tab.settings")
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .ignoresSafeArea()
-        .background(ImarelloTheme.canvas.ignoresSafeArea())
-        .fullScreenCover(item: $viewerSelection) { record in
-            PrintViewer(
-                initial: record,
-                onEdit: { staged in
-                    viewerSelection = nil
-                    model.stageEdit(staged)
-                    withAnimation(.snappy) { page = 0 }
-                },
-                onClose: { viewerSelection = nil }
+        .tabBarMinimizeBehavior(.never)
+        .tabViewBottomAccessory(isEnabled: session.showsGlobalActivity) {
+            GenerationAccessory()
+        }
+        .sheet(item: $navigation.presentedSheet) { sheet in
+            switch sheet {
+            case .generationOptions(let workspace):
+                GenerationOptionsSheet(session: session, workspace: workspace)
+            }
+        }
+        .onChange(of: session.completedImageID) { _, completedID in
+            guard completedID != nil,
+                  navigation.selectedTab == session.activity.destination,
+                  navigation.isAtRoot(navigation.selectedTab)
+            else { return }
+            session.acknowledgeCompletion()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.didReceiveMemoryWarningNotification
             )
+        ) { _ in
+            Task { await imageLoader.removeAll() }
+        }
+        .background(ImarelloTheme.canvas.ignoresSafeArea())
+    }
+}
+
+private extension View {
+    func withImageDestinations() -> some View {
+        navigationDestination(for: AppRoute.self) { route in
+            switch route {
+            case .image(let id):
+                PrintDetailView(initialID: id)
+            }
         }
     }
 }
@@ -52,10 +91,14 @@ struct StudioRootView: View {
 #Preview {
     let engine = GenerationEngine()
     let store = PrintStore()
+    let session = StudioSession(engine: engine, store: store)
+    let navigation = AppNavigation()
     return StudioRootView()
-        .environment(StudioModel(engine: engine, store: store))
+        .environment(session)
         .environment(store)
         .environment(engine)
+        .environment(navigation)
+        .environment(PhotoExportService())
         .tint(ImarelloTheme.copper)
         .preferredColorScheme(.dark)
 }

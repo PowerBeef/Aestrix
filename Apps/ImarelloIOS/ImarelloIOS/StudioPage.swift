@@ -1,169 +1,178 @@
 import SwiftUI
 
-/// Page one of the spread: the Stage. The print owns the screen; every
-/// instrument floats on glass above it.
-struct StudioPage: View {
-    @Environment(StudioModel.self) private var model
-    @Environment(PrintStore.self) private var store
+struct CreatePage: View {
+    @Environment(StudioSession.self) private var session
     @Environment(GenerationEngine.self) private var engine
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(AppNavigation.self) private var navigation
+    @Environment(\.printImageLoader) private var imageLoader
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let openSheet: () -> Void
-    let openViewer: (PrintRecord) -> Void
-
-    @State private var showPlate = false
+    @State private var image: UIImage?
 
     var body: some View {
         ZStack {
             ImarelloTheme.stage.ignoresSafeArea()
-
-            stageContent
-
-            VStack(spacing: ImarelloTheme.Space.sm) {
-                header
-                Spacer()
-                StatusRow()
-                PromptBar()
+            stage
+            TonalStageScrims()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !session.showsGlobalActivity {
+                GenerationComposer(workspace: .create)
+                    .padding(.horizontal, ImarelloTheme.Space.md)
+                    .padding(.bottom, ImarelloTheme.Space.xs)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .padding(.horizontal, ImarelloTheme.Space.md)
-            .padding(.vertical, ImarelloTheme.Space.xs)
-            // The print is the content; this is the instrument panel around it.
-            // Past accessibility2 the controls stop fitting the glass at all.
-            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         }
-        .sheet(isPresented: $showPlate) {
-            PlateSheet()
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-        }
-    }
-
-    // MARK: - stage
-
-    @ViewBuilder
-    private var stageContent: some View {
-        if let record = model.currentPrint, let image = store.thumbnail(for: record, maxPixel: 512) {
-            GeometryReader { proxy in
-                ZStack {
-                    // Overscan of the print itself so the Stage owns the whole
-                    // screen while the print stays uncropped above it.
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .clipped()
-                        .blur(radius: 48)
-                        .overlay(ImarelloTheme.stage.opacity(0.55))
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: proxy.size.width, height: proxy.size.height)
+        .navigationTitle("Create")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                ImarelloToolbarMark()
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    resolutionButton(512)
+                    resolutionButton(1024)
+                } label: {
+                    HStack(spacing: ImarelloTheme.Space.xxs) {
+                        Image(systemName: "viewfinder")
+                        Text(verbatim: "\(session.createDraft.side)²")
+                    }
+                    .font(.footnote.weight(.medium))
+                    .monospacedDigit()
+                    .frame(minWidth: 44, minHeight: 44)
                 }
-                .overlay {
-                    if model.isRunning {
-                        Color.black.opacity(0.35)
+                .disabled(session.isBusy)
+                .accessibilityLabel("Image resolution")
+                .accessibilityValue(
+                    "\(session.createDraft.side) by \(session.createDraft.side) pixels"
+                )
+                .accessibilityHint(resolutionHint)
+                .accessibilityIdentifier("create.resolution")
+                .accessibilityShowsLargeContentViewer {
+                    Label {
+                        Text(verbatim: "\(session.createDraft.side)²")
+                    } icon: {
+                        Image(systemName: "viewfinder")
                     }
                 }
-                .animation(.easeInOut(duration: 0.3), value: model.isRunning)
+
+                Button {
+                    navigation.presentedSheet = .generationOptions(.create)
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(session.isBusy)
+                .accessibilityLabel("Generation options")
+                .accessibilityHint("Change the seed")
+                .accessibilityIdentifier("create.options")
             }
-            .ignoresSafeArea()
-            .onTapGesture {
-                if !model.isRunning { openViewer(record) }
+        }
+        .task(id: session.currentPrint?.id) {
+            await loadCurrentPrint()
+        }
+        .animation(reduceMotion ? nil : .snappy, value: session.showsGlobalActivity)
+    }
+
+    private var resolutionHint: String {
+        if session.isBusy { return "Unavailable while an image is being created" }
+        return "Choose 512 or 1024 pixels"
+    }
+
+    private func resolutionButton(_ side: Int) -> some View {
+        Button {
+            session.setCreateResolution(side)
+        } label: {
+            if session.createDraft.side == side {
+                Label {
+                    Text(verbatim: "\(side) × \(side)")
+                } icon: {
+                    Image(systemName: "checkmark")
+                }
+            } else {
+                Text(verbatim: "\(side) × \(side)")
             }
-            .accessibilityElement()
-            .accessibilityLabel("Current print, \(record.caption)")
-            .accessibilityHint("Opens the print viewer")
-            .accessibilityAddTraits(.isButton)
-        } else {
-            emptyStage
         }
     }
 
-    private var emptyStage: some View {
+    @ViewBuilder
+    private var stage: some View {
+        if let record = session.currentPrint, let image {
+            Button {
+                navigation.openImage(id: record.id, from: .create)
+            } label: {
+                AtmosphericImageStage(image: image)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .ignoresSafeArea()
+            .accessibilityLabel("Current image, \(record.caption)")
+            .accessibilityHint("Opens the image detail")
+        } else {
+            EmptyCreateState(gate: engine.gate)
+        }
+    }
+
+    private func loadCurrentPrint() async {
+        guard let record = session.currentPrint else {
+            image = nil
+            return
+        }
+        let url = session.store.url(for: record)
+        do {
+            let loaded = try await imageLoader.image(
+                at: url, recordID: record.id, maxPixel: 1024
+            )
+            guard !Task.isCancelled else { return }
+            image = loaded
+        } catch is CancellationError {
+            return
+        } catch {
+            image = nil
+        }
+    }
+}
+
+private struct EmptyCreateState: View {
+    let gate: GenerationEngine.RunGate
+
+    var body: some View {
         VStack(spacing: ImarelloTheme.Space.sm) {
             Image("Mark")
                 .resizable()
                 .scaledToFit()
                 .frame(width: 72, height: 72)
                 .opacity(0.9)
-            switch engine.gate {
-            case .ready:
-                Text("The stage is dark")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(ImarelloTheme.cream)
-                Text("Set a plate and develop your first print.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            case .missingWeights:
-                Text("No plates in the studio")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(ImarelloTheme.cream)
-                Text("Sync the Klein weights from the Mac, then return here.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            case .simulator:
-                Text("Simulator preview")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(ImarelloTheme.cream)
-                Text("The chrome only — Klein develops on device.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(ImarelloTheme.cream)
+            Text(message)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .padding(ImarelloTheme.Space.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("create.empty")
     }
 
-    // MARK: - chrome
+    private var title: String {
+        switch gate {
+        case .ready: return "No images yet"
+        case .missingWeights: return "Model unavailable"
+        case .simulator: return "Simulator preview"
+        }
+    }
 
-    private var header: some View {
-        HStack {
-            HStack(spacing: ImarelloTheme.Space.xs) {
-                Image("Mark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: ImarelloTheme.Size.mark, height: ImarelloTheme.Size.mark)
-                // At accessibility sizes the wordmark would only ever show a
-                // fragment; the Mark carries the brand on its own.
-                if !typeSize.isAccessibilitySize {
-                    Text("Imarello")
-                        .font(.headline)
-                        .foregroundStyle(ImarelloTheme.cream)
-                        .lineLimit(1)
-                }
-            }
-            .accessibilityHidden(true)
-
-            Spacer()
-
-            Button {
-                showPlate = true
-            } label: {
-                Text(model.plateSummary)
-                    .font(.footnote.weight(.medium))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(.horizontal, ImarelloTheme.Space.sm)
-                    .frame(height: ImarelloTheme.Size.headerControl)
-            }
-            .buttonStyle(.glass)
-            // The chip is functional; the wordmark beside it is decoration and
-            // gives up its width first at large text sizes.
-            .layoutPriority(1)
-            .accessibilityLabel("Plate: \(model.side) by \(model.side), seed \(model.seed)")
-            .accessibilityHint("Opens size and seed controls")
-
-            Button(action: openSheet) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.footnote.weight(.semibold))
-                    .frame(width: ImarelloTheme.Size.headerControl,
-                           height: ImarelloTheme.Size.headerControl)
-            }
-            .buttonStyle(.glass)
-            .accessibilityLabel("Contact sheet")
-            .accessibilityHint("Shows all prints")
+    private var message: String {
+        switch gate {
+        case .ready: return "Describe an image below, then tap Create."
+        case .missingWeights: return "Sync the Klein model from the Mac, then return here."
+        case .simulator: return "The interface is available here; image generation runs only on device."
         }
     }
 }

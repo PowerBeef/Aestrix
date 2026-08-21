@@ -81,6 +81,9 @@ public struct BenchConfig: Sendable, Codable, Equatable {
     public var vaeEngine: String?
     /// DiT denoise engine for T2I trials: "mlx" (product) | "direct" (bare-metal).
     public var ditEngine: String?
+    /// Text-encoder implementation and disk-cache policy used by the trial.
+    public var teEngine: String?
+    public var embedCachePolicy: String?
     /// VAE decode variant for provenance: "small-decoder" | "full".
     public var vaeVariant: String?
     /// Resolved eval/cache profile for provenance: "product" | "mid".
@@ -137,6 +140,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         padContent: String? = nil,
         vaeEngine: String? = nil,
         ditEngine: String? = nil,
+        teEngine: String? = nil,
+        embedCachePolicy: String? = nil,
         vaeVariant: String? = nil,
         evalCache: String? = nil,
         vaeAttnChunk: Int? = nil,
@@ -184,6 +189,8 @@ public struct BenchConfig: Sendable, Codable, Equatable {
         self.padContent = padContent
         self.vaeEngine = vaeEngine
         self.ditEngine = ditEngine
+        self.teEngine = teEngine
+        self.embedCachePolicy = embedCachePolicy
         self.vaeVariant = vaeVariant
         self.evalCache = evalCache
         self.vaeAttnChunk = vaeAttnChunk
@@ -423,6 +430,8 @@ public struct BenchTrial: Sendable, Codable, Equatable {
     public var qualityFidelityScore: Float?
     public var qualityFaceReferenceSSIM: Float?
     public var qualityFaceFidelityScore: Float?
+    public var qualityStatus: QualityEvaluationStatus?
+    public var qualityError: String?
     public var generatedFaceCount: Int?
     public var referenceFaceCount: Int?
     public var hostBefore: HostContentionSnapshot?
@@ -447,6 +456,8 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         qualityFidelityScore: Float? = nil,
         qualityFaceReferenceSSIM: Float? = nil,
         qualityFaceFidelityScore: Float? = nil,
+        qualityStatus: QualityEvaluationStatus? = nil,
+        qualityError: String? = nil,
         generatedFaceCount: Int? = nil,
         referenceFaceCount: Int? = nil,
         hostBefore: HostContentionSnapshot? = nil,
@@ -470,6 +481,8 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         self.qualityFidelityScore = qualityFidelityScore
         self.qualityFaceReferenceSSIM = qualityFaceReferenceSSIM
         self.qualityFaceFidelityScore = qualityFaceFidelityScore
+        self.qualityStatus = qualityStatus
+        self.qualityError = qualityError
         self.generatedFaceCount = generatedFaceCount
         self.referenceFaceCount = referenceFaceCount
         self.hostBefore = hostBefore
@@ -478,6 +491,13 @@ public struct BenchTrial: Sendable, Codable, Equatable {
         self.lastProbeId = lastProbeId
         self.opProfile = opProfile
     }
+}
+
+public enum QualityEvaluationStatus: String, Sendable, Codable, Equatable {
+    case notRequested = "not-requested"
+    case notApplicable = "not-applicable"
+    case succeeded
+    case failed
 }
 
 public struct StatSummary: Sendable, Codable, Equatable {
@@ -538,6 +558,7 @@ public struct SystemSnapshot: Sendable, Codable, Equatable {
     public var mlxCacheLimitBytes: UInt64?
     public var mlxMemoryLimitBytes: UInt64?
     public var imarelloGitSha: String?
+    public var imarelloGitDirty: Bool? = nil
     /// Metal device name (e.g. "Apple M2").
     public var gpuName: String?
     /// e.g. "Metal 4" when known.
@@ -557,7 +578,58 @@ public struct BenchReport: Sendable, Codable, Equatable {
     public var trials: [BenchTrial]
     public var aggregate: BenchAggregate
     public var pressure: PressureReport?
+    public var provenance: BenchProvenance? = nil
 
-    /// 1.4 (2026-08-18): + evalCache, vaeAttnChunk, vaeTile{Size,Overlap,Blend} provenance.
-    public static let currentSchema = "1.6"
+    /// 1.7: additive engine/cache/model/metallib/build provenance and explicit
+    /// quality status. Older reports remain decodable but are incomparable.
+    public static let currentSchema = "1.7"
+}
+
+public struct BenchProvenance: Sendable, Codable, Equatable {
+    public var modelRevision: String?
+    public var detectedSnapshotRevision: String?
+    public var tokenizerFingerprint: String?
+    public var metallibPath: String?
+    public var metallibByteCount: Int?
+    public var metallibRevision: String?
+    public var teEngine: String?
+    public var cachePolicy: String?
+    public var cacheHitState: String?
+    public var buildRevision: String?
+    public var buildDirty: Bool?
+    public var successfulSamples: Int
+    public var failedSamples: Int
+    public var contaminated: Bool
+
+    public init(
+        modelRevision: String? = nil,
+        detectedSnapshotRevision: String? = nil,
+        tokenizerFingerprint: String? = nil,
+        metallibPath: String? = nil,
+        metallibByteCount: Int? = nil,
+        metallibRevision: String? = nil,
+        teEngine: String? = nil,
+        cachePolicy: String? = nil,
+        cacheHitState: String? = nil,
+        buildRevision: String? = nil,
+        buildDirty: Bool? = nil,
+        successfulSamples: Int,
+        failedSamples: Int,
+        contaminated: Bool
+    ) {
+        self.modelRevision = modelRevision
+        self.detectedSnapshotRevision = detectedSnapshotRevision
+        self.tokenizerFingerprint = tokenizerFingerprint
+        self.metallibPath = metallibPath
+        self.metallibByteCount = metallibByteCount
+        self.metallibRevision = metallibRevision
+        self.teEngine = teEngine
+        self.cachePolicy = cachePolicy
+        self.cacheHitState = cacheHitState
+        self.buildRevision = buildRevision
+        self.buildDirty = buildDirty
+        self.successfulSamples = successfulSamples
+        self.failedSamples = failedSamples
+        self.contaminated = contaminated
+    }
 }

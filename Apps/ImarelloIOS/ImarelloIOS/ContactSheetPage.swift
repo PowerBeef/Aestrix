@@ -1,89 +1,140 @@
 import SwiftUI
 
-/// Page two of the spread: the Contact Sheet. A tight film grid of every
-/// print; tap to enlarge in the viewer.
-struct ContactSheetPage: View {
-    @Environment(StudioModel.self) private var model
+struct GalleryView: View {
     @Environment(PrintStore.self) private var store
+    @Environment(AppNavigation.self) private var navigation
+    @Environment(\.printImageLoader) private var imageLoader
 
-    let openViewer: (PrintRecord) -> Void
-    let backToStage: () -> Void
+    @State private var backdropImage: UIImage?
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 2)]
 
     var body: some View {
         ZStack {
-            ImarelloTheme.canvas.ignoresSafeArea()
+            GalleryAtmosphere(image: backdropImage)
 
-            if store.prints.isEmpty {
-                emptySheet
-                    .safeAreaInset(edge: .top) { header }
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(store.prints) { record in
-                            cell(record)
+            Group {
+                if store.prints.isEmpty {
+                    emptyLibrary
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 2) {
+                            ForEach(Array(store.prints.enumerated()), id: \.element.id) { index, record in
+                                GalleryThumbnailCell(
+                                    record: record,
+                                    position: index + 1,
+                                    count: store.prints.count
+                                ) {
+                                    navigation.openImage(id: record.id, from: .gallery)
+                                }
+                            }
                         }
+                        .padding(.bottom, ImarelloTheme.Space.xl)
                     }
-                    .padding(.bottom, ImarelloTheme.Space.xl)
+                    .accessibilityIdentifier("gallery.grid")
                 }
-                .safeAreaInset(edge: .top) { header }
             }
         }
-        // The same single instrument voice as the stage — run state, gate, and
-        // errors must not go invisible while the sheet is the front page.
-        .safeAreaInset(edge: .bottom) {
-            StatusRow()
-                .padding(.horizontal, ImarelloTheme.Space.md)
-                .padding(.bottom, ImarelloTheme.Space.xs)
+        .navigationTitle("Gallery")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationSubtitle(countLabel)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                ImarelloToolbarMark()
+            }
+        }
+        .task(id: store.prints.first?.id) {
+            await loadBackdrop()
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: ImarelloTheme.Space.sm) {
-            Button(action: backToStage) {
-                Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-            }
-            .buttonStyle(.glass)
-            .accessibilityLabel("Back to the stage")
-            Text("Contact Sheet")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(ImarelloTheme.cream)
-            Spacer()
-            Text("\(store.prints.count) print\(store.prints.count == 1 ? "" : "s")")
-                .instrumentLabel()
-        }
-        .padding(.horizontal, ImarelloTheme.Space.md)
-        .padding(.top, ImarelloTheme.Space.xxs)
-        .padding(.bottom, ImarelloTheme.Space.sm)
-        .background(ImarelloTheme.canvas)
+    private var countLabel: String {
+        "\(store.prints.count) image\(store.prints.count == 1 ? "" : "s")"
     }
 
-    private func cell(_ record: PrintRecord) -> some View {
-        Button {
-            openViewer(record)
-        } label: {
+    private var emptyLibrary: some View {
+        ContentUnavailableView {
+            Label("No Images Yet", systemImage: "photo.stack")
+        } description: {
+            Text("Create an image and it will appear here.")
+        } actions: {
+            Button("Go to Create", action: navigation.showCreateRoot)
+                .buttonStyle(.glass)
+        }
+        .accessibilityIdentifier("gallery.empty")
+    }
+
+    private func loadBackdrop() async {
+        backdropImage = nil
+        guard let latest = store.prints.first else { return }
+        do {
+            let loaded = try await imageLoader.image(
+                at: store.url(for: latest),
+                recordID: latest.id,
+                maxPixel: 320
+            )
+            guard !Task.isCancelled else { return }
+            backdropImage = loaded
+        } catch {
+            backdropImage = nil
+        }
+    }
+}
+
+private struct GalleryAtmosphere: View {
+    let image: UIImage?
+
+    var body: some View {
+        ZStack {
+            ImarelloTheme.stage
+            if let image {
+                AtmosphericImageBackdrop(image: image, dimmingOpacity: 0.72)
+                TonalStageScrims()
+            }
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+private struct GalleryThumbnailCell: View {
+    @Environment(PrintStore.self) private var store
+    @Environment(\.printImageLoader) private var imageLoader
+
+    let record: PrintRecord
+    let position: Int
+    let count: Int
+    let action: () -> Void
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Button(action: action) {
             ZStack(alignment: .bottomLeading) {
-                Color(.systemGray6)
+                Rectangle()
+                    .fill(Color(.secondarySystemBackground))
                     .aspectRatio(1, contentMode: .fit)
                     .overlay {
-                        if let thumb = store.thumbnail(for: record) {
-                            Image(uiImage: thumb)
+                        if let image {
+                            Image(uiImage: image)
                                 .resizable()
                                 .scaledToFill()
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
                         }
                     }
                     .clipped()
                 if record.mode == "i2i" {
-                    Text("Edit")
-                        .font(.system(size: 10, weight: .semibold))
+                    Label("Edit", systemImage: "wand.and.sparkles")
+                        .labelStyle(.titleOnly)
+                        .font(.caption2.weight(.semibold))
                         .textCase(.uppercase)
                         .kerning(0.8)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.55), in: Capsule())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.68), in: Capsule())
                         .foregroundStyle(ImarelloTheme.cream)
                         .padding(4)
                 }
@@ -91,26 +142,31 @@ struct ContactSheetPage: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Print, \(record.caption)\(record.mode == "i2i" ? ", edit" : "")")
-        .accessibilityHint("Opens the print viewer")
-    }
-
-    private var emptySheet: some View {
-        VStack(spacing: ImarelloTheme.Space.sm) {
-            Image(systemName: "photo.stack")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text("Nothing on the sheet yet")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(ImarelloTheme.cream)
-            Text("Prints land here as you develop them.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Button("To the stage", action: backToStage)
-                .buttonStyle(.glass)
-                .padding(.top, ImarelloTheme.Space.xs)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("Opens the image detail")
+        .accessibilityIdentifier("gallery.cell.\(record.id)")
+        .task(id: record.id) {
+            await load()
         }
-        .padding(ImarelloTheme.Space.xl)
+        .onDisappear { image = nil }
     }
 
+    private var accessibilityLabel: String {
+        let seed = record.seed.map(String.init) ?? "unknown"
+        let provenance = record.mode == "i2i" ? ", edited from another image" : ""
+        return "Image \(position) of \(count), \(record.side) by \(record.side), seed \(seed)\(provenance)"
+    }
+
+    private func load() async {
+        let url = store.url(for: record)
+        do {
+            let loaded = try await imageLoader.image(
+                at: url, recordID: record.id, maxPixel: 240
+            )
+            guard !Task.isCancelled else { return }
+            image = loaded
+        } catch {
+            image = nil
+        }
+    }
 }

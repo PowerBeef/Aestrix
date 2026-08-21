@@ -40,6 +40,8 @@ public struct DeviceHarnessJob: Sendable, Equatable, Codable {
     }
 
     public static let allowedSides: Set<Int> = [512, 1024]
+    public static let maximumJobIDLength = 128
+    public static let maximumSeed: UInt64 = 9_999_999
 
     public static let defaultFoxPrompt =
         "A red fox in a snowy forest at sunrise, photorealistic, golden rim light, shallow depth of field."
@@ -56,7 +58,13 @@ public struct DeviceHarnessJob: Sendable, Equatable, Codable {
 
     public func validate(hasLastImage: Bool) throws {
         let id = Self.sanitizedID(self.id)
-        guard id == self.id else {
+        guard id == self.id,
+              !self.id.hasPrefix("."),
+              self.id != ".",
+              self.id != "..",
+              !self.id.isEmpty,
+              self.id.count <= Self.maximumJobIDLength
+        else {
             throw ImarelloError.notImplemented("harness job id must be [A-Za-z0-9._-]")
         }
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,8 +81,16 @@ public struct DeviceHarnessJob: Sendable, Equatable, Codable {
                 reason: "device harness allows 512 or 1024 only"
             )
         }
-        guard steps > 0 else {
-            throw ImarelloError.notImplemented("harness job steps must be positive")
+        guard (1 ... 100).contains(steps) else {
+            throw ImarelloError.invalidSteps(steps)
+        }
+        guard seed <= Self.maximumSeed else {
+            throw ImarelloError.invalidRequest(
+                "harness job seed must be between 0 and \(Self.maximumSeed)"
+            )
+        }
+        guard strength.isFinite, strength > 0, strength <= 1 else {
+            throw ImarelloError.invalidStrength(strength)
         }
         if mode == .i2i {
             guard hasLastImage else {
@@ -82,9 +98,6 @@ public struct DeviceHarnessJob: Sendable, Equatable, Codable {
                     path: "<last-in-app>",
                     reason: "i2i harness job needs a last generated PNG (Edit last). No photo import."
                 )
-            }
-            guard strength > 0, strength <= 1 else {
-                throw ImarelloError.invalidStrength(strength)
             }
         }
     }

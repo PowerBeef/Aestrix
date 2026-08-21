@@ -1,67 +1,117 @@
 import SwiftUI
 
-/// The floating prompt bar: the field and the gold shutter. The shutter is the
-/// only prominent glass in the app.
-struct PromptBar: View {
-    @Environment(StudioModel.self) private var model
+struct GenerationComposer: View {
+    @Environment(StudioSession.self) private var session
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var promptFocused: Bool
 
-    private var shutterTitle: String {
-        if model.isRunning { return "Stop" }
-        return model.pendingEdit == nil ? "Develop" : "Edit"
+    let workspace: GenerationWorkspace
+
+    private var actionTitle: String { workspace == .create ? "Create" : "Edit" }
+    private var promptPlaceholder: String {
+        workspace == .create ? "Describe an image…" : "Describe the change…"
     }
 
     var body: some View {
-        @Bindable var model = model
-        HStack(spacing: ImarelloTheme.Space.xs) {
-            TextField("Describe the print…", text: $model.prompt, axis: .vertical)
-                .lineLimit(1 ... 3)
-                .focused($promptFocused)
-                .submitLabel(.done)
-                .onChange(of: model.prompt) { old, new in
-                    // Vertical-axis fields keep Return as a newline; treat it as Done.
-                    if new.contains("\n") {
-                        model.prompt = new.replacingOccurrences(of: "\n", with: " ")
-                        promptFocused = false
+        GlassEffectContainer(spacing: ImarelloTheme.Space.xs) {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: ImarelloTheme.Space.xs) {
+                        provenance
+                        promptField(text: promptBinding)
+                        actionButton
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: ImarelloTheme.Space.xs) {
+                        provenance
+                        HStack(alignment: .bottom, spacing: ImarelloTheme.Space.xs) {
+                            promptField(text: promptBinding)
+                            actionButton
+                        }
                     }
                 }
-                .padding(.horizontal, ImarelloTheme.Space.md)
-                .padding(.vertical, ImarelloTheme.Space.sm)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ImarelloTheme.Radius.control, style: .continuous))
-                .accessibilityLabel("Prompt")
-
-            Button {
-                promptFocused = false
-                if model.isRunning {
-                    model.cancel()
-                } else {
-                    model.develop()
-                }
-            } label: {
-                Text(shutterTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(minHeight: ImarelloTheme.Size.shutter)
-                    .padding(.horizontal, ImarelloTheme.Space.md)
-                    .contentTransition(.identity)
             }
-            .buttonStyle(.glassProminent)
-            // A Mac harness job owns the pipeline; the shutter can't stop it.
-            .disabled(model.harnessJobID != nil || (!model.isRunning && !model.canGenerate))
-            .accessibilityLabel(
-                model.isRunning
-                    ? "Stop the run"
-                    : model.pendingEdit == nil ? "Develop a print" : "Develop the edit"
-            )
         }
-        // The shutter answers physically: a thud when the run starts, a
-        // success tap when a new print lands on the sheet.
-        .sensoryFeedback(.impact(weight: .medium), trigger: model.isRunning) { old, new in
+        .sensoryFeedback(.impact(weight: .medium), trigger: session.isBusy) { old, new in
             !old && new
         }
-        .sensoryFeedback(.success, trigger: model.store.prints.count) { old, new in
-            new > old
+    }
+
+    private var provenance: some View {
+        Label(summary, systemImage: workspace == .create ? "viewfinder" : "photo.badge.checkmark")
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+            .accessibilityElement(children: .combine)
+    }
+
+    private var summary: String {
+        workspace == .create ? session.createSummary : session.editSummary
+    }
+
+    private var promptBinding: Binding<String> {
+        Binding(
+            get: {
+                workspace == .create
+                    ? session.createDraft.prompt
+                    : session.editDraft.prompt
+            },
+            set: { value in
+                if workspace == .create {
+                    session.createDraft.prompt = value
+                } else {
+                    session.editDraft.prompt = value
+                }
+            }
+        )
+    }
+
+    private func promptField(text: Binding<String>) -> some View {
+        TextField(promptPlaceholder, text: text, axis: .vertical)
+            .lineLimit(1 ... 4)
+            .focused($promptFocused)
+            .submitLabel(.done)
+            .onChange(of: text.wrappedValue) { _, newValue in
+                guard newValue.contains("\n") else { return }
+                text.wrappedValue = newValue.replacingOccurrences(of: "\n", with: " ")
+                promptFocused = false
+            }
+            .padding(.horizontal, ImarelloTheme.Space.md)
+            .padding(.vertical, ImarelloTheme.Space.sm)
+            .frame(minHeight: 50)
+            .glassEffect(
+                .regular.interactive(),
+                in: .rect(cornerRadius: ImarelloTheme.Radius.control)
+            )
+            .accessibilityLabel(workspace == .create ? "Image prompt" : "Edit prompt")
+            .accessibilityIdentifier("\(workspace.rawValue).prompt")
+    }
+
+    private var actionButton: some View {
+        Button(actionTitle, action: performAction)
+            .font(.headline)
+            .lineLimit(1)
+            .frame(
+                maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil,
+                minHeight: ImarelloTheme.Size.shutter
+            )
+            .padding(.horizontal, ImarelloTheme.Space.md)
+            .buttonStyle(.glassProminent)
+            .foregroundStyle(ImarelloTheme.stage)
+            .frame(minHeight: 50)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .disabled(workspace == .create ? !session.canCreate : !session.canEdit)
+            .accessibilityLabel(workspace == .create ? "Create image" : "Apply edit")
+            .accessibilityIdentifier("\(workspace.rawValue).action")
+    }
+
+    private func performAction() {
+        promptFocused = false
+        switch workspace {
+        case .create: session.createImage()
+        case .edit: session.editImage()
         }
     }
 }

@@ -46,9 +46,22 @@ public actor BenchRunner {
     }
 
     public func run() async throws -> BenchReport {
+        try await MetalWorkLease.withLease {
+            try await self.runUnderLease()
+        }
+    }
+
+    private func runUnderLease() async throws -> BenchReport {
+        let previousCacheLimit = MemorySampler.cacheLimit
+        let previousAttention = AttentionTuning.current
+        let previousVAETile = VAETileConfig.current
         MemorySampler.applyCacheLimit(config.cacheLimitBytes)
         applyAttentionTuningFromConfig()
-        defer { AttentionTuning.resetToDefault() }
+        defer {
+            MemorySampler.applyCacheLimit(previousCacheLimit)
+            AttentionTuning.current = previousAttention
+            VAETileConfig.current = previousVAETile
+        }
 
         let system = SystemInfo.snapshot(
             mlxCacheLimit: MemorySampler.cacheLimit,
@@ -92,24 +105,62 @@ public actor BenchRunner {
         let refSeq = identityEnabled ? ph * pw : nil
         let analytic = PressureAnalytics.canvasStats(
             width: config.width, height: config.height, referenceSeqLen: refSeq)
-        let timeline = trials.last?.memorySamples ?? []
+        let failingTrial = trials.first { $0.error != nil }
+        let reportTrial = failingTrial ?? trials.last
+        let timeline = reportTrial?.memorySamples ?? []
         let (byActive, byDelta) = PressureAnalytics.rank(
             samples: timeline,
             recommendedWS: system.recommendedMaxWorkingSetBytes
         )
-        let lastProbe = trials.compactMap(\.lastProbeId).last
-        let anyErr = trials.contains { $0.error != nil }
+        let lastProbe = reportTrial?.lastProbeId
+        let failureText = failingTrial?.error?.lowercased()
         let pressure = PressureReport(
             timeline: timeline,
             rankedByActive: byActive,
             rankedByDelta: byDelta,
             analytic: analytic,
-            lastProbeBeforeFailure: anyErr ? lastProbe : lastProbe,
-            oom: anyErr && (trials.last?.error?.localizedCaseInsensitiveContains("memory") == true
-                || trials.last?.error?.localizedCaseInsensitiveContains("oom") == true),
+            lastProbeBeforeFailure: failingTrial == nil ? nil : lastProbe,
+            oom: failureText?.contains("memory") == true
+                || failureText?.contains("oom") == true,
             phasePeaks: PressureAnalytics.phasePeaks(samples: timeline),
             probeDensity: config.probeDensity.rawValue
         )
+
+        let pipelineConfig = await pipeline.config
+        let pipelineSnapshot = await pipeline.snapshot
+        let metallib = MetallibVerification.resolveFromBundles().map {
+            MetallibVerification.verify(url: $0)
+        }
+        let cacheNotes = trials.flatMap(\.memorySamples).compactMap(\.note)
+            .filter { $0.hasPrefix("embed_cache=") }
+        let cacheHitState: String? = cacheNotes.isEmpty
+            ? (config.embedCachePolicy == "disabled" ? "disabled" : "not-observed")
+            : Array(Set(cacheNotes)).sorted().joined(separator: ",")
+        let successfulSamples = trials.filter { $0.error == nil }.count
+        let failedSamples = trials.count - successfulSamples
+        let contaminated = trials.contains {
+            $0.hostBefore?.contaminated == true || $0.hostAfter?.contaminated == true
+        }
+        let provenance = BenchProvenance(
+            modelRevision: pipelineConfig.revision,
+            detectedSnapshotRevision: pipelineSnapshot?.detectedRevision,
+            tokenizerFingerprint: pipelineSnapshot.map {
+                PromptEmbedCache.tokenizerFingerprint(directory: $0.tokenizerDirectory)
+            },
+            metallibPath: metallib?.path,
+            metallibByteCount: metallib?.byteCount,
+            metallibRevision: metallib.flatMap {
+                MetallibVerification.recordedRevision(
+                    for: URL(fileURLWithPath: $0.path))
+            },
+            teEngine: config.teEngine,
+            cachePolicy: config.embedCachePolicy,
+            cacheHitState: cacheHitState,
+            buildRevision: system.imarelloGitSha,
+            buildDirty: system.imarelloGitDirty,
+            successfulSamples: successfulSamples,
+            failedSamples: failedSamples,
+            contaminated: contaminated)
 
         return BenchReport(
             schemaVersion: BenchReport.currentSchema,
@@ -119,7 +170,8 @@ public actor BenchRunner {
             config: config,
             trials: trials,
             aggregate: aggregate,
-            pressure: pressure
+            pressure: pressure,
+            provenance: provenance
         )
     }
 
@@ -234,8 +286,12 @@ public actor BenchRunner {
         var qualityFaceFidelity: Float?
         var generatedFaceCount: Int?
         var referenceFaceCount: Int?
+        var qualityStatus: QualityEvaluationStatus = config.withQuality
+            ? .notApplicable : .notRequested
+        var qualityError: String?
         if config.withQuality, let path = outputPath, error == nil {
-            if let q = try? qualityFromPNG(path: path) {
+            do {
+                let q = try qualityFromPNG(path: path)
                 qualityScore = q.score
                 qualityColor = q.colorMatch
                 qualityReferenceSSIM = q.referenceSSIM
@@ -244,6 +300,10 @@ public actor BenchRunner {
                 qualityFaceFidelity = q.faceFidelityScore
                 generatedFaceCount = q.generatedFaceCount
                 referenceFaceCount = q.referenceFaceCount
+                qualityStatus = .succeeded
+            } catch {
+                qualityStatus = .failed
+                qualityError = String(describing: error)
             }
         }
 
@@ -263,6 +323,8 @@ public actor BenchRunner {
             qualityFidelityScore: qualityFidelity,
             qualityFaceReferenceSSIM: qualityFaceSSIM,
             qualityFaceFidelityScore: qualityFaceFidelity,
+            qualityStatus: qualityStatus,
+            qualityError: qualityError,
             generatedFaceCount: generatedFaceCount,
             referenceFaceCount: referenceFaceCount,
             hostBefore: hostBefore,
@@ -445,19 +507,15 @@ public actor BenchRunner {
                 referenceURL: referenceURL,
                 maxAnalysisSide: 512,
                 i2iStrength: resolvedStrength,
-                skipSemantic: true
+                skipSemantic: true,
+                vaeTileConfiguration: VAETileEvaluationConfig(
+                    enabledThresholdLatentPixels: config.vaeTileThreshold ?? 128,
+                    tileSize: config.vaeTileSize ?? 128,
+                    overlap: config.vaeTileOverlap ?? 16,
+                    blend: config.vaeTileBlend ?? "cosine")
             )
         )
-        let face: FaceRegionCompare.Metrics?
-        if identityEnabled, let referenceURL {
-            face = try? FaceRegionCompare.compare(
-                generatedURL: URL(fileURLWithPath: path),
-                referenceURL: referenceURL,
-                maxSide: 1024
-            )
-        } else {
-            face = nil
-        }
+        let face = identityEnabled ? report.faceRegion : nil
         return (
             report.technical.technicalScore,
             report.promptAlignment.colorMatch,

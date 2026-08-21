@@ -23,6 +23,7 @@ public enum SystemInfo {
         @unknown default: thermal = "unknown"
         }
 
+        let git = gitState()
         return SystemSnapshot(
             hostname: processInfo.hostName,
             osVersion: processInfo.operatingSystemVersionString,
@@ -33,7 +34,8 @@ public enum SystemInfo {
             thermalState: thermal,
             mlxCacheLimitBytes: mlxCacheLimit,
             mlxMemoryLimitBytes: mlxMemoryLimit,
-            imarelloGitSha: gitSha(),
+            imarelloGitSha: git.sha,
+            imarelloGitDirty: git.dirty,
             gpuName: gpuName,
             metalSupport: metalSupport,
             hasNeuralAccelerators: neural,
@@ -41,23 +43,49 @@ public enum SystemInfo {
         )
     }
 
-    private static func gitSha() -> String? {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        task.arguments = ["rev-parse", "--short", "HEAD"]
-        task.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
-        do {
-            try task.run()
-            task.waitUntilExit()
-            guard task.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func gitState() -> (sha: String?, dirty: Bool?) {
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let executableRoot = URL(fileURLWithPath: CommandLine.arguments[0])
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let candidates = [
+            sourceRoot,
+            executableRoot,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        ]
+        guard let repository = candidates.first(where: {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent(".git").path)
+        }) else { return (nil, nil) }
+
+        func runGit(_ arguments: [String]) -> (status: Int32, output: String)? {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            task.arguments = arguments
+            task.currentDirectoryURL = repository
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = FileHandle.nullDevice
+            do {
+                try task.run()
+                task.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                return (
+                    task.terminationStatus,
+                    String(data: data, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
         } catch {
-            return nil
+                return nil
+            }
         }
+        let shaRun = runGit(["rev-parse", "HEAD"])
+        let dirtyRun = runGit(["status", "--porcelain", "--untracked-files=no"])
+        return (
+            shaRun?.status == 0 ? shaRun?.output : nil,
+            dirtyRun?.status == 0 ? !(dirtyRun?.output.isEmpty ?? true) : nil)
     }
 }

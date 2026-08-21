@@ -27,7 +27,14 @@ public final class DirectDiTPackedDenoiser: PackedLatentDenoising {
         width: Int, height: Int, steps: Int,
         onStep: ((Int) throws -> Void)?
     ) throws -> MLXArray {
+        try RequestValidation.validate(steps: steps)
+        try DimensionValidation.validate(
+            width: width, height: height, maxSide: max(width, height), tier: .high)
         let lImg = (width / 16) * (height / 16)
+        try DirectTensorValidation.requireShape(
+            noise, [1, lImg, 128], name: "direct denoiser noise")
+        try DirectTensorValidation.requireShape(
+            embeds, [1, 512, 7680], name: "direct denoiser prompt embeddings")
 
         let conditioner = try DirectConditioner(
             transformerDirectory: transformerDirectory, metallibURL: metallibURL)

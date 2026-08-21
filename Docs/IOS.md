@@ -1,15 +1,15 @@
 # Imarello iOS 26 demo
 
-**Status (2026-08-16, studio rebuild):** `Apps/ImarelloIOS` runs staged Klein 4B on a physical iPhone (Debug, Apple Development) — 512² T2I in **11.6 s** on the iPhone 17 Pro, and **512² I2I** (strength 0.8) both pixel + vision PASS on the rebuilt UI. The app was rebuilt from the ground up the same day as a **two-page spread** with persistent print history (see [Studio UI](#studio-ui-rebuilt-2026-08-16)). Simulator remains UI-only. Device jobs: `Scripts/ios-device-harness.sh`. **1024² T2I** runs but can fail vision anatomy (Klein 4-step / μ=1.15 / 4096 tokens — not a seed-commit bug) — the one open P7 item. Weights are **not** in the bundle; **resync after every `devicectl install`**. Profile `app.imarello.demo` signs both kernel entitlements. Metallib resolution walks the `.app` for `mlx-swift_Cmlx.bundle`.
+**Current status (2026-08-21): device generation remains blocked pending physical verification.** The main target now validates and embeds the full `iphoneos` no-JIT MLX pack plus the separate Direct metallib/manifest, and `GenerationEngine` resolves both before constructing the pipeline. The integration compiles in the UI-only Simulator, where artifact embedding and model execution are intentionally skipped; it has not yet been signed, installed, or exercised on a physical device. Keep the blocker open until the installed app’s artifacts, entitlements, first serialized 512² output, pixel report, and direct PNG inspection pass. The 2026-08-16 results—512² T2I in **11.6 s** and 512² I2I at strength 0.8—remain historical pre-no-JIT evidence. Weights are **not** bundled; resync after every `devicectl install`.
 
-The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agent map: [`../CLAUDE.md`](../CLAUDE.md) § P7 iOS.
+The app links `ImarelloRuntime` (same staged Klein 4B path as the Mac CLI). Agent contract: [`../AGENTS.md`](../AGENTS.md) § iOS contract.
 
 ## Simulator vs device
 
 | Surface | What works |
 |---------|------------|
-| **iOS Simulator** | UI preview only — the stage shows a "Simulator preview" empty state and the status row says `PREVIEW · Klein develops on device`. **MLX does not run.** Develop is a chrome no-op. |
-| **Physical iPhone** | App installs and launches. T2I + last-in-app I2I once weights + entitlements are right. |
+| **iOS Simulator** | UI preview only — Create shows an honest "Simulator preview" state. **MLX does not run.** Create/Edit actions never initialize the model. Debug UI-test scenarios are static interface fixtures, not generated output. |
+| **Physical iPhone** | Build integration exists, but generation remains unverified until a signed install proves both artifact sets and the serialized 512² bring-up gate. |
 | **Mac Catalyst** | Not supported. Do not add a Mac destination. |
 
 XcodeBuildMCP on this host is **Simulator-only** (device workflow not enabled). Use `xcodebuild` + `devicectl` for the phone.
@@ -79,63 +79,73 @@ A new `devicectl device install app` often creates a **new data container**. The
 
 `ImarelloPipeline.snapshot` is set in `init`. If the app created a pipeline **before** the copy, Generate can look ready on the stage and still throw `weightsNotFound` at the Klein path. `GenerationEngine.ensureReady()` rebuilds the pipeline when `hasLocalSnapshot` is false.
 
-## First generate (after weights + entitlements)
+## First generate (blocked pending signed-device verification)
 
-1. Confirm the signed app actually contains both kernel entitlements (`codesign -d --entitlements - Imarello.app`).
-2. Copy both snapshots into `Caches/Imarello/models/`.
-3. **512² T2I first.** One Metal owner.
-4. Export the PNG and run [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) on the Mac.
-5. 1024² only after 512 succeeds. Same seed ≠ the 512 image scaled up (different noise shape + scheduler μ). Vision-check anatomy — pixel can PASS a headless chimera.
+Do not submit a device matrix yet. First generate both `iphoneos` artifact sets, build/sign/install the main app, inspect that the full MLX pack plus Direct metallib/manifest are present, confirm both kernel entitlements, and make the readiness gate pass before pipeline construction. Then copy both snapshots, run one serialized 512² bring-up case, export/evaluate/inspect its PNG, and only then attempt the repository-locked 1024² default. Same seed does not mean a 512 image scaled up; anatomy still requires direct visual review.
 
-Edit runs from **any print in history** at strength 0.8 (stage it from the viewer). No `--identity` in this demo. Seed field: number-pad **Done**, committed before every develop; caption `{side} · seed {n}` is what actually ran.
+Edit runs from **any Gallery image** at strength 0.8. Selecting Edit in detail switches to the dedicated Edit workspace; a successful result becomes the next source. No `--identity` in this demo. Create and Edit keep independent prompt/seed drafts, while retry captures the exact immutable request that originally ran.
 
 ## Metallib
 
-Xcode compiles mlx-swift Cmlx Metal into `Imarello.app/mlx-swift_Cmlx.bundle/default.metallib` (~3–4 MB, Steel + RMSNorm). That is a **resource** bundle (`BNDL`), not a loaded framework — it does not appear in `Bundle.allBundles`. Asking every loaded bundle for `default.metallib` either hits a UIKit/SwiftUI stub (~157 KB) or finds nothing. The resolver walks the `.app` wrapper on disk (same path Cmlx `try_load_bundle` uses). `Scripts/ensure-metallib.sh` is macOS-only (`-sdk macosx`) and must not be copied onto the phone.
-
-4-bit `affine_qmm` is JIT in mlx-swift 0.31.6 and is not required in the file.
+Xcode’s automatic `mlx-swift_Cmlx.bundle/default.metallib` (~3–5 MB) is still thin and never accepted as a substitute. The mlx-swift 0.32.1 fork requires the complete roughly 155 MB no-JIT pack. The main target’s `embed-ios-metallib.sh` phase now validates/copies that full pack plus `imarello-direct.metallib` and `imarello-direct-manifest.json`; `GenerationEngine` verifies both descriptors before pipeline construction. The phase is `iphoneos`-only and explicitly skips Simulator builds. `Scripts/ensure-metallib.sh` remains macOS-only; `Scripts/ensure-direct-metallib.sh --sdk iphoneos` builds the Direct artifact, while the full iOS MLX recipe remains sourced from `ImarelloSpikes`. Physical bundle selection/execution is still the P7 blocker.
 
 ## Device harness (generate + Mac eval)
 
-Agents cannot tap **Generate**. Drive one Klein job by dropping JSON into the app container; the app runs the same pipeline as the dock button, then the Mac pulls the PNG and optionally pixel-evals it. **Not** XCUITest. Simulator jobs are written `skipped` (no fake Klein).
+Agents cannot rely on UI automation for device generation. Drive one Klein job by dropping JSON into the app container; the app runs the same pipeline as the Create/Edit actions, then the Mac pulls the PNG and optionally pixel-evals it. **Not** XCUITest. Simulator jobs are written `skipped` (no fake Klein).
 
 ```bash
-# Default: fox prompt, 512², seed 42, --text-tokens 512 (the product default). Does not rebuild the app.
+# Historical bring-up example only; current device submission remains blocked. Does not rebuild the app.
 ./Scripts/ios-device-harness.sh --eval --fail-on-pixel-gate
 
 # 1024 is opt-in (minutes on device; one Metal owner)
 ./Scripts/ios-device-harness.sh --width 1024 --allow-1024 --eval
 ```
 
-Since 2026-08-18 the harness **honors `--steps`, `--text-tokens`, and `--strength` on device** (they were previously serialized into the job but silently ignored — device A/B data over those knobs from before that date ran the product defaults and is invalid). The script validates mode and numeric args up front; an undecodable job is quarantined by the app (moved to `jobs/failed/`, `status: failed` result written under the filename stem) instead of wedging the inbox, and orphaned `running/` jobs from a crash are swept into `failed` results at the next app launch.
+The frozen wire schema still carries `--steps`, `--text-tokens`, and `--strength`. The script and app now validate IDs, dimensions, steps, seed, strength, timeout, stale reuse, and possible Metal owners before mutating app state or launching work. Completion is durable: a running recovery marker is retained until the matching done result is atomically persisted, and startup recovery treats an already-committed done result as authoritative.
 
 Device auto-detection accepts any paired physical iPhone (same fix as the sync script); `DEVICE=` overrides.
 
-The app polls `Library/Caches/Imarello/jobs/inbox/` every 2s while active. Results land in `jobs/done/{id}.json`; PNGs stay under `Caches/Imarello/outputs/`. Copied artifacts: `/tmp/imarello-ios-eval/{id}/`.
+The app polls `Library/Caches/Imarello/jobs/inbox/` every 2s while active. Results land in `jobs/done/{id}.json`; harness-pull PNGs stay under `Caches/Imarello/outputs/`, while canonical history lives in Application Support. Copied artifacts: `/tmp/imarello-ios-eval/{id}/`.
 
-Copy the job to **`…/jobs/inbox/{id}.json`**. Copying onto `…/jobs/inbox` when that name is missing (or is already a file) **replaces the inbox directory with the JSON** and the job never runs. The default job id is timestamped and the poll rejects `done/{id}.json` results whose `startedAt` predates the script run, so leftover results are never mistaken for the new one; with an explicit `--id` reuse is still fine for the same reason.
+Copy the job to **`…/jobs/inbox/{id}.json`**. Copying onto `…/jobs/inbox` when that name is missing (or is already a file) **replaces the inbox directory with the JSON** and the job never runs. The default job id is timestamped. Explicit reuse is rejected when a running marker or done result already exists; hidden/path-like IDs are invalid.
 
 Pixel eval is not a vision pass — open the PNG (`EVAL_WORKFLOW.md`). Do not run a generate matrix on the phone in v1.
 
-## Studio UI (rebuilt 2026-08-16)
+## Four-tab UI (reengineered 2026-08-19)
 
-The app was rebuilt from the ground up as a **two-page spread**, replacing the old single-column form (`RootView` / `StudioView` / `ResultView` / `GenerationModel` are gone).
+The iOS 26 shell is native and typed:
 
-| Page | What it owns |
+| Surface | What it owns |
 |------|--------------|
-| **Stage** | The current print full-bleed (blurred overscan of the same print fills the screen behind it), a header with the Mark, the plate chip (`512² · seed 42`) and a grid button to the sheet, one glass **status row**, and the prompt bar with the gold **Develop** pill |
-| **Contact Sheet** | Every print in a 2 pt film grid (`EDIT` badge on I2I), tap → **viewer**: pinch/double-tap zoom, swipe between prints, Edit · Share · Save · Delete |
+| **Create tab** | Atmospheric uncropped current image, resolution-only picker, seed options, independent prompt, Create action |
+| **Edit tab** | Newest-first Gallery source picker followed by a source-locked edit workspace with its own prompt/seed draft |
+| **Gallery tab** | Newest-first persistent 2-point image grid with asynchronous thumbnails |
+| **Settings tab** | Fail-closed readiness, Gallery count/size, Photos status, app/build/runtime information |
+| **Image detail** | Pushed immersive paging/zoom plus local Edit, Share, Save, Delete feedback |
+| **Tab accessory** | App-global run owner, phase/step, elapsed time, completion, failure, Cancel/Retry/Dismiss |
+| **Generation Options** | Transactional seed-only draft; Create resolution stays separate and Edit resolution stays source-locked |
 
-Swipe between pages, or use the header buttons. Layers:
+Each tab owns an independent `NavigationStack`. The persistent system-owned Liquid Glass tab bar uses Create, Edit, Gallery, and Settings and never minimizes on scroll. Create and Gallery push the same image detail; detail hides the tab bar but keeps the system back gesture. Editing selects the source and switches to the Edit root. The active composer withdraws while global activity is present, and tapping activity returns to the originating Create or Edit workspace.
+
+Layers:
 
 | File | Role |
 |------|------|
-| `GenerationEngine.swift` | Gate, `ensureReady` (rebuilds the pipeline when `hasLocalSnapshot` flips), T2I / I2I calls |
-| `HarnessService.swift` | Inbox poll → claim → run → result. **Behavior-frozen** — the harness contract lives here |
-| `PrintStore.swift` | Durable history (2026-08-18): versioned `prints-index.json` + canonical PNGs in **Application Support** (survives OS cache purges; corrupt index renamed aside, never wiped); the Caches `outputs/` copy exists only for the harness pull; size-bucketed `NSCache` thumbnails with a memory-warning purge |
-| `StudioModel.swift` | Plate (prompt/side/seed), staged edit, run lifecycle, darkroom phase copy |
-| `StudioRootView` / `StudioPage` / `ContactSheetPage` / `PrintViewer` / `StatusRow` / `PromptBar` / `PlateSheet` | The spread |
+| `AppNavigation.swift` | `AppTab`, `AppRoute`, `AppSheet`, independent tab paths |
+| `GenerationActivity.swift` / `StudioModel.swift` | Typed owner/immutable request/activity plus independent Create/Edit drafts |
+| `GenerationEngine.swift` | `GenerationServing` boundary plus the fail-closed device runtime |
+| `HarnessMonitor.swift` / `HarnessService.swift` | One scene-aware poll task plus frozen durable harness execution |
+| `PhotoExportService.swift` | Serialized Photos authorization/save lane; feedback remains detail-local |
+| `PrintImageLoader.swift` | Actor-isolated thumbnail/full-image decode and bounded cache |
+| `PrintStore.swift` | Unchanged versioned index contract and transactional canonical PNG persistence |
+| `StudioRootView.swift` / `StudioPage.swift` / `EditPage.swift` / `SettingsPage.swift` | Four native tabs and their Create, Edit, Gallery, Settings destinations |
 
-One **status row** speaks for every state — caption, gate, progress + elapsed, staged edit, error + Try Again — so nothing improvises its own chrome. **Edit from any print**: the viewer's Edit stages that print (`EDIT · 0.8` in the row, the pill flips to `Edit`); the next develop runs I2I from it at the locked strength. Ground is darkroom near-black (`StudioBackground` / `StageGround`), accent iris-gold, ink cream, Liquid Glass **Regular** with `glassProminent` on the Develop pill only.
+Debug-only deterministic interface states:
 
-Verify with `xcui` + AXe (`describe-ui`, tap **by label**, `axe screenshot`) or XcodeBuildMCP `snapshot_ui`. Do not fake Klein generate on the Simulator.
+```text
+--ui-test-scenario empty|library|pending-edit|running|failed
+```
+
+They use real repository PNGs as development resources. They do not construct `ImarelloPipeline`, initialize MLX, or imitate generation.
+
+Verification starts with XcodeBuildMCP `session_show_defaults`, then runs filtered unit/UI targets serially. Use Simulator only for navigation, UI, accessibility, keyboard, and persistence. Do not make device-runtime claims from it.

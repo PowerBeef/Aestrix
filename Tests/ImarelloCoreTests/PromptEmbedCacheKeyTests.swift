@@ -24,4 +24,34 @@ struct PromptEmbedCacheKeyTests {
         let b = PromptEmbedCache.entryURL(prompt: "fox", modelID: "m", bits: 4, maxLength: 512)
         #expect(a == b)
     }
+
+    @Test("revision, tokenizer, template, and pad settings invalidate entries")
+    func embeddingIdentityInvalidates() {
+        let base = PromptEmbedCache.Identity(
+            modelRevision: "rev-a", snapshotRevision: "snap-a",
+            tokenizerFingerprint: "tok-a", templateFingerprint: "template-a"
+        )
+        let url = PromptEmbedCache.entryURL(prompt: "fox", modelID: "m", identity: base)
+        let variants = [
+            PromptEmbedCache.Identity(
+                modelRevision: "rev-b", snapshotRevision: "snap-a",
+                tokenizerFingerprint: "tok-a", templateFingerprint: "template-a"),
+            PromptEmbedCache.Identity(
+                modelRevision: "rev-a", snapshotRevision: "snap-b",
+                tokenizerFingerprint: "tok-a", templateFingerprint: "template-a"),
+            PromptEmbedCache.Identity(
+                modelRevision: "rev-a", snapshotRevision: "snap-a",
+                tokenizerFingerprint: "tok-b", templateFingerprint: "template-a"),
+            PromptEmbedCache.Identity(
+                modelRevision: "rev-a", snapshotRevision: "snap-a",
+                tokenizerFingerprint: "tok-a", templateFingerprint: "template-b"),
+        ]
+        for identity in variants {
+            #expect(PromptEmbedCache.entryURL(prompt: "fox", modelID: "m", identity: identity) != url)
+        }
+        #expect(PromptEmbedCache.entryURL(
+            prompt: "fox", modelID: "m", padContent: "clean", identity: base
+        ) != url)
+        #expect(!url.lastPathComponent.contains("v3"))
+    }
 }

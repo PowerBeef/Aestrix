@@ -47,7 +47,10 @@ public final class DirectConditioner {
         }
         qmmF32PSO = try pso("affine_qmm_t_float_gs_64_b_4_alN_true_batch_0")
         qmmBF16PSO = try pso("affine_qmm_t_bfloat16_t_gs_64_b_4_alN_true_batch_0")
-        let glue = try DirectDiTKernels.makeLibrary(device: dev)
+        let glue = try DirectDiTKernels.makeLibrary(
+            device: dev,
+            directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                beside: metallibURL))
         guard let sfn = glue.makeFunction(name: "dd_silu_f32") else {
             throw DirectQmmSpike.SpikeError.metal("dd_silu_f32")
         }
@@ -62,7 +65,7 @@ public final class DirectConditioner {
         }
         func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
             eval(a)
-            let d = a.asData(noCopy: false)
+            let d = a.asData(access: .copy).data
             return try d.withUnsafeBytes { raw -> MTLBuffer in
                 guard let base = raw.baseAddress,
                     let b = dev.makeBuffer(bytes: base, length: raw.count)
@@ -76,6 +79,8 @@ public final class DirectConditioner {
             guard let w = arrays["\(name).weight"], let sc = arrays["\(name).scales"],
                 let bi = arrays["\(name).biases"]
             else { throw DirectQmmSpike.SpikeError.missingTensor(name) }
+            try DirectTensorValidation.requireQuantized(
+                weight: w, scales: sc, biases: bi, n: n, k: k, name: name)
             return Q(
                 w: try upload(w, "\(name).w"),
                 s: try upload(scalesF32 ? sc.asType(.float32) : sc, "\(name).s"),
@@ -114,6 +119,39 @@ public final class DirectConditioner {
         cb.commit()
         cb.waitUntilCompleted()
         if let e = cb.error { throw DirectQmmSpike.SpikeError.metal("qmm: \(e)") }
+    }
+
+    private func encodeQMM(
+        _ q: Q, x: MTLBuffer, y: MTLBuffer, rows: Int,
+        pso: MTLComputePipelineState, encoder: MTLComputeCommandEncoder
+    ) {
+        encoder.setComputePipelineState(pso)
+        encoder.setBuffer(q.w, offset: 0, index: 0)
+        encoder.setBuffer(q.s, offset: 0, index: 1)
+        encoder.setBuffer(q.b, offset: 0, index: 2)
+        encoder.setBuffer(x, offset: 0, index: 3)
+        encoder.setBuffer(y, offset: 0, index: 4)
+        var k32 = Int32(q.k), n32 = Int32(q.n), m32 = Int32(rows)
+        encoder.setBytes(&k32, length: 4, index: 5)
+        encoder.setBytes(&n32, length: 4, index: 6)
+        encoder.setBytes(&m32, length: 4, index: 7)
+        encoder.dispatchThreadgroups(
+            MTLSize(width: (q.n + 31) / 32, height: (rows + 31) / 32, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 32, height: 2, depth: 2))
+    }
+
+    private func encodeSilu(
+        _ x: MTLBuffer, _ y: MTLBuffer, count: Int,
+        encoder: MTLComputeCommandEncoder
+    ) {
+        encoder.setComputePipelineState(siluPSO)
+        encoder.setBuffer(x, offset: 0, index: 0)
+        encoder.setBuffer(y, offset: 0, index: 1)
+        var n32 = UInt32(count)
+        encoder.setBytes(&n32, length: 4, index: 2)
+        encoder.dispatchThreads(
+            MTLSize(width: count, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
     }
 
     private func buffer(_ floats: [Float], _ l: String) throws -> MTLBuffer {
@@ -166,50 +204,65 @@ public final class DirectConditioner {
     }
 
     public func stepConditioning(timesteps: [Float]) throws -> [Flux2StepConditioning] {
+        guard !timesteps.isEmpty else { return [] }
         let d = Self.dim
-        var result: [Flux2StepConditioning] = []
-        let sinBuf = try empty(Self.sinDim, "sin")
-        let t1 = try empty(d, "t1")
-        let t1s = try empty(d, "t1s")
-        let temb = try empty(d, "temb")
-        let tembS = try empty(d, "tembS")
-        let mImg = try empty(6 * d, "mImg")
-        let mTxt = try empty(6 * d, "mTxt")
-        let mSingle = try empty(3 * d, "mSingle")
-        let outC = try empty(2 * d, "outC")
-        for t in timesteps {
-            let sinE = Self.sinusoid(t)
-            sinBuf.contents().copyMemory(from: sinE, byteCount: Self.sinDim * 4)
-            try qmm(timeL1, x: sinBuf, y: t1, m: 1, pso: qmmF32PSO)
-            try silu(t1, t1s, d)
-            try qmm(timeL2, x: t1s, y: temb, m: 1, pso: qmmF32PSO)
-            try silu(temb, tembS, d)
-            try qmm(modImg, x: tembS, y: mImg, m: 1, pso: qmmF32PSO)
-            try qmm(modTxt, x: tembS, y: mTxt, m: 1, pso: qmmF32PSO)
-            try qmm(modSingle, x: tembS, y: mSingle, m: 1, pso: qmmF32PSO)
-            try qmm(normOut, x: tembS, y: outC, m: 1, pso: qmmF32PSO)
-            func triples(_ b: MTLBuffer, sets: Int) -> [(MLXArray, MLXArray, MLXArray)] {
-                let v = readF32(b, 3 * sets * d)
+        let rows = timesteps.count
+        let sinusoidal = timesteps.flatMap(Self.sinusoid)
+        let sinBuf = try buffer(sinusoidal, "sin")
+        let t1 = try empty(rows * d, "t1")
+        let t1s = try empty(rows * d, "t1s")
+        let temb = try empty(rows * d, "temb")
+        let tembS = try empty(rows * d, "tembS")
+        let mImg = try empty(rows * 6 * d, "mImg")
+        let mTxt = try empty(rows * 6 * d, "mTxt")
+        let mSingle = try empty(rows * 3 * d, "mSingle")
+        let outC = try empty(rows * 2 * d, "outC")
+        guard let commandBuffer = queue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeComputeCommandEncoder()
+        else { throw DirectQmmSpike.SpikeError.metal("conditioner command buffer") }
+        encodeQMM(timeL1, x: sinBuf, y: t1, rows: rows, pso: qmmF32PSO, encoder: encoder)
+        encodeSilu(t1, t1s, count: rows * d, encoder: encoder)
+        encodeQMM(timeL2, x: t1s, y: temb, rows: rows, pso: qmmF32PSO, encoder: encoder)
+        encodeSilu(temb, tembS, count: rows * d, encoder: encoder)
+        encodeQMM(modImg, x: tembS, y: mImg, rows: rows, pso: qmmF32PSO, encoder: encoder)
+        encodeQMM(modTxt, x: tembS, y: mTxt, rows: rows, pso: qmmF32PSO, encoder: encoder)
+        encodeQMM(modSingle, x: tembS, y: mSingle, rows: rows, pso: qmmF32PSO, encoder: encoder)
+        encodeQMM(normOut, x: tembS, y: outC, rows: rows, pso: qmmF32PSO, encoder: encoder)
+        encoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        if let error = commandBuffer.error {
+            throw DirectQmmSpike.SpikeError.metal("conditioner batch: \(error)")
+        }
+
+        let tembValues = readF32(temb, rows * d)
+        let imgValues = readF32(mImg, rows * 6 * d)
+        let txtValues = readF32(mTxt, rows * 6 * d)
+        let singleValues = readF32(mSingle, rows * 3 * d)
+        let outValues = readF32(outC, rows * 2 * d)
+        return (0 ..< rows).map { row in
+            func triples(
+                _ values: [Float], sets: Int
+            ) -> [(MLXArray, MLXArray, MLXArray)] {
                 return (0 ..< sets).map { i in
-                    let base = 3 * i * d
+                    let base = row * 3 * sets * d + 3 * i * d
                     return (
-                        MLXArray(Array(v[base ..< base + d]), [1, 1, d]),
-                        MLXArray(Array(v[base + d ..< base + 2 * d]), [1, 1, d]),
-                        MLXArray(Array(v[base + 2 * d ..< base + 3 * d]), [1, 1, d]))
+                        MLXArray(Array(values[base ..< base + d]), [1, 1, d]),
+                        MLXArray(Array(values[base + d ..< base + 2 * d]), [1, 1, d]),
+                        MLXArray(Array(values[base + 2 * d ..< base + 3 * d]), [1, 1, d]))
                 }
             }
-            let oc = readF32(outC, 2 * d)
-            let sc = Flux2StepConditioning(
-                temb: MLXArray(readF32(temb, d), [1, d]),
-                doubleImg: triples(mImg, sets: 2),
-                doubleTxt: triples(mTxt, sets: 2),
-                single: triples(mSingle, sets: 1)[0],
+            let tembBase = row * d
+            let outBase = row * 2 * d
+            return Flux2StepConditioning(
+                temb: MLXArray(Array(tembValues[tembBase ..< tembBase + d]), [1, d]),
+                doubleImg: triples(imgValues, sets: 2),
+                doubleTxt: triples(txtValues, sets: 2),
+                single: triples(singleValues, sets: 1)[0],
                 outConditioning: (
-                    scale: MLXArray(Array(oc[0 ..< d]), [1, d]),
-                    shift: MLXArray(Array(oc[d ..< 2 * d]), [1, d])))
-            result.append(sc)
+                    scale: MLXArray(Array(outValues[outBase ..< outBase + d]), [1, d]),
+                    shift: MLXArray(Array(outValues[outBase + d ..< outBase + 2 * d]), [1, d])))
         }
-        return result
     }
 
     /// Context projection `[1, 512, 7680] bf16 → [1, 512, 3072] f32` on the
@@ -218,7 +271,7 @@ public final class DirectConditioner {
         let L = embeds.dim(1)
         let e16 = embeds.asType(.bfloat16)
         eval(e16)
-        let data = e16.asData(noCopy: false)
+        let data = e16.asData(access: .copy).data
         let xBuf = try data.withUnsafeBytes { raw -> MTLBuffer in
             guard let base = raw.baseAddress,
                 let b = device.makeBuffer(bytes: base, length: raw.count)

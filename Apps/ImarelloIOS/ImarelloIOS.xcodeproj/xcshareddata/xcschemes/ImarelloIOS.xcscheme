@@ -21,6 +21,34 @@
                ReferencedContainer = "container:ImarelloIOS.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "18180E5692895A5E904DD3FD"
+               BuildableName = "ImarelloIOSTests.xctest"
+               BlueprintName = "ImarelloIOSTests"
+               ReferencedContainer = "container:ImarelloIOS.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "75CD439AE6BA922E3A87D005"
+               BuildableName = "ImarelloIOSUITests.xctest"
+               BlueprintName = "ImarelloIOSUITests"
+               ReferencedContainer = "container:ImarelloIOS.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -39,7 +67,31 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "18180E5692895A5E904DD3FD"
+               BuildableName = "ImarelloIOSTests.xctest"
+               BlueprintName = "ImarelloIOSTests"
+               ReferencedContainer = "container:ImarelloIOS.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "75CD439AE6BA922E3A87D005"
+               BuildableName = "ImarelloIOSUITests.xctest"
+               BlueprintName = "ImarelloIOSUITests"
+               ReferencedContainer = "container:ImarelloIOS.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
+      <CommandLineArguments>
+      </CommandLineArguments>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

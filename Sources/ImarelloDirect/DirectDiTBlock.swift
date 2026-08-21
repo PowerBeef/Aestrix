@@ -100,7 +100,10 @@ public enum DirectDiTBlockSpike {
             constantValues: consts)
         let attnPSO = try device.makeComputePipelineState(function: attnFn)
 
-        let glue = try DirectDiTKernels.makeLibrary(device: device)
+        let glue = try DirectDiTKernels.makeLibrary(
+            device: device,
+            directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                beside: metallibURL))
         func pso(_ name: String) throws -> MTLComputePipelineState {
             guard let fn = glue.makeFunction(name: name) else {
                 throw DirectQmmSpike.SpikeError.metal("glue \(name)")

@@ -7,12 +7,14 @@ import Darwin
 /// Process-wide host checks so two Metal jobs cannot share an 8 GB Mac.
 ///
 /// Acquires an exclusive lock under `~/Library/Caches/Imarello/imarello.lock`.
-/// Fails only when another live `imarello` holds the lock. Swap is not a gate.
+/// Fails when another possible Xcode/Swift/Metal/product owner is active or
+/// when another live process holds the lock. Swap is recorded, not gated.
 public enum HostPreflight {
     public struct Snapshot: Sendable, Equatable {
         public var physicalMemoryBytes: UInt64
         public var swapUsedBytes: UInt64
         public var otherImarelloPIDs: [Int32]
+        public var conflictingMetalOwnerPIDs: [Int32]
         public var notes: [String]
 
         public var isLowMemoryHost: Bool {
@@ -27,14 +29,19 @@ public enum HostPreflight {
     public static func snapshot() -> Snapshot {
         let swap = swapUsedBytes() ?? 0
         let others = siblingImarelloPIDs()
+        let owners = conflictingMetalOwnerPIDs()
         var notes: [String] = []
         if !others.isEmpty {
             notes.append("other_imarello=\(others.map(String.init).joined(separator: ","))")
+        }
+        if !owners.isEmpty {
+            notes.append("metal_owners=\(owners.map(String.init).joined(separator: ","))")
         }
         return Snapshot(
             physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory,
             swapUsedBytes: swap,
             otherImarelloPIDs: others,
+            conflictingMetalOwnerPIDs: owners,
             notes: notes
         )
     }
@@ -44,8 +51,10 @@ public enum HostPreflight {
         try lockQueue.sync {
             if lockHandle != nil { return }
             let snap = snapshot()
-            if !snap.otherImarelloPIDs.isEmpty {
-                throw ImarelloError.anotherInstanceRunning(pids: snap.otherImarelloPIDs)
+            if !snap.conflictingMetalOwnerPIDs.isEmpty {
+                throw ImarelloError.anotherInstanceRunning(
+                    pids: snap.conflictingMetalOwnerPIDs
+                )
             }
             try takeLockFile()
         }
@@ -122,6 +131,52 @@ public enum HostPreflight {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             guard let text = String(data: data, encoding: .utf8) else { return [] }
             return parsePSForProduct(text, excluding: selfPid)
+        } catch {
+            return []
+        }
+        #else
+        return []
+        #endif
+    }
+
+    /// Conservative process-level admission gate shared by every CLI command
+    /// that can touch MLX/Metal. An open Xcode, active Swift build/test, product
+    /// binary, or Metal compiler is treated as a possible owner.
+    public static func conflictingMetalOwnerPIDs() -> [Int32] {
+        #if os(macOS)
+        let owners: Set<String> = [
+            "Xcode", "xcodebuild", "swift", "swiftc", "swift-frontend",
+            "xctest", "metal", "metallib", "imarello", "aestrix",
+        ]
+        let selfPid = ProcessInfo.processInfo.processIdentifier
+        let ignoredPid = ProcessInfo.processInfo.environment["IMARELLO_IGNORE_PID"]
+            .flatMap(Int32.init)
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-axo", "pid=,comm="]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else { return [] }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let text = String(data: data, encoding: .utf8) else { return [] }
+            return text.split(whereSeparator: \.isNewline).compactMap { line in
+                let parts = line.split(
+                    maxSplits: 1,
+                    omittingEmptySubsequences: true,
+                    whereSeparator: \.isWhitespace
+                )
+                guard parts.count == 2,
+                      let pid = Int32(parts[0]),
+                      pid != selfPid,
+                      pid != ignoredPid
+                else { return nil }
+                let base = (String(parts[1]) as NSString).lastPathComponent
+                return owners.contains(base) ? pid : nil
+            }
         } catch {
             return []
         }

@@ -16,11 +16,13 @@ public enum DirectQmmSpike {
 
     public enum SpikeError: Error, CustomStringConvertible {
         case missingTensor(String)
+        case invalidTensor(String)
         case metal(String)
 
         public var description: String {
             switch self {
             case .missingTensor(let name): return "missing tensor: \(name)"
+            case .invalidTensor(let what): return "invalid tensor: \(what)"
             case .metal(let what): return "Metal setup failed: \(what)"
             }
         }
@@ -88,7 +90,7 @@ public enum DirectQmmSpike {
         let pso = try device.makeComputePipelineState(function: fn)
 
         func upload(_ array: MLXArray, label: String) throws -> MTLBuffer {
-            let data = array.asData(noCopy: false)
+            let data = array.asData(access: .copy).data
             return try data.withUnsafeBytes { raw -> MTLBuffer in
                 guard let base = raw.baseAddress,
                     let b = device.makeBuffer(bytes: base, length: raw.count)
@@ -138,16 +140,22 @@ public enum DirectQmmSpike {
         let directMS = (CFAbsoluteTimeGetCurrent() - t0) * 100
 
         // -- Verify ----------------------------------------------------------
-        let yPtr = yBuf.contents().bindMemory(to: Float16.self, capacity: M * N)
+        let yPtr = yBuf.contents().bindMemory(to: UInt16.self, capacity: M * N)
         var dot = 0.0, na = 0.0, nb = 0.0, maxDiff = 0.0
         var exact = 0
-        let refF16 = yRef.asArray(Float16.self)
-        for i in 0 ..< M * N {
-            let a = Double(Float(yPtr[i]))
-            let b = Double(yRefF[i])
-            dot += a * b; na += a * a; nb += b * b
-            maxDiff = max(maxDiff, abs(a - b))
-            if yPtr[i] == refF16[i] { exact += 1 }
+        let refF16 = yRef.asData(access: .copy).data
+        try refF16.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress,
+                  raw.count == M * N * MemoryLayout<UInt16>.size
+            else { throw SpikeError.invalidTensor("oracle f16 byte count") }
+            let refBits = base.assumingMemoryBound(to: UInt16.self)
+            for i in 0 ..< M * N {
+                let a = Double(Float(Float16(bitPattern: yPtr[i])))
+                let b = Double(yRefF[i])
+                dot += a * b; na += a * a; nb += b * b
+                maxDiff = max(maxDiff, abs(a - b))
+                if yPtr[i] == refBits[i] { exact += 1 }
+            }
         }
         let cosine = dot / (na.squareRoot() * nb.squareRoot() + 1e-30)
         let pass = cosine >= 0.99999 && maxDiff < 0.01

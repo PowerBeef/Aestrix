@@ -18,6 +18,8 @@ Qwen attention is causal, so the real-token embeddings themselves are identical.
 
 Embed-cache entries stay the full `[1, 512, 7680]` tensor (key includes `len=512`). Auto trims **after** a cache hit, so `512` and `auto` share one TE encode.
 
+Metal Engine V2 uses a separate `direct-embeds-v2` cache namespace containing the native BF16 `[1,512,7680]` bridge. Its fingerprint includes the model/snapshot revision, token semantics, backend identifier, plan digest, and Direct shader-manifest hash. It never reads a V1 cache entry under a mismatched identity. The V2 backend shell currently rejects caching and `.auto` until the native TE/cache path completes qualification, so product behavior remains V1-selected for those requests.
+
 ## When to use which
 
 | Intent | Flag | Why |

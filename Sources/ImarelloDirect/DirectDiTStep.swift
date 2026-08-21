@@ -3,6 +3,7 @@ import Metal
 import MLX
 import MLXNN
 import ImarelloDiT
+import ImarelloPlan
 
 /// Stage-2 F3: the full 25-block FLUX denoise step (5 double + 20 single) as
 /// ONE command buffer over a static buffer plan — the direct engine's DiT core.
@@ -17,6 +18,16 @@ public final class DirectDiTStep {
     static let heads = 24
     static let headDim = 128
     static let ffInner = 9216
+
+    /// At most two scratch-sized passes while still covering every row. Kept
+    /// as a testable integer plan so odd token counts cannot regress silently.
+    static func chunkRanges(totalRows: Int) -> [Range<Int>] {
+        guard totalRows > 0 else { return [] }
+        let chunkRows = (totalRows + 1) / 2
+        return stride(from: 0, to: totalRows, by: chunkRows).map {
+            $0 ..< min(totalRows, $0 + chunkRows)
+        }
+    }
     static let ffWide = 18432
     static let qkvWidth = 9216
     static let projWidth = 27648
@@ -40,12 +51,14 @@ public final class DirectDiTStep {
 
     let device: MTLDevice
     let queue: MTLCommandQueue
+    let directLib: MTLLibrary
     let qmmPSO: MTLComputePipelineState
     /// NAX qmm PSOs (alN_true / alN_false), built only when `useNAXQmm` was
     /// requested AND the GPU is NAX-eligible. Nil ⇒ every qmm rides Steel.
     let qmmNAXTruePSO: MTLComputePipelineState?
     let qmmNAXFalsePSO: MTLComputePipelineState?
     let attnPSO: MTLComputePipelineState
+    let attentionProfile: DirectAttentionProfile
     let lnModPSO, rmsPSO, ropePSO, scaleCastPSO, swigluPSO, scaleInPSO, gateAddPSO: MTLComputePipelineState
 
     var doubles: [DoubleWeights] = []
@@ -54,10 +67,17 @@ public final class DirectDiTStep {
     var heapComputeBase = 0
     var heapComputeSize = 0
     private var headCursor = 0
+    public private(set) var scratchPlanDigest = ""
     lazy var fence: MTLFence = device.makeFence()!
 
     // Conditioning (uploaded once per generate/step set)
-    var modBufs: [String: MTLBuffer] = [:]
+    struct BufferBinding {
+        let buffer: MTLBuffer
+        let offset: Int
+    }
+    var modBufs: [String: BufferBinding] = [:]
+    private var stepModBindings: [[String: BufferBinding]] = []
+    private var conditionerPlanBuffer: MTLBuffer?
     var cosBuf: MTLBuffer!
     var sinBuf: MTLBuffer!
 
@@ -71,7 +91,12 @@ public final class DirectDiTStep {
     var ffWideImg, ffWideTxt, swImg, swTxt, ffOutImg, ffOutTxt: MTLBuffer!
     var nhJoint, projJoint, sQ, sK, sV, sConcat, sOut: MTLBuffer!
 
-    public init(lImg: Int, metallibURL: URL, useNAXQmm: Bool = false) throws {
+    public init(
+        lImg: Int,
+        metallibURL: URL,
+        useNAXQmm: Bool = false,
+        attentionBackend: DirectAttentionBackend = .steel
+    ) throws {
         self.lImg = lImg
         guard let dev = MTLCreateSystemDefaultDevice(), let q = dev.makeCommandQueue() else {
             throw DirectQmmSpike.SpikeError.metal("device/queue")
@@ -97,21 +122,38 @@ public final class DirectDiTStep {
             qmmNAXTruePSO = nil
             qmmNAXFalsePSO = nil
         }
+        let selectedAttention: DirectAttentionProfile
+        switch attentionBackend {
+        case .steel:
+            selectedAttention = .steelF16
+        case .nax:
+            let nax = DirectNAX.probe(device: dev)
+            guard nax.eligible else {
+                throw DirectQmmSpike.SpikeError.metal(
+                    "NAX attention requested but \(nax.reason)")
+            }
+            selectedAttention = .naxF16
+        }
+        attentionProfile = selectedAttention
         let consts = MTLFunctionConstantValues()
-        var t = true, f = false
-        let jAligned = (lImg + lTxt)
-        var aQ = jAligned % 32 == 0, aK = jAligned % 16 == 0
+        var f = false
+        let jointLength = lImg + lTxt
+        var aQ = jointLength % selectedAttention.blockQueries == 0
+        var aK = jointLength % selectedAttention.blockKeys == 0
         consts.setConstantValue(&aQ, type: .bool, index: 200)
         consts.setConstantValue(&aK, type: .bool, index: 201)
         consts.setConstantValue(&f, type: .bool, index: 300)
         consts.setConstantValue(&f, type: .bool, index: 301)
         consts.setConstantValue(&f, type: .bool, index: 302)
-        _ = t
         attnPSO = try dev.makeComputePipelineState(
             function: try mlxLib.makeFunction(
-                name: "steel_attention_float16_bq32_bk16_bd128_wm4_wn1_maskfloat16",
+                name: selectedAttention.functionName,
                 constantValues: consts))
-        let glue = try DirectDiTKernels.makeLibrary(device: dev)
+        let glue = try DirectDiTKernels.makeLibrary(
+            device: dev,
+            directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                beside: metallibURL))
+        directLib = glue
         func pso(_ n: String) throws -> MTLComputePipelineState {
             guard let fn = glue.makeFunction(name: n) else {
                 throw DirectQmmSpike.SpikeError.metal("glue \(n)")
@@ -128,18 +170,35 @@ public final class DirectDiTStep {
         try allocateScratch()
     }
 
-    /// Bytes of every buffer THIS engine owns (weights + scratch + conditioning)
-    /// — the deterministic static-plan footprint, distinct from device-wide use.
-    public private(set) var ownedBytes = 0
+    public private(set) var memoryLedger = DirectMemoryLedger()
+
+    /// Compatibility projection for existing benchmark output. Unlike the old
+    /// monotonically increasing counter, this is current engine-owned memory.
+    public var ownedBytes: Int { memoryLedger.liveEngineOwnedBytes }
 
     public func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
-        let d = a.asData(noCopy: false)
+        try upload(a, l, retention: .bridge)
+    }
+
+    private enum UploadRetention { case persistentWeight, conditioning, bridge }
+
+    private func upload(
+        _ a: MLXArray, _ l: String, retention: UploadRetention
+    ) throws -> MTLBuffer {
+        let d = a.asData(access: .copy).data
         return try d.withUnsafeBytes { raw -> MTLBuffer in
             guard let base = raw.baseAddress,
                 let b = device.makeBuffer(bytes: base, length: raw.count)
             else { throw DirectQmmSpike.SpikeError.metal("upload \(l)") }
             b.label = l
-            ownedBytes += raw.count
+            switch retention {
+            case .persistentWeight:
+                memoryLedger.recordPersistentUpload(bytes: raw.count)
+            case .conditioning:
+                memoryLedger.recordConditioningUpload(bytes: raw.count)
+            case .bridge:
+                memoryLedger.recordBridgeUpload(bytes: raw.count)
+            }
             return b
         }
     }
@@ -148,7 +207,7 @@ public final class DirectDiTStep {
             throw DirectQmmSpike.SpikeError.metal("scratch \(l)")
         }
         b.label = l
-        ownedBytes += bytes
+        memoryLedger.recordScratch(bytes: bytes)
         return b
     }
 
@@ -188,9 +247,10 @@ public final class DirectDiTStep {
         doubleOffsets["outTxt"] = dPlace(lTxt * d * 2)
         doubleOffsets["y1Img"] = dPlace(lImg * d * 4)
         doubleOffsets["y1Txt"] = dPlace(lTxt * d * 4)
-        doubleOffsets["ffWideImg"] = dPlace(lImg / 2 * Self.ffWide * 2)
+        let imageChunkRows = (lImg + 1) / 2
+        doubleOffsets["ffWideImg"] = dPlace(imageChunkRows * Self.ffWide * 2)
         doubleOffsets["ffWideTxt"] = dPlace(lTxt * Self.ffWide * 2)
-        doubleOffsets["swImg"] = dPlace(lImg / 2 * Self.ffInner * 2)
+        doubleOffsets["swImg"] = dPlace(imageChunkRows * Self.ffInner * 2)
         doubleOffsets["swTxt"] = dPlace(lTxt * Self.ffInner * 2)
         doubleOffsets["ffOutImg"] = dPlace(lImg * d * 2)
         doubleOffsets["ffOutTxt"] = dPlace(lTxt * d * 2)
@@ -200,7 +260,8 @@ public final class DirectDiTStep {
         func sPlace(_ bytes: Int) -> Int { let o = sOff; sOff += aligned(bytes); return o }
         var singleOffsets: [String: Int] = [:]
         singleOffsets["nhJoint"] = sPlace(J * d * 2)
-        singleOffsets["projJoint"] = sPlace(J / 2 * Self.projWidth * 2)
+        let jointChunkRows = (J + 1) / 2
+        singleOffsets["projJoint"] = sPlace(jointChunkRows * Self.projWidth * 2)
         singleOffsets["sQ"] = sPlace(J * d * 2)
         singleOffsets["sK"] = sPlace(J * d * 2)
         singleOffsets["sV"] = sPlace(J * d * 2)
@@ -209,6 +270,15 @@ public final class DirectDiTStep {
         let singleZone = sOff
 
         let cZone = max(doubleZone, singleZone)
+        let deviceAlignment = device.heapBufferSizeAndAlign(
+            length: 1, options: [.storageModeShared]).align
+        let placementPlan = try DirectLegacyPlanFactory.make(
+            imageTokens: lImg, alignment: deviceAlignment)
+        guard placementPlan.placement.peakBytes == pZone + cZone else {
+            throw DirectQmmSpike.SpikeError.metal(
+                "scratch plan/runtime mismatch: plan \(placementPlan.placement.peakBytes), runtime \(pZone + cZone)")
+        }
+        scratchPlanDigest = placementPlan.digest
         let heapDesc = MTLHeapDescriptor()
         heapDesc.type = .placement
         heapDesc.storageMode = .shared
@@ -220,7 +290,7 @@ public final class DirectDiTStep {
         scratchHeap = heap
         heapComputeBase = pZone
         heapComputeSize = cZone
-        ownedBytes += pZone + cZone
+        memoryLedger.recordScratch(bytes: pZone + cZone)
 
         func hb(_ bytes: Int, _ offset: Int, _ label: String) throws -> MTLBuffer {
             guard let b = heap.makeBuffer(
@@ -258,14 +328,14 @@ public final class DirectDiTStep {
         outTxt = try dz("outTxt", lTxt * d * 2)
         y1Img = try dz("y1Img", lImg * d * 4)
         y1Txt = try dz("y1Txt", lTxt * d * 4)
-        ffWideImg = try dz("ffWideImg", lImg / 2 * Self.ffWide * 2)
+        ffWideImg = try dz("ffWideImg", imageChunkRows * Self.ffWide * 2)
         ffWideTxt = try dz("ffWideTxt", lTxt * Self.ffWide * 2)
-        swImg = try dz("swImg", lImg / 2 * Self.ffInner * 2)
+        swImg = try dz("swImg", imageChunkRows * Self.ffInner * 2)
         swTxt = try dz("swTxt", lTxt * Self.ffInner * 2)
         ffOutImg = try dz("ffOutImg", lImg * d * 2)
         ffOutTxt = try dz("ffOutTxt", lTxt * d * 2)
         nhJoint = try sz("nhJoint", J * d * 2)
-        projJoint = try sz("projJoint", J / 2 * Self.projWidth * 2)
+        projJoint = try sz("projJoint", (J + 1) / 2 * Self.projWidth * 2)
         sQ = try sz("sQ", J * d * 2)
         sK = try sz("sK", J * d * 2)
         sV = try sz("sV", J * d * 2)
@@ -279,16 +349,25 @@ public final class DirectDiTStep {
         guard let w = sub["\(name).weight"], let s = sub["\(name).scales"],
             let b = sub["\(name).biases"]
         else { throw DirectQmmSpike.SpikeError.missingTensor(name) }
-        return Q(w: try upload(w, "\(name).w"), s: try upload(s, "\(name).s"),
-                 b: try upload(b, "\(name).b"), n: n, k: k)
+        try DirectTensorValidation.requireQuantized(
+            weight: w, scales: s, biases: b, n: n, k: k, name: name)
+        return Q(
+            w: try upload(w, "\(name).w", retention: .persistentWeight),
+            s: try upload(s, "\(name).s", retention: .persistentWeight),
+            b: try upload(b, "\(name).b", retention: .persistentWeight),
+            n: n, k: k)
     }
-    func normW(_ sub: [String: MLXArray], _ name: String) throws -> MTLBuffer {
+    func normW(_ sub: [String: MLXArray], _ name: String, count: Int) throws -> MTLBuffer {
         guard let w = sub["\(name).weight"] else {
             throw DirectQmmSpike.SpikeError.missingTensor(name)
         }
+        guard w.shape.reduce(1, *) == count else {
+            throw DirectQmmSpike.SpikeError.invalidTensor(
+                "\(name).weight expected \(count) values, got shape \(w.shape)")
+        }
         let f = w.asType(.float32)
         eval(f)
-        return try upload(f, name)
+        return try upload(f, name, retention: .persistentWeight)
     }
 
     public func loadBlocks(arrays: [String: MLXArray], nDouble: Int, nSingle: Int) throws {
@@ -320,18 +399,18 @@ public final class DirectDiTStep {
                 ffOut: try quant(s, "ff.linear_out", n: d, k: Self.ffInner),
                 ffcIn: try quant(s, "ff_context.linear_in", n: Self.ffWide, k: d),
                 ffcOut: try quant(s, "ff_context.linear_out", n: d, k: Self.ffInner),
-                normQ: try normW(s, "attn.norm_q"),
-                normK: try normW(s, "attn.norm_k"),
-                normAQ: try normW(s, "attn.norm_added_q"),
-                normAK: try normW(s, "attn.norm_added_k")))
+                normQ: try normW(s, "attn.norm_q", count: Self.headDim),
+                normK: try normW(s, "attn.norm_k", count: Self.headDim),
+                normAQ: try normW(s, "attn.norm_added_q", count: Self.headDim),
+                normAK: try normW(s, "attn.norm_added_k", count: Self.headDim)))
         }
         for i in 0 ..< nSingle {
             let s = sub("single_transformer_blocks.\(i).")
             singles.append(SingleWeights(
                 proj: try quant(s, "attn.to_qkv_mlp_proj", n: Self.projWidth, k: d),
                 toOut: try quant(s, "attn.to_out", n: d, k: Self.concatWidth),
-                normQ: try normW(s, "attn.norm_q"),
-                normK: try normW(s, "attn.norm_k")))
+                normQ: try normW(s, "attn.norm_q", count: Self.headDim),
+                normK: try normW(s, "attn.norm_k", count: Self.headDim)))
         }
     }
 
@@ -342,17 +421,25 @@ public final class DirectDiTStep {
         cos: MLXArray, sin: MLXArray
     ) throws {
         func put(_ t: (MLXArray, MLXArray, MLXArray), _ tag: String) throws {
-            modBufs["\(tag).shift"] = try upload(t.0, "\(tag).shift")
-            modBufs["\(tag).scale"] = try upload(t.1, "\(tag).scale")
-            modBufs["\(tag).gate"] = try upload(t.2, "\(tag).gate")
+            modBufs["\(tag).shift"] = BufferBinding(
+                buffer: try upload(t.0, "\(tag).shift", retention: .conditioning), offset: 0)
+            modBufs["\(tag).scale"] = BufferBinding(
+                buffer: try upload(t.1, "\(tag).scale", retention: .conditioning), offset: 0)
+            modBufs["\(tag).gate"] = BufferBinding(
+                buffer: try upload(t.2, "\(tag).gate", retention: .conditioning), offset: 0)
         }
         try put(imgMsa, "img.msa")
         try put(imgMlp, "img.mlp")
         try put(txtMsa, "txt.msa")
         try put(txtMlp, "txt.mlp")
         try put(single, "single")
-        cosBuf = try upload(cos, "cos")
-        sinBuf = try upload(sin, "sin")
+        cosBuf = try upload(cos, "cos", retention: .conditioning)
+        sinBuf = try upload(sin, "sin", retention: .conditioning)
+        memoryLedger.replaceConditioning(
+            bytes: Set(modBufs.values.map { ObjectIdentifier($0.buffer) })
+                .compactMap { id in
+                    modBufs.values.first { ObjectIdentifier($0.buffer) == id }?.buffer.length
+                }.reduce(cosBuf.length + sinBuf.length, +))
     }
 
     // MARK: - Encode primitives
@@ -361,8 +448,10 @@ public final class DirectDiTStep {
                        _ tag: String, _ y: MTLBuffer, rows: Int) {
         enc.setComputePipelineState(lnModPSO)
         enc.setBuffer(x, offset: xOff, index: 0)
-        enc.setBuffer(modBufs["\(tag).scale"]!, offset: 0, index: 1)
-        enc.setBuffer(modBufs["\(tag).shift"]!, offset: 0, index: 2)
+        let scale = modBufs["\(tag).scale"]!
+        let shift = modBufs["\(tag).shift"]!
+        enc.setBuffer(scale.buffer, offset: scale.offset, index: 1)
+        enc.setBuffer(shift.buffer, offset: shift.offset, index: 2)
         enc.setBuffer(y, offset: 0, index: 3)
         var d32 = Int32(Self.dim)
         enc.setBytes(&d32, length: 4, index: 4)
@@ -469,7 +558,8 @@ public final class DirectDiTStep {
                 var x = v; withUnsafeBytes(of: &x) { params.append(contentsOf: $0) }
             }
         }
-        let bq = 32, bk = 16
+        let bq = attentionProfile.blockQueries
+        let bk = attentionProfile.blockKeys
         i32p(1); i32p(Self.heads); i32p(Self.headDim); i32p(J); i32p(J)
         i32p(1)
         f32p(1.0 / Float(Double(Self.headDim).squareRoot()))
@@ -506,7 +596,8 @@ public final class DirectDiTStep {
                          v: MTLBuffer, y: MTLBuffer, yOff: Int, rows: Int) {
         enc.setComputePipelineState(gateAddPSO)
         enc.setBuffer(x, offset: xOff, index: 0)
-        enc.setBuffer(modBufs["\(tag).gate"]!, offset: 0, index: 1)
+        let gate = modBufs["\(tag).gate"]!
+        enc.setBuffer(gate.buffer, offset: gate.offset, index: 1)
         enc.setBuffer(v, offset: 0, index: 2)
         enc.setBuffer(y, offset: yOff, index: 3)
         var d32 = Int32(Self.dim)
@@ -570,13 +661,13 @@ public final class DirectDiTStep {
         gateAdd(enc, x: hIn, xOff: 0, "img.msa", v: outImg, y: y1Img, yOff: 0, rows: lImg)
         gateAdd(enc, x: eIn, xOff: 0, "txt.msa", v: outTxt, y: y1Txt, yOff: 0, rows: lTxt)
         lnMod(enc, y1Img, xOff: 0, "img.mlp", nhImg, rows: lImg)
-        let ffHalf = lImg / 2
-        for c in 0 ..< 2 {
-            let rowOff = c * ffHalf
-            qmm(enc, w.ffIn, x: nhImg, xOff: rowOff * Self.dim * 2, y: ffWideImg, yOff: 0, m: ffHalf)
+        for range in Self.chunkRanges(totalRows: lImg) {
+            let rowOff = range.lowerBound
+            let rows = range.count
+            qmm(enc, w.ffIn, x: nhImg, xOff: rowOff * Self.dim * 2, y: ffWideImg, yOff: 0, m: rows)
             swiglu(enc, ffWideImg, swImg, pitch: Self.ffWide, gOff: 0, uOff: Self.ffInner,
-                   width: Self.ffInner, outPitch: Self.ffInner, outOff: 0, rows: ffHalf)
-            qmm(enc, w.ffOut, x: swImg, xOff: 0, y: ffOutImg, yOff: rowOff * Self.dim * 2, m: ffHalf)
+                   width: Self.ffInner, outPitch: Self.ffInner, outOff: 0, rows: rows)
+            qmm(enc, w.ffOut, x: swImg, xOff: 0, y: ffOutImg, yOff: rowOff * Self.dim * 2, m: rows)
         }
         gateAdd(enc, x: y1Img, xOff: 0, "img.mlp", v: ffOutImg, y: hOut, yOff: 0, rows: lImg)
         lnMod(enc, y1Txt, xOff: 0, "txt.mlp", neTxt, rows: lTxt)
@@ -594,20 +685,20 @@ public final class DirectDiTStep {
         // The fused 27648-wide proj runs in row-halves so its scratch is half
         // the sequence; every pitched consumer indexes chunk-locally with a
         // global byte offset on its output.
-        let half = J / 2
-        for c in 0 ..< 2 {
-            let rowOff = c * half
-            qmm(enc, w.proj, x: nhJoint, xOff: rowOff * d * 2, y: projJoint, yOff: 0, m: half)
+        for range in Self.chunkRanges(totalRows: J) {
+            let rowOff = range.lowerBound
+            let rows = range.count
+            qmm(enc, w.proj, x: nhJoint, xOff: rowOff * d * 2, y: projJoint, yOff: 0, m: rows)
             rms(enc, x: projJoint, pitch: Self.projWidth, off: 0, w: w.normQ,
-                y: sQ, yOff: rowOff * d * 2, rows: half)
+                y: sQ, yOff: rowOff * d * 2, rows: rows)
             rms(enc, x: projJoint, pitch: Self.projWidth, off: d, w: w.normK,
-                y: sK, yOff: rowOff * d * 2, rows: half)
+                y: sK, yOff: rowOff * d * 2, rows: rows)
             scaleCast(enc, x: projJoint, pitch: Self.projWidth, off: 2 * d, width: d,
-                      y: sV, yOff: rowOff * d * 2, rows: half, scale: 16)
+                      y: sV, yOff: rowOff * d * 2, rows: rows, scale: 16)
             swiglu(enc, projJoint, sConcat, yByteOff: rowOff * Self.concatWidth * 2,
                    pitch: Self.projWidth, gOff: Self.qkvWidth,
                    uOff: Self.qkvWidth + Self.ffWide / 2, width: Self.ffWide / 2,
-                   outPitch: Self.concatWidth, outOff: d, rows: half)
+                   outPitch: Self.concatWidth, outOff: d, rows: rows)
         }
         rope(enc, sQ, sQ, rows: J)
         rope(enc, sK, sK, rows: J)
@@ -846,17 +937,27 @@ extension DirectDiTStep {
             guard let w = arrays["\(name).weight"], let sc = arrays["\(name).scales"],
                 let bi = arrays["\(name).biases"]
             else { throw DirectQmmSpike.SpikeError.missingTensor(name) }
+            let expected: (n: Int, k: Int)
+            switch name {
+            case "x_embedder": expected = (Self.dim, 128)
+            case "proj_out": expected = (128, Self.dim)
+            default:
+                throw DirectQmmSpike.SpikeError.invalidTensor("unsupported head tensor \(name)")
+            }
+            try DirectTensorValidation.requireQuantized(
+                weight: w, scales: sc, biases: bi,
+                n: expected.n, k: expected.k, name: name)
             let s16 = sc.asType(.float16)
             let b16 = bi.asType(.float16)
             eval(s16, b16)
-            let n = w.dim(0)
-            let k = w.dim(1) * 8
-            return Q(w: try upload(w, "\(name).w"), s: try upload(s16, "\(name).s"),
-                     b: try upload(b16, "\(name).b"), n: n, k: k)
+            return Q(
+                w: try upload(w, "\(name).w", retention: .persistentWeight),
+                s: try upload(s16, "\(name).s", retention: .persistentWeight),
+                b: try upload(b16, "\(name).b", retention: .persistentWeight),
+                n: expected.n, k: expected.k)
         }
-        let glue = try DirectDiTKernels.makeLibrary(device: device)
         func pso(_ n: String) throws -> MTLComputePipelineState {
-            guard let fn = glue.makeFunction(name: n) else {
+            guard let fn = directLib.makeFunction(name: n) else {
                 throw DirectQmmSpike.SpikeError.metal("glue \(n)")
             }
             return try device.makeComputePipelineState(function: fn)
@@ -868,6 +969,7 @@ extension DirectDiTStep {
             }
             return b
         }
+        memoryLedger.recordPersistentUpload(bytes: Self.dim * 4)
         return Head(
             xEmb: try conv("x_embedder"),
             projOut: try conv("proj_out"),
@@ -883,24 +985,88 @@ extension DirectDiTStep {
             latB: try scratch(lImg * 128 * 4, "latB"))
     }
 
-    /// Upload one denoise step's conditioning (product-computed).
+    /// Pack every denoising step's modulation fields into one aligned upload.
+    /// The step loop only switches offsets; it performs no per-field uploads.
+    public func setStepConditioningSequence(
+        _ sequence: [Flux2StepConditioning], cos: MLXArray, sin: MLXArray
+    ) throws {
+        guard !sequence.isEmpty else {
+            throw DirectQmmSpike.SpikeError.invalidTensor("empty conditioning sequence")
+        }
+        let alignment = 256
+        var packed = Data()
+        var offsets = [[String: Int]]()
+        offsets.reserveCapacity(sequence.count)
+
+        func fields(
+            _ sc: Flux2StepConditioning
+        ) -> [(String, MLXArray)] {
+            [
+                ("img.msa.shift", sc.doubleImg[0].0),
+                ("img.msa.scale", sc.doubleImg[0].1),
+                ("img.msa.gate", sc.doubleImg[0].2),
+                ("img.mlp.shift", sc.doubleImg[1].0),
+                ("img.mlp.scale", sc.doubleImg[1].1),
+                ("img.mlp.gate", sc.doubleImg[1].2),
+                ("txt.msa.shift", sc.doubleTxt[0].0),
+                ("txt.msa.scale", sc.doubleTxt[0].1),
+                ("txt.msa.gate", sc.doubleTxt[0].2),
+                ("txt.mlp.shift", sc.doubleTxt[1].0),
+                ("txt.mlp.scale", sc.doubleTxt[1].1),
+                ("txt.mlp.gate", sc.doubleTxt[1].2),
+                ("single.shift", sc.single.0),
+                ("single.scale", sc.single.1),
+                ("single.gate", sc.single.2),
+                ("out.scale", sc.outConditioning.scale),
+                ("out.shift", sc.outConditioning.shift),
+            ]
+        }
+
+        for step in sequence {
+            var stepOffsets = [String: Int]()
+            for (name, value) in fields(step) {
+                let padding = (alignment - packed.count % alignment) % alignment
+                if padding > 0 { packed.append(Data(repeating: 0, count: padding)) }
+                let array = value.asType(.float32)
+                eval(array)
+                let bytes = array.asData(access: .copy).data
+                stepOffsets[name] = packed.count
+                packed.append(bytes)
+            }
+            offsets.append(stepOffsets)
+        }
+        guard let buffer = packed.withUnsafeBytes({ raw -> MTLBuffer? in
+            guard let base = raw.baseAddress else { return nil }
+            return device.makeBuffer(bytes: base, length: raw.count)
+        }) else {
+            throw DirectQmmSpike.SpikeError.metal("conditioning plan upload")
+        }
+        buffer.label = "conditioning.plan"
+        memoryLedger.recordConditioningUpload(bytes: buffer.length)
+        conditionerPlanBuffer = buffer
+        stepModBindings = offsets.map { step in
+            Dictionary(uniqueKeysWithValues: step.map { key, offset in
+                (key, BufferBinding(buffer: buffer, offset: offset))
+            })
+        }
+        cosBuf = try upload(cos, "cos", retention: .conditioning)
+        sinBuf = try upload(sin, "sin", retention: .conditioning)
+        memoryLedger.replaceConditioning(
+            bytes: buffer.length + cosBuf.length + sinBuf.length)
+    }
+
+    public func activateStepConditioning(_ step: Int) throws {
+        guard stepModBindings.indices.contains(step) else {
+            throw DirectQmmSpike.SpikeError.invalidTensor(
+                "conditioning step \(step) is outside 0..<\(stepModBindings.count)")
+        }
+        modBufs = stepModBindings[step]
+    }
+
+    /// Compatibility entry point for spikes that execute one isolated step.
     public func setStepConditioning(_ sc: Flux2StepConditioning, cos: MLXArray, sin: MLXArray) throws {
-        func put(_ t: (MLXArray, MLXArray, MLXArray), _ tag: String) throws {
-            modBufs["\(tag).shift"] = try upload(t.0.asType(.float32), "\(tag).shift")
-            modBufs["\(tag).scale"] = try upload(t.1.asType(.float32), "\(tag).scale")
-            modBufs["\(tag).gate"] = try upload(t.2.asType(.float32), "\(tag).gate")
-        }
-        try put(sc.doubleImg[0], "img.msa")
-        try put(sc.doubleImg[1], "img.mlp")
-        try put(sc.doubleTxt[0], "txt.msa")
-        try put(sc.doubleTxt[1], "txt.mlp")
-        try put(sc.single, "single")
-        modBufs["out.scale"] = try upload(sc.outConditioning.scale.asType(.float32), "out.scale")
-        modBufs["out.shift"] = try upload(sc.outConditioning.shift.asType(.float32), "out.shift")
-        if cosBuf == nil {
-            cosBuf = try upload(cos, "cos")
-            sinBuf = try upload(sin, "sin")
-        }
+        try setStepConditioningSequence([sc], cos: cos, sin: sin)
+        try activateStepConditioning(0)
     }
 
     /// One full denoise step: x_embedder → 25 blocks → norm_out/proj_out →

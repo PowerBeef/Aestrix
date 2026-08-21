@@ -7,47 +7,103 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0E01A9D411EC313465D5DCFB /* PlateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333AC61FB5858216D544DC9E /* PlateSheet.swift */; };
+		0386503989F774B85B5518AC /* HarnessPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961FD0D1CD33E95977F0681 /* HarnessPersistence.swift */; };
 		0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */; };
 		1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58755645B76E510CF21B41DE /* ImarelloTheme.swift */; };
 		17C6BB20CFFC89F242F563BB /* StatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A659AF4736E8079A515B3CF3 /* StatusRow.swift */; };
 		193293953040FBA8CE5569AA /* PrintStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E47EF4A5B83E773332294A9 /* PrintStore.swift */; };
+		1CE8326615DBD0FE32024AB1 /* HarnessMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704FC01F7C3D31F439FE4E71 /* HarnessMonitor.swift */; };
+		20E053E91632B90E8E28E8C7 /* PhotoExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAE933B100D13A318352113 /* PhotoExportService.swift */; };
 		2109EC6B01AC4D92E7CBE3D4 /* GenerationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */; };
 		293696EAF03E3D53B24A6423 /* ImarelloDirect in Frameworks */ = {isa = PBXBuildFile; productRef = 8133F9D916F5E2A4F9E8C425 /* ImarelloDirect */; };
+		A1D1EC7BFC9040C9B4CB8B25 /* ImarelloDirect in Frameworks */ = {isa = PBXBuildFile; productRef = 8133F9D916F5E2A4F9E8C425 /* ImarelloDirect */; };
 		2E44DDE6AD5AE153C1FEC6C4 /* StudioPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E13C74607B6C81A8E41E1E49 /* StudioPage.swift */; };
+		2EFF5C0BACCFDDD0AD813B0E /* woman_i2i.png in Resources */ = {isa = PBXBuildFile; fileRef = A607411C6CD097F4464FC41B /* woman_i2i.png */; };
+		3682307FBCD16A6CE8EECBF9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F9F933F77BFB1181B46C106B /* PrivacyInfo.xcprivacy */; };
+		40CF287D57DF88330C53096C /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5224E3F73EBC9A492A86680A /* AppNavigation.swift */; };
 		4AD204347B422649206A3A79 /* StudioModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */; };
+		4BD7B510912180DD99FCB580 /* GenerationActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A84132998ECBFCA07C09084 /* GenerationActivity.swift */; };
+		52CA85F7DBF967271A3946FB /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F1F7B22C7FEAD679A089CC /* EditPage.swift */; };
+		55C1709F63C4E855C546448C /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 005D9744F7043F405B1AA43B /* SettingsPage.swift */; };
 		59240486E0E0F708F97CCCAA /* SpikesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */; };
+		5AEFB443E97D48E459215831 /* AtmosphericImageStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0974C3271A572D68B9311BB0 /* AtmosphericImageStage.swift */; };
+		5CD2C32437A2C396DAE62E15 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46383E2676EDC3000DE3FED /* PersistenceTests.swift */; };
 		701749E0BBC1AA156316225D /* PromptBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */; };
 		82BE18F5951BFFFF0581F658 /* mlx-full.metallib in Resources */ = {isa = PBXBuildFile; fileRef = 6F70151E1EFEF288C88C38AC /* mlx-full.metallib */; };
+		979B08FAF83BC7277420BC5C /* AccessibilityStructureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791C170457523B5EF4E077C4 /* AccessibilityStructureUITests.swift */; };
 		9A316E2FC45EA3C82B27E511 /* StudioRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */; };
 		A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */; };
+		AC6091E55275A87078EC63B2 /* GalleryStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6E48B8036CD75F915D598B /* GalleryStorageService.swift */; };
 		AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */; };
+		C2134D8928B52B0256F85384 /* woman_t2i.png in Resources */ = {isa = PBXBuildFile; fileRef = 5D6F9CB3D4E99FDE35F41737 /* woman_t2i.png */; };
+		C331E6FB32B77E09AEAFD7CA /* NavigationAndServicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D314C94A4B8470031489531 /* NavigationAndServicesTests.swift */; };
 		CA7000708407EF6DBF7173C7 /* HarnessService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BBD0C89F349F329F8C50AD /* HarnessService.swift */; };
+		D5B8662BD54CF3450843E859 /* UITestScenario.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C746BBEB53B0023995AAA36 /* UITestScenario.swift */; };
 		DB416C6AF2F177724B827DA3 /* ContactSheetPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4086E11990277F9355233656 /* ContactSheetPage.swift */; };
 		E627FFBB1B2743F08A6D7502 /* PrintViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */; };
+		E83576A0284E3D45EC8BC156 /* GenerationOptionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBE4905AA667ED8E2135451 /* GenerationOptionsSheet.swift */; };
+		E99B2653BD95EE05BD98B55E /* StudioModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB019DF758DF5CE85CBC7DB /* StudioModelTests.swift */; };
+		FF0AEBE295D34A43F3B4CA64 /* PrintImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5451FEC00BBEFCC79FCED0D /* PrintImageLoader.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		1568F08561143189CC313F4E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 17904BFE505FB5B3A136FF6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 25896D23D78AD62B0ED8DCD9;
+			remoteInfo = ImarelloIOS;
+		};
+		FFE28C9D7107D529014B15DA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 17904BFE505FB5B3A136FF6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 25896D23D78AD62B0ED8DCD9;
+			remoteInfo = ImarelloIOS;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		005D9744F7043F405B1AA43B /* SettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPage.swift; sourceTree = "<group>"; };
 		094826A3BD2A33F6FD78B2AF /* Aestrix */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Aestrix; path = ../..; sourceTree = SOURCE_ROOT; };
+		0974C3271A572D68B9311BB0 /* AtmosphericImageStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtmosphericImageStage.swift; sourceTree = "<group>"; };
 		0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		333AC61FB5858216D544DC9E /* PlateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlateSheet.swift; sourceTree = "<group>"; };
+		0EAE933B100D13A318352113 /* PhotoExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoExportService.swift; sourceTree = "<group>"; };
+		1A84132998ECBFCA07C09084 /* GenerationActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationActivity.swift; sourceTree = "<group>"; };
+		2BB019DF758DF5CE85CBC7DB /* StudioModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioModelTests.swift; sourceTree = "<group>"; };
 		3E47EF4A5B83E773332294A9 /* PrintStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintStore.swift; sourceTree = "<group>"; };
 		4086E11990277F9355233656 /* ContactSheetPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactSheetPage.swift; sourceTree = "<group>"; };
 		4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptBar.swift; sourceTree = "<group>"; };
+		5224E3F73EBC9A492A86680A /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
 		53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ImarelloIOS.entitlements; sourceTree = "<group>"; };
 		58755645B76E510CF21B41DE /* ImarelloTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloTheme.swift; sourceTree = "<group>"; };
 		5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImarelloIOSApp.swift; sourceTree = "<group>"; };
+		5D6F9CB3D4E99FDE35F41737 /* woman_t2i.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = woman_t2i.png; sourceTree = "<group>"; };
+		68F1F7B22C7FEAD679A089CC /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
+		696A65F31E07501418BB1469 /* ImarelloIOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ImarelloIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6C746BBEB53B0023995AAA36 /* UITestScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestScenario.swift; sourceTree = "<group>"; };
 		6F70151E1EFEF288C88C38AC /* mlx-full.metallib */ = {isa = PBXFileReference; lastKnownFileType = "archive.metal-library"; path = "mlx-full.metallib"; sourceTree = "<group>"; };
+		704FC01F7C3D31F439FE4E71 /* HarnessMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessMonitor.swift; sourceTree = "<group>"; };
+		791C170457523B5EF4E077C4 /* AccessibilityStructureUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityStructureUITests.swift; sourceTree = "<group>"; };
 		7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintViewer.swift; sourceTree = "<group>"; };
 		93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioRootView.swift; sourceTree = "<group>"; };
+		9D314C94A4B8470031489531 /* NavigationAndServicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationAndServicesTests.swift; sourceTree = "<group>"; };
+		A5451FEC00BBEFCC79FCED0D /* PrintImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintImageLoader.swift; sourceTree = "<group>"; };
+		A607411C6CD097F4464FC41B /* woman_i2i.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = woman_i2i.png; sourceTree = "<group>"; };
 		A659AF4736E8079A515B3CF3 /* StatusRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusRow.swift; sourceTree = "<group>"; };
 		A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationEngine.swift; sourceTree = "<group>"; };
 		ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioModel.swift; sourceTree = "<group>"; };
+		AE6E48B8036CD75F915D598B /* GalleryStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryStorageService.swift; sourceTree = "<group>"; };
+		B961FD0D1CD33E95977F0681 /* HarnessPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessPersistence.swift; sourceTree = "<group>"; };
 		C3BBD0C89F349F329F8C50AD /* HarnessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessService.swift; sourceTree = "<group>"; };
+		CBBE4905AA667ED8E2135451 /* GenerationOptionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationOptionsSheet.swift; sourceTree = "<group>"; };
 		CECA411AB4FA88E6C3D762E8 /* SpikesApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpikesApp.swift; sourceTree = "<group>"; };
 		CF079C97FB030619C8518744 /* ImarelloSpikes.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ImarelloSpikes.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DBE0FADB3A716A43D70A79F6 /* ImarelloIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ImarelloIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13C74607B6C81A8E41E1E49 /* StudioPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioPage.swift; sourceTree = "<group>"; };
+		F46383E2676EDC3000DE3FED /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		F87FDE8274E2450312381B47 /* ImarelloIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ImarelloIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F9F933F77BFB1181B46C106B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +119,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1D1EC7BFC9040C9B4CB8B25 /* ImarelloDirect in Frameworks */,
 				AF939E0EE0636FDAB498CEF7 /* ImarelloRuntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -70,13 +127,59 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		014F86DAC19AFB4F40E0BAF0 /* outputs */ = {
+			isa = PBXGroup;
+			children = (
+				4B6AD5D836BCC12BA2CD6EFC /* demo */,
+			);
+			path = outputs;
+			sourceTree = "<group>";
+		};
+		02CBE69B4CE4D95E1D3C39D6 /* ImarelloIOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				9D314C94A4B8470031489531 /* NavigationAndServicesTests.swift */,
+				F46383E2676EDC3000DE3FED /* PersistenceTests.swift */,
+				2BB019DF758DF5CE85CBC7DB /* StudioModelTests.swift */,
+			);
+			path = ImarelloIOSTests;
+			sourceTree = "<group>";
+		};
+		2A361455C0F1B7A92ED5726C /* ImarelloIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				791C170457523B5EF4E077C4 /* AccessibilityStructureUITests.swift */,
+			);
+			path = ImarelloIOSUITests;
+			sourceTree = "<group>";
+		};
+		4B6AD5D836BCC12BA2CD6EFC /* demo */ = {
+			isa = PBXGroup;
+			children = (
+				A607411C6CD097F4464FC41B /* woman_i2i.png */,
+				5D6F9CB3D4E99FDE35F41737 /* woman_t2i.png */,
+			);
+			path = demo;
+			sourceTree = "<group>";
+		};
 		634F302C42D9AEEBFC9B3526 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				F87FDE8274E2450312381B47 /* ImarelloIOS.app */,
+				696A65F31E07501418BB1469 /* ImarelloIOSTests.xctest */,
+				DBE0FADB3A716A43D70A79F6 /* ImarelloIOSUITests.xctest */,
 				CF079C97FB030619C8518744 /* ImarelloSpikes.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		689E2BF4A184A29AC381EDC4 /* Aestrix */ = {
+			isa = PBXGroup;
+			children = (
+				014F86DAC19AFB4F40E0BAF0 /* outputs */,
+			);
+			name = Aestrix;
+			path = ../..;
 			sourceTree = "<group>";
 		};
 		8A6B59C75C1C886538213318 /* ImarelloSpikes */ = {
@@ -91,21 +194,33 @@
 		B19D826DD6551914BE35418D /* ImarelloIOS */ = {
 			isa = PBXGroup;
 			children = (
+				5224E3F73EBC9A492A86680A /* AppNavigation.swift */,
 				0E7721FE70BFB16AE489DEF0 /* Assets.xcassets */,
+				0974C3271A572D68B9311BB0 /* AtmosphericImageStage.swift */,
 				4086E11990277F9355233656 /* ContactSheetPage.swift */,
+				68F1F7B22C7FEAD679A089CC /* EditPage.swift */,
+				AE6E48B8036CD75F915D598B /* GalleryStorageService.swift */,
+				1A84132998ECBFCA07C09084 /* GenerationActivity.swift */,
 				A68DFBB914DF9FC6CA5C6EBE /* GenerationEngine.swift */,
+				CBBE4905AA667ED8E2135451 /* GenerationOptionsSheet.swift */,
+				704FC01F7C3D31F439FE4E71 /* HarnessMonitor.swift */,
+				B961FD0D1CD33E95977F0681 /* HarnessPersistence.swift */,
 				C3BBD0C89F349F329F8C50AD /* HarnessService.swift */,
 				53C7B4BBDEE7D6832466560C /* ImarelloIOS.entitlements */,
 				5AD58767B4C65596C5522B83 /* ImarelloIOSApp.swift */,
 				58755645B76E510CF21B41DE /* ImarelloTheme.swift */,
-				333AC61FB5858216D544DC9E /* PlateSheet.swift */,
+				0EAE933B100D13A318352113 /* PhotoExportService.swift */,
+				A5451FEC00BBEFCC79FCED0D /* PrintImageLoader.swift */,
 				3E47EF4A5B83E773332294A9 /* PrintStore.swift */,
 				7A1DF5895983E7FEA5D83820 /* PrintViewer.swift */,
+				F9F933F77BFB1181B46C106B /* PrivacyInfo.xcprivacy */,
 				4FE41FEBBF24C1E00648C4C2 /* PromptBar.swift */,
+				005D9744F7043F405B1AA43B /* SettingsPage.swift */,
 				A659AF4736E8079A515B3CF3 /* StatusRow.swift */,
 				ACFC170ECD8040EBEB5F25E4 /* StudioModel.swift */,
 				E13C74607B6C81A8E41E1E49 /* StudioPage.swift */,
 				93AEC15679CF12DFFEDB8AA0 /* StudioRootView.swift */,
+				6C746BBEB53B0023995AAA36 /* UITestScenario.swift */,
 			);
 			path = ImarelloIOS;
 			sourceTree = "<group>";
@@ -113,7 +228,10 @@
 		B85FBE261D9CB4AD0843E76B = {
 			isa = PBXGroup;
 			children = (
+				689E2BF4A184A29AC381EDC4 /* Aestrix */,
 				B19D826DD6551914BE35418D /* ImarelloIOS */,
+				02CBE69B4CE4D95E1D3C39D6 /* ImarelloIOSTests */,
+				2A361455C0F1B7A92ED5726C /* ImarelloIOSUITests */,
 				8A6B59C75C1C886538213318 /* ImarelloSpikes */,
 				E6B44C17339FE453212F1424 /* Packages */,
 				634F302C42D9AEEBFC9B3526 /* Products */,
@@ -131,6 +249,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		18180E5692895A5E904DD3FD /* ImarelloIOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C5E4FE566AB18DA2246FB05B /* Build configuration list for PBXNativeTarget "ImarelloIOSTests" */;
+			buildPhases = (
+				0DD0CA5C726708B5F2A7A7BA /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E706FA18D2DAC17B31B0DA11 /* PBXTargetDependency */,
+			);
+			name = ImarelloIOSTests;
+			packageProductDependencies = (
+			);
+			productName = ImarelloIOSTests;
+			productReference = 696A65F31E07501418BB1469 /* ImarelloIOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 9E8DC6AAD8CD689517FC88DA /* Build configuration list for PBXNativeTarget "ImarelloIOS" */;
@@ -138,6 +274,7 @@
 				9273E40A0F398951DB9DCCB0 /* Sources */,
 				548B8689A7B5AD862255F57A /* Resources */,
 				F1731F1C1C3115699C43D55C /* Frameworks */,
+				524A3568E32DBCB27FE3FAFF /* Embed Full no-JIT MLX Metallib */,
 			);
 			buildRules = (
 			);
@@ -146,10 +283,29 @@
 			name = ImarelloIOS;
 			packageProductDependencies = (
 				02BB53BA79DFD529DECFCCC4 /* ImarelloRuntime */,
+				8133F9D916F5E2A4F9E8C425 /* ImarelloDirect */,
 			);
 			productName = ImarelloIOS;
 			productReference = F87FDE8274E2450312381B47 /* ImarelloIOS.app */;
 			productType = "com.apple.product-type.application";
+		};
+		75CD439AE6BA922E3A87D005 /* ImarelloIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D2D17DB01D6D7E8A5C3D31C6 /* Build configuration list for PBXNativeTarget "ImarelloIOSUITests" */;
+			buildPhases = (
+				473BB7513528AB1BC927E8F0 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A0256798F94E19A3FE9EA9AD /* PBXTargetDependency */,
+			);
+			name = ImarelloIOSUITests;
+			packageProductDependencies = (
+			);
+			productName = ImarelloIOSUITests;
+			productReference = DBE0FADB3A716A43D70A79F6 /* ImarelloIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		83ADD9842E057D2057BAB5D4 /* ImarelloSpikes */ = {
 			isa = PBXNativeTarget;
@@ -180,10 +336,19 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					18180E5692895A5E904DD3FD = {
+						DevelopmentTeam = FK2D8X36G2;
+						ProvisioningStyle = Automatic;
+					};
 					25896D23D78AD62B0ED8DCD9 = {
 						DevelopmentTeam = FK2D8X36G2;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1], \"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.ExtendedVirtualAddressing\": [\"enabled\": 1], \"com.apple.IncreasedMemoryLimit\": [\"enabled\": 1]]";
+					};
+					75CD439AE6BA922E3A87D005 = {
+						DevelopmentTeam = FK2D8X36G2;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 25896D23D78AD62B0ED8DCD9;
 					};
 					83ADD9842E057D2057BAB5D4 = {
 						DevelopmentTeam = FK2D8X36G2;
@@ -209,6 +374,8 @@
 			projectRoot = "";
 			targets = (
 				25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */,
+				18180E5692895A5E904DD3FD /* ImarelloIOSTests */,
+				75CD439AE6BA922E3A87D005 /* ImarelloIOSUITests */,
 				83ADD9842E057D2057BAB5D4 /* ImarelloSpikes */,
 			);
 		};
@@ -220,6 +387,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				A7BDAF1B6CF818396EF9814E /* Assets.xcassets in Resources */,
+				3682307FBCD16A6CE8EECBF9 /* PrivacyInfo.xcprivacy in Resources */,
+				2EFF5C0BACCFDDD0AD813B0E /* woman_i2i.png in Resources */,
+				C2134D8928B52B0256F85384 /* woman_t2i.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,24 +403,80 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		524A3568E32DBCB27FE3FAFF /* Embed Full no-JIT MLX Metallib */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${SRCROOT}/ImarelloSpikes/mlx-full.metallib",
+				"${SRCROOT}/ImarelloSpikes/imarello-direct.metallib",
+				"${SRCROOT}/ImarelloSpikes/imarello-direct-manifest.json",
+			);
+			name = "Embed Full no-JIT MLX Metallib";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/mlx.metallib",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/imarello-direct.metallib",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/imarello-direct-manifest.json",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/../../Scripts/embed-ios-metallib.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
+		0DD0CA5C726708B5F2A7A7BA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C331E6FB32B77E09AEAFD7CA /* NavigationAndServicesTests.swift in Sources */,
+				5CD2C32437A2C396DAE62E15 /* PersistenceTests.swift in Sources */,
+				E99B2653BD95EE05BD98B55E /* StudioModelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		473BB7513528AB1BC927E8F0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				979B08FAF83BC7277420BC5C /* AccessibilityStructureUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9273E40A0F398951DB9DCCB0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				40CF287D57DF88330C53096C /* AppNavigation.swift in Sources */,
+				5AEFB443E97D48E459215831 /* AtmosphericImageStage.swift in Sources */,
 				DB416C6AF2F177724B827DA3 /* ContactSheetPage.swift in Sources */,
+				52CA85F7DBF967271A3946FB /* EditPage.swift in Sources */,
+				AC6091E55275A87078EC63B2 /* GalleryStorageService.swift in Sources */,
+				4BD7B510912180DD99FCB580 /* GenerationActivity.swift in Sources */,
 				2109EC6B01AC4D92E7CBE3D4 /* GenerationEngine.swift in Sources */,
+				E83576A0284E3D45EC8BC156 /* GenerationOptionsSheet.swift in Sources */,
+				1CE8326615DBD0FE32024AB1 /* HarnessMonitor.swift in Sources */,
+				0386503989F774B85B5518AC /* HarnessPersistence.swift in Sources */,
 				CA7000708407EF6DBF7173C7 /* HarnessService.swift in Sources */,
 				0E55BCF53B241C8CAE1EA8F9 /* ImarelloIOSApp.swift in Sources */,
 				1460F274EA86F9C7BF7136FD /* ImarelloTheme.swift in Sources */,
-				0E01A9D411EC313465D5DCFB /* PlateSheet.swift in Sources */,
+				20E053E91632B90E8E28E8C7 /* PhotoExportService.swift in Sources */,
+				FF0AEBE295D34A43F3B4CA64 /* PrintImageLoader.swift in Sources */,
 				193293953040FBA8CE5569AA /* PrintStore.swift in Sources */,
 				E627FFBB1B2743F08A6D7502 /* PrintViewer.swift in Sources */,
 				701749E0BBC1AA156316225D /* PromptBar.swift in Sources */,
+				55C1709F63C4E855C546448C /* SettingsPage.swift in Sources */,
 				17C6BB20CFFC89F242F563BB /* StatusRow.swift in Sources */,
 				4AD204347B422649206A3A79 /* StudioModel.swift in Sources */,
 				2E44DDE6AD5AE153C1FEC6C4 /* StudioPage.swift in Sources */,
 				9A316E2FC45EA3C82B27E511 /* StudioRootView.swift in Sources */,
+				D5B8662BD54CF3450843E859 /* UITestScenario.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -264,7 +490,38 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A0256798F94E19A3FE9EA9AD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */;
+			targetProxy = FFE28C9D7107D529014B15DA /* PBXContainerItemProxy */;
+		};
+		E706FA18D2DAC17B31B0DA11 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 25896D23D78AD62B0ED8DCD9 /* ImarelloIOS */;
+			targetProxy = 1568F08561143189CC313F4E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		13EF46C0849634658390FBB9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.demo.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Imarello.app/Imarello";
+			};
+			name = Debug;
+		};
 		2E916443CA52D19ACCB00D21 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -473,6 +730,60 @@
 			};
 			name = Debug;
 		};
+		661831DEE860FBBDEBA71CE5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.demo.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Imarello.app/Imarello";
+			};
+			name = Release;
+		};
+		8CA4FAAF1513E70FD196CE14 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.demo.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ImarelloIOS;
+			};
+			name = Release;
+		};
+		CC983F6916580620EEC57A99 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.imarello.demo.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ImarelloIOS;
+			};
+			name = Debug;
+		};
 		CF24B4202A4E77D7CD35E310 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -519,6 +830,24 @@
 			buildConfigurations = (
 				CF24B4202A4E77D7CD35E310 /* Debug */,
 				4D8CBD7F5C5F3B0734CECD23 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C5E4FE566AB18DA2246FB05B /* Build configuration list for PBXNativeTarget "ImarelloIOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				13EF46C0849634658390FBB9 /* Debug */,
+				661831DEE860FBBDEBA71CE5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D2D17DB01D6D7E8A5C3D31C6 /* Build configuration list for PBXNativeTarget "ImarelloIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC983F6916580620EEC57A99 /* Debug */,
+				8CA4FAAF1513E70FD196CE14 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

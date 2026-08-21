@@ -24,7 +24,7 @@ enum FaceIdentityMask {
         softEdge: Float = 0.12
     ) throws -> (mask: MLXArray, faceCount: Int) {
         let (packedH, packedW) = LatentOps.packedSpatial(width: width, height: height)
-        let boxes = detectFaces(in: cg)
+        let boxes = try detectFaces(in: cg)
         guard let primary = boxes.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
             let zeros = [Float](repeating: 0, count: packedH * packedW)
             return (MLXArray(zeros).reshaped([1, packedH * packedW, 1]), 0)
@@ -90,14 +90,12 @@ enum FaceIdentityMask {
     }
 
     /// Host-side face rectangles in Vision normalized coordinates (bottom-left origin).
-    static func detectFaces(in image: CGImage) -> [CGRect] {
+    static func detectFaces(in image: CGImage) throws -> [CGRect] {
         let request = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        do {
-            try handler.perform([request])
-        } catch {
-            return []
-        }
+        // A Vision failure must remain distinguishable from a successful
+        // request with no faces; callers already expose a throwing boundary.
+        try handler.perform([request])
         guard let results = request.results else { return [] }
         return results.map(\.boundingBox)
     }

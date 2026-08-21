@@ -36,6 +36,14 @@ public final class DirectTEEncoder {
 
     public private(set) var lastRealTokens = 0
 
+    func capturedTaps() -> [(layer: Int, data: Data)] {
+        zip(DirectTEForward.taps, scratch.tapBufs).map { layer, buffer in
+            (layer, Data(
+                bytes: buffer.contents(),
+                count: Self.maxLen * Self.hidden * MemoryLayout<UInt16>.size))
+        }
+    }
+
     @inline(__always) static func f32ToBF16(_ v: Float) -> UInt16 {
         let bits = v.bitPattern
         let rounded = bits &+ 0x7FFF &+ ((bits >> 16) & 1)
@@ -57,11 +65,23 @@ public final class DirectTEEncoder {
             let es = arrays["embed_tokens.scales"],
             let eb = arrays["embed_tokens.biases"]
         else { throw DirectQmmSpike.SpikeError.missingTensor("embed_tokens") }
+        guard ew.ndim == 2 else {
+            throw DirectQmmSpike.SpikeError.invalidTensor(
+                "embed_tokens.weight expected rank 2, got shape \(ew.shape)")
+        }
+        let vocabularySize = ew.dim(0)
+        try DirectTensorValidation.requireQuantized(
+            weight: ew, scales: es, biases: eb,
+            n: vocabularySize, k: Self.hidden, name: "embed_tokens")
         eval(ew, es, eb)
         embedPacked = ew.asArray(UInt32.self)
         // Raw bf16 bit patterns (asData preserves bytes; asArray would convert values).
-        embedScales = es.asData(noCopy: false).withUnsafeBytes { Array($0.bindMemory(to: UInt16.self)) }
-        embedBiases = eb.asData(noCopy: false).withUnsafeBytes { Array($0.bindMemory(to: UInt16.self)) }
+        embedScales = es.asData(access: .copy).data.withUnsafeBytes {
+            Array($0.bindMemory(to: UInt16.self))
+        }
+        embedBiases = eb.asData(access: .copy).data.withUnsafeBytes {
+            Array($0.bindMemory(to: UInt16.self))
+        }
         embedOracle = (ew, es, eb)
 
         let dev = engine.ctx.device
@@ -83,10 +103,14 @@ public final class DirectTEEncoder {
             constantValues: consts)
         maskAttnPSO = try dev.makeComputePipelineState(function: afn)
 
-        let glue = try DirectGlueKernels.makeLibrary(device: dev, dtypeName: "bfloat")
+        let glue = try DirectGlueKernels.makeLibrary(
+            device: dev,
+            directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                beside: metallibURL))
         func gfn(_ name: String) throws -> MTLComputePipelineState {
-            guard let f = glue.makeFunction(name: name) else {
-                throw DirectQmmSpike.SpikeError.metal("missing glue \(name)")
+            let typedName = DirectGlueKernels.functionName(name, dtypeName: "bfloat")
+            guard let f = glue.makeFunction(name: typedName) else {
+                throw DirectQmmSpike.SpikeError.metal("missing glue \(typedName)")
             }
             return try dev.makeComputePipelineState(function: f)
         }

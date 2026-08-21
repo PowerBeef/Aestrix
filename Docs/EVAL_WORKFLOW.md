@@ -17,7 +17,7 @@ Neither layer alone is enough. Pixel metrics are CI-friendly; vision covers sema
 | [IMAGE_ANALYSIS.md](IMAGE_ANALYSIS.md) | Metrics schema & library API |
 | [eval-prompts.md](eval-prompts.md) | BFL-style regression prompts |
 | [TEXT_TOKENS.md](TEXT_TOKENS.md) | `--text-tokens auto` vs pad-512 quality A/B |
-| [CLAUDE.md](../CLAUDE.md) | Agent contract (must follow) |
+| [AGENTS.md](../AGENTS.md) | Agent contract (must follow) |
 | [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) | Skills, MCP, host-safe loops |
 
 ---
@@ -148,8 +148,8 @@ Product path uses `--text-tokens 512` (pad, the default). Trimmed speed path: `T
 |------|---------|-------------|
 | `unstructured_garbage` | **Fail** — TV-static / f16-overflow speckle, not a picture | Do not ship the kernel change; `--attn-linear-compute f32` |
 | `color_mismatch` | Prompt color not found (fail if single color; **warn** if multi-color) | Raise I2I `--strength`, clearer color words; multi-color → vision |
-| `possible_tile_seam` | High midline discontinuity on ≥768 canvas | Inspect flat regions; VAE tile blend |
-| `vae_tile_expected` | Info: large canvas likely tiled decode | Check `tile_seam_score` |
+| `possible_tile_seam` | High discontinuity when recorded VAE configuration says tiling ran | Inspect flat regions; VAE tile blend/config provenance |
+| `vae_tile_expected` | Info: recorded VAE configuration says decode tiled | Check `tile_seam_score` and `vae_tile_configuration` |
 | `soft_focus` | Very low Laplacian variance | Confirm blur; steps/weights |
 | `highlight_clip` | Blown whites | Softer lighting in prompt |
 | `high_structure_fidelity` | I2I ≈ reference | Strength too low for the edit |
@@ -159,7 +159,7 @@ Product path uses `--text-tokens 512` (pad, the default). Trimmed speed path: `T
 | `low_semantic_alignment` | CLIP/proxy score low | Vision review subject |
 | `semantic_score` | Info: CLIP or Vision proxy score | Prefer Core ML CLIP when installed |
 
-**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Cosine **tiled VAE** (≥768) is covered by seam metrics. Schema **1.4**: semantic (CLIP/proxy) + LPIPS-lite + strength-aware I2I + `unstructured_garbage` hard fail.
+**Backend note:** Steel fused FA / decode-only VAE do not change the PNG eval path. Image-analysis schema **1.5** records the VAE tile threshold/size/overlap/blend/scale and derives seam expectations from it. The product default begins at 128 latent pixels, so 768–1008 outputs are untiled and 1024 is the fallback threshold. Detector failure is also distinct from a successful “no face detected” result.
 
 ```bash
 # Strength-aware I2I eval (also automatic after i2i --analyze)
@@ -226,12 +226,15 @@ Agents **must not** claim generation quality without:
 ```bash
 # GitHub Actions (.github/workflows/eval-floors.yml) — no GPU weights
 ./Scripts/ci-eval-floors.sh
-# equivalent:
-swift test --filter 'HubPinTests|GoldenMetricFloorsTests|ImageAnalyzerTests'
+# equivalent filter is maintained in Scripts/ci-eval-floors.sh; it contains only
+# CPU/configuration suites and must run alone.
 
 # Broader local (still no generate)
 swift test --filter ImarelloEvalTests
-swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench'
+swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|ImarelloBench'
+
+# Explicit serialized MLX gate (not part of the virtual-runner CPU gate)
+./Scripts/ci-mlx-serialized.sh
 
 # Optional extra t2i flags (e.g. T2I_EXTRA='--attn-f16-threshold 2048')
 # Optional smoke gen + hard pixel gate (needs snapshot + metallib; not CI)
@@ -304,3 +307,9 @@ Phase-B list:
 
 Anatomy failures at 1024² are the known Klein weak point (ROADMAP: dancer-s0);
 these subjects are the gate material for any engine or default change.
+
+## Metal Engine V2 qualification
+
+Set `IMARELLO_DIRECT_CAPTURE_DIR` only for an explicit serialized qualification run. The Direct pipeline then writes atomic binary captures plus a manifest carrying prompt, seed, dimensions, steps, guidance, token mode, revisions, backend/plan/artifact identities, device/OS/thermal state, and output path. Current capture points cover TE taps 9/18/27, concatenated/projected context, RoPE, every conditioner field, every denoising latent, final latent, and final RGB. Double/single block boundaries and VAE tile intermediates remain open and must be added before whole-engine parity is claimed.
+
+Do not invent numerical tolerances from code inspection. Establish the checked-in tolerance manifest from repeated V1 captures first. Bit-preserving transformations require exact equality; reordered floating-point paths must report nonfinite count, exact-element percentage, max/mean and p99/p99.9 absolute error, NRMSE, cosine, and ULP distribution where meaningful. Cosine alone is insufficient. A V2 slice promotes only after its tensor gate, full-consumer gate, identical-input performance/memory/reliability A/B, pixel report, and direct inspection of every relevant PNG all pass.

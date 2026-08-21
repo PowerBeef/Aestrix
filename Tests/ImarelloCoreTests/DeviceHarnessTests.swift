@@ -60,6 +60,43 @@ struct DeviceHarnessTests {
         #expect(DeviceHarnessJob.sanitizedID("") == "job")
     }
 
+    @Test("hidden ids, oversized seeds, invalid strength, and unsafe bounds reject")
+    func rejectsUnsafeNumericAndPathInputs() {
+        for id in [".hidden", "..", "bad/path", String(repeating: "a", count: 129)] {
+            #expect(throws: ImarelloError.self) {
+                try DeviceHarnessJob(id: id, prompt: "fox").validate(hasLastImage: true)
+            }
+        }
+        #expect(throws: ImarelloError.self) {
+            try DeviceHarnessJob(
+                id: "seed", prompt: "fox", seed: DeviceHarnessJob.maximumSeed + 1
+            ).validate(hasLastImage: true)
+        }
+        #expect(throws: ImarelloError.self) {
+            try DeviceHarnessJob(id: "strength", prompt: "fox", strength: 0)
+                .validate(hasLastImage: true)
+        }
+        #expect(throws: ImarelloError.self) {
+            try DeviceHarnessJob(id: "steps", prompt: "fox", steps: 101)
+                .validate(hasLastImage: true)
+        }
+    }
+
+    @Test("generation request validation throws instead of reaching scheduler preconditions")
+    func invalidRequestsThrow() {
+        #expect(throws: ImarelloError.self) {
+            try RequestValidation.validate(T2IRequest(prompt: "fox", steps: 0))
+        }
+        #expect(throws: ImarelloError.self) {
+            try RequestValidation.validate(T2IRequest(prompt: "fox", guidance: .nan))
+        }
+        #expect(throws: ImarelloError.self) {
+            try RequestValidation.validate(
+                I2IRequest(prompt: "fox", imageURL: URL(fileURLWithPath: "/tmp/x"), strength: 0)
+            )
+        }
+    }
+
     @Test("simulator skip result is skipped not ok")
     func simulatorSkip() {
         let job = DeviceHarnessJob(id: "s", prompt: "fox")

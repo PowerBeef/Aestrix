@@ -10,14 +10,16 @@ Native Swift/MLX runtime for **FLUX.2-klein-4B** on Apple Silicon: low-RAM-first
 ImarelloCLI / host apps
         │
 ImarelloRuntime   (Pipeline actor, StageOrchestrator, MemoryPolicy)
-        │
-   ┌────┴────┬────────────┐
-ImarelloText  ImarelloDiT   ImarelloVAE
+        │                         │
+   ┌────┴────┬────────────┐       └─ ImarelloDirect (V1 + gated V2 backend)
+ImarelloText  ImarelloDiT   ImarelloVAE           │
  (Qwen3 tap) (MMDiT 5+20) (Small Decoder + klein encode)
         │
 ImarelloWeights  (Hub snapshot load, module dirs)
         │
 mlx-swift
+
+ImarelloPlan (internal, Metal/MLX-free deterministic planning)
 ```
 
 ## Model constants (Klein 4B distilled)
@@ -52,6 +54,8 @@ mlx-swift
 | `ImarelloDiT` | MMDiT + `MetalFlashAttention` / `AttentionTuning` + scaled f16 4-bit Linear |
 | `ImarelloVAE` | Small Decoder default decode; klein encode-only; tiled cosine blend |
 | `ImarelloRuntime` | Orchestrator + public pipeline API |
+| `ImarelloPlan` | Internal locked model specification, operation/binding graph, tensor lifetimes, placement, digest, and independent verification; no library product |
+| `ImarelloDirect` | Qualified V1 Direct stages plus gated V2 whole-T2I backend, artifact/ABI validation, mapped-loader foundations, and reversible executors |
 | `ImarelloBench` | Multi-trial timings, pressure maps, attn knobs |
 | `ImarelloEval` | Pixel quality (no Metal) |
 | `ImarelloCLI` | Executable |
@@ -132,6 +136,18 @@ Requires Metal metallib for real load (same as DiT).
 
 Text RoPE ids: `[0,0,0,token_i]` (diffusers `_prepare_text_ids`). Distilled path: **no CFG**, guidance `nil`.
 
+### Whole-T2I backend seam
+
+`ImarelloPipeline` owns an optional `TextToImageGenerationBackend` inside actor isolation. Backend changes requested during generation remain pending until the active request completes, matching the denoiser/decoder setter contract. Selection happens after request validation but before weight loading. Unsupported V2 requests record a V1 selection reason; a backend that starts and fails propagates its failure without mid-generation fallback.
+
+The current `DirectT2IBackend` is deliberately fail-closed while V2 qualification is incomplete. V1 `PackedLatentDenoising` and `PackedLatentDecoding` remain available for compatibility and A/B work. I2I has no new backend seam and remains on MLX.
+
+### Direct artifacts and V2 planning
+
+The full MLX no-JIT metallib remains mandatory. Direct glue/custom functions live in a second build-time `imarello-direct.metallib`, paired with a manifest containing platform, SDK/minimum OS, source and binary hashes, required symbols, function constants, and ABI version. Runtime artifact resolution validates both before model-stage construction; production runtime source compilation is prohibited.
+
+V2 plan construction is deterministic and Metal-free. Each plan declares operations, bindings, constants, dispatch geometry, tensor regions, lifetimes, placement, residency, capability requirements, and numerical profile. An independent verifier recomputes alignment and live-range overlap. Debug plans disable aliasing and remain the canary path. The legacy Direct executor consumes the same placement proof; the Metal 4 executor is an isolated qualification path using argument tables, aligned constant uploads, explicit residency, allocator lifetime rules, and commit feedback. It is not a promoted product executor.
+
 ## Phase 6 Strength I2I (+ Tier B identity)
 
 | Type | Role |
@@ -175,12 +191,10 @@ No-Metal quality/accuracy feedback for agents and CI.
 ## References
 
 - Plan (session): low-RAM / prequant / BFL skills  
-- Official prompts: `.claude/skills/flux-best-practices/`  
+- Official prompts: `.agents/skills/flux-best-practices/`
 - Weights: `Docs/WEIGHTS.md`  
 - Memory: `Docs/MEMORY.md`  
 - **Eval procedure:** `Docs/EVAL_WORKFLOW.md`  
 - Eval metrics: `Docs/IMAGE_ANALYSIS.md`  
 - Eval prompts: `Docs/eval-prompts.md`  
 - **Roadmap (parked work):** `Docs/ROADMAP.md`  
-
-

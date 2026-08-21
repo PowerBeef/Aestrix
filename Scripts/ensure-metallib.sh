@@ -101,15 +101,20 @@ install_metallib() {
     if [[ -d "$dir" ]]; then
       cp "$OUT" "$dir/mlx.metallib"
       cp "$OUT" "$dir/default.metallib"
+      cp "$OUT.rev" "$dir/mlx.metallib.rev"
+      cp "$OUT.rev" "$dir/default.metallib.rev"
       mkdir -p "$dir/Resources"
       cp "$OUT" "$dir/Resources/mlx.metallib"
+      cp "$OUT.rev" "$dir/Resources/mlx.metallib.rev"
       # Keep Cmlx SwiftPM bundle in sync (MLX may load default.metallib from there).
       local cmlx
       for cmlx in "$dir"/mlx-swift_Cmlx.bundle "$dir"/mlx_Cmlx.bundle; do
         if [[ -d "$cmlx" ]]; then
           cp "$OUT" "$cmlx/default.metallib"
+          cp "$OUT.rev" "$cmlx/default.metallib.rev"
           mkdir -p "$cmlx/Contents/Resources"
           cp "$OUT" "$cmlx/Contents/Resources/default.metallib"
+          cp "$OUT.rev" "$cmlx/Contents/Resources/default.metallib.rev"
         fi
       done
       echo "installed metallib → $dir"

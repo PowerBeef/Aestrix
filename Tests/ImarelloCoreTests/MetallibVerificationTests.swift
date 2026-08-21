@@ -15,7 +15,7 @@ struct MetallibVerificationTests {
 
     @Test("required Steel names make a large blob product-ready")
     func steelSymbolsReady() {
-        var blob = Data(repeating: 0, count: MetallibVerification.stubByteThreshold + 16)
+        var blob = Data(repeating: 0, count: MetallibVerification.fullPackByteThreshold)
         blob.append(contentsOf: "xxsteel_attentionxxaffine_qmmxxrms_normxx".utf8)
         let v = MetallibVerification.verify(data: blob, path: "full")
         #expect(!v.isStub)
@@ -24,13 +24,13 @@ struct MetallibVerificationTests {
         #expect(!v.naxPackaged)
     }
 
-    @Test("Xcode Cmlx JIT lib is product-ready without packaged affine_qmm")
-    func jitCmlxWithoutAffineQmmIsReady() {
+    @Test("Xcode Cmlx JIT lib is rejected without packaged affine_qmm")
+    func jitCmlxWithoutAffineQmmIsRejected() {
         var blob = Data(repeating: 0, count: MetallibVerification.stubByteThreshold + 16)
         blob.append(contentsOf: "xxsteel_attentionxxrms_normxx".utf8)
         let v = MetallibVerification.verify(data: blob, path: "cmlx-ios")
-        #expect(v.productReady)
-        #expect(v.steelSymbolsMissing.isEmpty)
+        #expect(!v.productReady)
+        #expect(v.steelSymbolsMissing == ["affine_qmm"])
     }
 
     @Test("pickBest ignores a system default.metallib stub")
@@ -44,8 +44,8 @@ struct MetallibVerificationTests {
         try Data(repeating: 0xAB, count: 156_964).write(to: stub)
 
         let cmlx = dir.appendingPathComponent("mlx-cmlx.metallib")
-        var blob = Data(repeating: 0, count: MetallibVerification.stubByteThreshold + 16)
-        blob.append(contentsOf: "xxsteel_attentionxxrms_normxx".utf8)
+        var blob = Data(repeating: 0, count: MetallibVerification.fullPackByteThreshold)
+        blob.append(contentsOf: "xxsteel_attentionxxaffine_qmmxxrms_normxx".utf8)
         try blob.write(to: cmlx)
 
         let picked = MetallibVerification.pickBest(among: [stub, cmlx])
@@ -63,8 +63,8 @@ struct MetallibVerificationTests {
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        var blob = Data(repeating: 0, count: MetallibVerification.stubByteThreshold + 16)
-        blob.append(contentsOf: "xxsteel_attentionxxrms_normxx".utf8)
+        var blob = Data(repeating: 0, count: MetallibVerification.fullPackByteThreshold)
+        blob.append(contentsOf: "xxsteel_attentionxxaffine_qmmxxrms_normxx".utf8)
         let metallib = bundle.appendingPathComponent("default.metallib")
         try blob.write(to: metallib)
 

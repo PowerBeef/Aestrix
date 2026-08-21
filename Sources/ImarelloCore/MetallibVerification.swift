@@ -17,18 +17,27 @@ public struct MetallibVerification: Sendable, Equatable, Codable {
     public var note: String
 
     public static let stubByteThreshold = 1_000_000
+    /// The complete mlx-swift 0.32.1 no-JIT pack is roughly 155 MB. Keep a
+    /// conservative floor well above the thin 3–5 MB JIT-era bundle so a
+    /// partial library cannot be mistaken for the runtime artifact.
+    public static let fullPackByteThreshold = 100_000_000
 
-    /// Names that must appear in a loadable MLX metallib. `affine_qmm` is *not*
-    /// required: mlx-swift 0.31.6 Cmlx is JIT and compiles 4-bit qmm from source.
-    /// A typical iOS Xcode `default.metallib` (~3–4 MB) has Steel + RMSNorm only.
+    /// mlx-swift revision stamped by `Scripts/ensure-metallib.sh`, when the
+    /// artifact was installed through the reproducible repository recipe.
+    public static func recordedRevision(for url: URL) -> String? {
+        let revisionURL = url.appendingPathExtension("rev")
+        guard let value = try? String(contentsOf: revisionURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    /// Names that must appear in the no-JIT MLX metallib. The product uses
+    /// prequantized 4-bit weights, so packaged affine QMM kernels are mandatory.
     public static let requiredSteelSymbols = [
         "steel_attention",
         "rms_norm",
-    ]
-
-    /// Present in `Scripts/ensure-metallib.sh` (full no-JIT pack). Optional for
-    /// the JIT Cmlx that Xcode embeds on iOS.
-    public static let optionalFullPackSymbols = [
         "affine_qmm",
     ]
 
@@ -43,19 +52,18 @@ public struct MetallibVerification: Sendable, Equatable, Codable {
         let steelMissing = requiredSteelSymbols.filter { !containsASCII($0, in: data) }
         let naxPresent = optionalNAXSymbols.filter { containsASCII($0, in: data) }
         let naxMissing = optionalNAXSymbols.filter { !containsASCII($0, in: data) }
-        let fullPackMissing = optionalFullPackSymbols.filter { !containsASCII($0, in: data) }
         let stub = data.count < stubByteThreshold
-        let productReady = !stub && steelMissing.isEmpty
+        let productReady = data.count >= fullPackByteThreshold && steelMissing.isEmpty
         let naxPackaged = !stub && naxMissing.isEmpty
         let note: String
         if stub {
             note = "stub metallib (\(data.count) bytes) — run Scripts/ensure-metallib.sh"
-        } else if !productReady {
+        } else if !steelMissing.isEmpty {
             note = "Steel symbols missing: \(steelMissing.joined(separator: ", "))"
+        } else if data.count < fullPackByteThreshold {
+            note = "partial/JIT-era metallib (\(data.count) bytes) — full no-JIT pack required"
         } else if naxPackaged {
             note = "full metallib: Steel ready; NAX kernels packaged (hardware-gated)"
-        } else if !fullPackMissing.isEmpty {
-            note = "Steel runtime-ready (JIT 4-bit qmm); NAX optional"
         } else {
             note = "full metallib: Steel product path ready; NAX kernels optional/incomplete"
         }
@@ -107,7 +115,7 @@ public struct MetallibVerification: Sendable, Equatable, Codable {
             cwd.appendingPathComponent(".build/release/mlx.metallib"),
             cwd.appendingPathComponent(".build/debug/mlx.metallib"),
         ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        return pickBest(among: candidates)
     }
 
     /// SPM resource-bundle names mlx-swift embeds as `SWIFTPM_BUNDLE`.
@@ -217,8 +225,8 @@ public struct MetallibVerification: Sendable, Equatable, Codable {
         return url
     }
 
-    /// Choose the MLX metallib from a list. Product-ready wins (largest if
-    /// several); otherwise the largest file that already contains a Steel name.
+    /// Choose a product-ready no-JIT MLX metallib from a list. Partial or
+    /// JIT-era artifacts are deliberately never returned.
     public static func pickBest(among urls: [URL]) -> URL? {
         var unique: [URL] = []
         var seen = Set<String>()
@@ -234,10 +242,6 @@ public struct MetallibVerification: Sendable, Equatable, Codable {
         }
         let ready = verified.filter { $0.1.productReady }
         if let best = ready.max(by: { $0.1.byteCount < $1.1.byteCount }) {
-            return best.0
-        }
-        let mlxish = verified.filter { !$0.1.steelSymbolsPresent.isEmpty }
-        if let best = mlxish.max(by: { $0.1.byteCount < $1.1.byteCount }) {
             return best.0
         }
         return nil

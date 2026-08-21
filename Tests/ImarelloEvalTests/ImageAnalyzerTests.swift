@@ -76,14 +76,25 @@ struct ImageAnalyzerTests {
         #expect(!s.isEmpty)
     }
 
-    @Test func largeCanvasExpectsVAETilingAndReportsSeamFields() throws {
-        // 768+ triggers expectsVAETiling (Imarello auto-tiles decode).
+    @Test func tilingFollowsRecordedRuntimeConfiguration() throws {
         let url = try writeSolidPNG(r: 40, g: 80, b: 160, name: "large_blue", side: 800)
         defer { try? FileManager.default.removeItem(at: url) }
         let report = try ImageAnalyzer.analyze(imageURL: url, options: .init(prompt: "blue"))
-        #expect(report.technical.expectsVAETiling == true)
+        #expect(report.technical.expectsVAETiling == false)
         #expect(report.technical.tileSeamScore >= 0)
-        #expect(report.findings.contains { $0.code == "vae_tile_expected" || $0.code == "possible_tile_seam" })
+        #expect(!report.findings.contains {
+            $0.code == "vae_tile_expected" || $0.code == "possible_tile_seam"
+        })
+
+        let forced = try ImageAnalyzer.analyze(
+            imageURL: url,
+            options: .init(
+                prompt: "blue",
+                vaeTileConfiguration: VAETileEvaluationConfig(enabledThresholdLatentPixels: 64)
+            )
+        )
+        #expect(forced.technical.expectsVAETiling == true)
+        #expect(forced.vaeTileConfiguration?.enabledThresholdLatentPixels == 64)
     }
 
     @Test func multiColorPromptMismatchIsWarnNotFail() throws {
@@ -113,7 +124,9 @@ struct ImageAnalyzerTests {
             imagePath: url.path,
             prompt: "blue mug",
             caption: "A blue mug.",
-            answers: ["subject": "mug", "color": "blue", "artifacts": "none"],
+            answers: Dictionary(
+                uniqueKeysWithValues: VisionReview.checklist(mode: .t2i).map { ($0.id, "pass") }
+            ),
             findings: [
                 .init(severity: .info, code: "subject_ok", message: "Clear mug subject.")
             ],
@@ -125,6 +138,52 @@ struct ImageAnalyzerTests {
         #expect(merged.findings.contains { $0.code == "vision_subject_ok" })
         #expect(merged.overallScore > pixel.overallScore * 0.4)
         #expect(merged.summary.contains("vision"))
+    }
+
+    @Test func substringColorsDoNotMatchAndHexUsesImageStatistics() throws {
+        let red = try writeSolidPNG(r: 200, g: 20, b: 20, name: "color_tokens")
+        defer { try? FileManager.default.removeItem(at: red) }
+        let substring = try ImageAnalyzer.analyze(
+            imageURL: red, options: .init(prompt: "a discredited object")
+        )
+        #expect(!substring.promptAlignment.requestedColors.contains("red"))
+        #expect(substring.promptAlignment.colorMatch == nil)
+
+        let hex = try ImageAnalyzer.analyze(
+            imageURL: red, options: .init(prompt: "a product in #C81414")
+        )
+        #expect(hex.promptAlignment.requestedColors.contains("red"))
+        #expect(hex.promptAlignment.colorMatch == true)
+    }
+
+    @Test func mismatchedVisionAssessmentIsRejected() throws {
+        let url = try writeSolidPNG(r: 20, g: 40, b: 200, name: "bad_merge")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let pixel = try ImageAnalyzer.analyze(
+            imageURL: url, options: .init(prompt: "blue mug")
+        )
+        let assessment = VisionReview.Assessment(
+            mode: .i2i, imagePath: "/different.png", prompt: "other",
+            caption: "wrong", answers: [:], visionScore: 100, verdict: "pass"
+        )
+        let merged = ImageAnalysisReportBuilder.mergingVision(pixel, assessment)
+        #expect(merged.vision == nil)
+        #expect(merged.findings.contains {
+            $0.severity == .fail && $0.code == "vision_assessment_identity_mismatch"
+        })
+    }
+
+    @Test func pixelBufferOwnsContextMemoryDuringRepeatedDrawing() throws {
+        let url = try writeSolidPNG(r: 50, g: 100, b: 150, name: "buffer_stress", side: 128)
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { throw ImarelloError.imageLoadFailed(path: url.path, reason: "fixture") }
+        for side in stride(from: 17, through: 129, by: 7) {
+            let buffer = try PixelBuffer.from(cgImage: image, maxSide: side)
+            #expect(buffer.rgb.count == buffer.width * buffer.height * 3)
+            #expect(buffer.rgb.allSatisfy { $0.isFinite })
+        }
     }
 
     // MARK: - Helpers

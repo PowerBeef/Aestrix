@@ -71,10 +71,14 @@ public enum DirectTELayerSpike {
                 constantValues: consts)
             attnPSO = try dev.makeComputePipelineState(function: attnFn)
 
-            let glue = try DirectGlueKernels.makeLibrary(device: dev)
+            let glue = try DirectGlueKernels.makeLibrary(
+                device: dev,
+                directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                    beside: metallibURL))
             func gfn(_ name: String) throws -> MTLComputePipelineState {
-                guard let f = glue.makeFunction(name: name) else {
-                    throw DirectQmmSpike.SpikeError.metal("missing glue \(name)")
+                let typedName = DirectGlueKernels.functionName(name, dtypeName: "half")
+                guard let f = glue.makeFunction(name: typedName) else {
+                    throw DirectQmmSpike.SpikeError.metal("missing glue \(typedName)")
                 }
                 return try dev.makeComputePipelineState(function: f)
             }

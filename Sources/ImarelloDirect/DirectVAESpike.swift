@@ -36,12 +36,10 @@ public enum DirectVAESpike {
         let implicitM = N * H * W
         let implicitN = O
         let implicitK = kH * kW * C
-        var wm = 2, wn = 2
-        var bm = implicitM >= 8192 && C >= 64 ? 64 : 32
-        var bn = (bm == 64 || implicitN >= 64) ? 64 : 32
+        let wm = 2, wn = 2
+        let bm = implicitM >= 8192 && C >= 64 ? 64 : 32
+        let bn = (bm == 64 || implicitN >= 64) ? 64 : 32
         let bk = 16
-        if implicitN <= 16 { bn = 8; wm = 4; wn = 1 }
-        _ = bm
         let tn = (implicitN + bn - 1) / bn
         let tm = (implicitM + bm - 1) / bm
         let channelKIters = (C + bk - 1) / bk
@@ -59,7 +57,7 @@ public enum DirectVAESpike {
         let pso = try device.makeComputePipelineState(function: fn)
 
         func upload(_ a: MLXArray, _ l: String) throws -> MTLBuffer {
-            let d = a.asData(noCopy: false)
+            let d = a.asData(access: .copy).data
             return try d.withUnsafeBytes { raw -> MTLBuffer in
                 guard let base = raw.baseAddress,
                     let b = device.makeBuffer(bytes: base, length: raw.count)
@@ -125,16 +123,22 @@ public enum DirectVAESpike {
         let directMS = (CFAbsoluteTimeGetCurrent() - t0) * 50
 
         let n = N * H * W * O
-        let ptr = outBuf.contents().bindMemory(to: Float16.self, capacity: n)
+        let ptr = outBuf.contents().bindMemory(to: UInt16.self, capacity: n)
         let ref = oracle.asType(.float32).asArray(Float.self)
         var dot = 0.0, na = 0.0, nb = 0.0, maxDiff = 0.0
         var exact = 0
-        let refF16 = oracle.asArray(Float16.self)
-        for i in 0 ..< n {
-            let a = Double(Float(ptr[i])), b = Double(ref[i])
-            dot += a * b; na += a * a; nb += b * b
-            maxDiff = max(maxDiff, abs(a - b))
-            if ptr[i] == refF16[i] { exact += 1 }
+        let refF16 = oracle.asData(access: .copy).data
+        try refF16.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress,
+                  raw.count == n * MemoryLayout<UInt16>.size
+            else { throw DirectQmmSpike.SpikeError.invalidTensor("VAE oracle f16 byte count") }
+            let refBits = base.assumingMemoryBound(to: UInt16.self)
+            for i in 0 ..< n {
+                let a = Double(Float(Float16(bitPattern: ptr[i]))), b = Double(ref[i])
+                dot += a * b; na += a * a; nb += b * b
+                maxDiff = max(maxDiff, abs(a - b))
+                if ptr[i] == refBits[i] { exact += 1 }
+            }
         }
         let cosine = dot / (na.squareRoot() * nb.squareRoot() + 1e-30)
         return """

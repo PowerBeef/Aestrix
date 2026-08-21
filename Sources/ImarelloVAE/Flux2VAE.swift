@@ -100,31 +100,31 @@ public final class Flux2VAE: Module {
     /// - `.cosine`: overlapping tiles + separable cosine blend (PDF / Draw Things style).
     public static func decodeLatentsTiled(
         _ latents: MLXArray,
-        decode: (MLXArray) -> MLXArray,
+        decode: (MLXArray) throws -> MLXArray,
         config: VAETileConfig = .default
-    ) -> MLXArray {
+    ) rethrows -> MLXArray {
         switch config.blend {
         case .none:
-            return decodeLatentsTiledHard(latents, decode: decode, grid: config.noneGrid)
+            return try decodeLatentsTiledHard(latents, decode: decode, grid: config.noneGrid)
         case .cosine:
-            return decodeLatentsTiledBlended(latents, decode: decode, config: config)
+            return try decodeLatentsTiledBlended(latents, decode: decode, config: config)
         }
     }
 
     /// Legacy API: non-overlapping grid stitch.
     public static func decodeLatentsTiled(
         _ latents: MLXArray,
-        decode: (MLXArray) -> MLXArray,
+        decode: (MLXArray) throws -> MLXArray,
         grid: Int
-    ) -> MLXArray {
-        decodeLatentsTiledHard(latents, decode: decode, grid: grid)
+    ) rethrows -> MLXArray {
+        try decodeLatentsTiledHard(latents, decode: decode, grid: grid)
     }
 
     private static func decodeLatentsTiledHard(
         _ latents: MLXArray,
-        decode: (MLXArray) -> MLXArray,
+        decode: (MLXArray) throws -> MLXArray,
         grid: Int
-    ) -> MLXArray {
+    ) rethrows -> MLXArray {
         let h = latents.dim(2)
         let w = latents.dim(3)
         precondition(grid > 0 && h % grid == 0 && w % grid == 0, "latent H/W must divide tile grid")
@@ -141,7 +141,7 @@ public final class Flux2VAE: Module {
                 let tile = latents[0..., 0..., y0 ..< (y0 + th), x0 ..< (x0 + tw)]
                 eval(tile)
                 Memory.clearCache()
-                let out = decode(tile)
+                let out = try decode(tile)
                 eval(out)
                 Memory.clearCache()
                 cols.append(out)
@@ -157,9 +157,9 @@ public final class Flux2VAE: Module {
 
     private static func decodeLatentsTiledBlended(
         _ latents: MLXArray,
-        decode: (MLXArray) -> MLXArray,
+        decode: (MLXArray) throws -> MLXArray,
         config: VAETileConfig
-    ) -> MLXArray {
+    ) rethrows -> MLXArray {
         let h = latents.dim(2)
         let w = latents.dim(3)
         let batch = latents.dim(0)
@@ -179,7 +179,7 @@ public final class Flux2VAE: Module {
         let firstTile = latents[0..., 0..., y0First ..< (y0First + thFirst), x0First ..< (x0First + twFirst)]
         eval(firstTile)
         Memory.clearCache()
-        let firstOut = decode(firstTile)
+        let firstOut = try decode(firstTile)
         eval(firstOut)
         Memory.clearCache()
         let scaleY = firstOut.dim(2) / thFirst
@@ -256,7 +256,7 @@ public final class Flux2VAE: Module {
                 let tile = latents[0..., 0..., y0 ..< (y0 + th), x0 ..< (x0 + tw)]
                 eval(tile)
                 Memory.clearCache()
-                let out = decode(tile)
+                let out = try decode(tile)
                 eval(out)
                 Memory.clearCache()
                 accumulate(tileY0: y0, tileX0: x0, out: out, th: th, tw: tw)

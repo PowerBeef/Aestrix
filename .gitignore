@@ -18,10 +18,11 @@ venv/
 # Model weight caches (download separately)
 models/
 *.safetensors
-# Local agent noise (vendored skills stay tracked)
-.claude/*
-!.claude/skills/
-/.impeccable/
+# Local agent noise (repository skills stay tracked)
+.agents/*
+!.agents/skills/
+!.agents/skills/**
+/.impeccabl?/
 
 # Generated samples / local artifacts (do not ship)
 outputs/
@@ -31,7 +32,10 @@ outputs/
 # Keep metallib build recipe only
 Tools/Metal/*.air
 Tools/Metal/*.metallib
+Tools/Metal/imarello-direct-manifest.json
 # mlx-swift revision stamp written by ensure-metallib.sh
 Tools/Metal/mlx.metallib.rev
 
 Apps/ImarelloIOS/ImarelloSpikes/mlx-full.metallib
+Apps/ImarelloIOS/ImarelloSpikes/imarello-direct.metallib
+Apps/ImarelloIOS/ImarelloSpikes/imarello-direct-manifest.json

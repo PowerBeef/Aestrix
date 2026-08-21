@@ -56,18 +56,23 @@ public struct PixelBuffer: Sendable {
         let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
             CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         )
-        guard let ctx = CGContext(
-            data: &rgba, width: w, height: h, bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue
-        ) else {
-            throw ImarelloError.imageLoadFailed(path: "", reason: "CGImage scale context failed")
+        return try rgba.withUnsafeMutableBytes { raw -> CGImage in
+            guard let base = raw.baseAddress,
+                  let ctx = CGContext(
+                    data: base, width: w, height: h, bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow, space: colorSpace,
+                    bitmapInfo: bitmapInfo.rawValue)
+            else {
+                throw ImarelloError.imageLoadFailed(
+                    path: "", reason: "CGImage scale context failed")
+            }
+            ctx.interpolationQuality = .high
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            guard let out = ctx.makeImage() else {
+                throw ImarelloError.imageLoadFailed(path: "", reason: "CGImage scale failed")
+            }
+            return out
         }
-        ctx.interpolationQuality = .high
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        guard let out = ctx.makeImage() else {
-            throw ImarelloError.imageLoadFailed(path: "", reason: "CGImage scale failed")
-        }
-        return out
     }
 
     public static func from(cgImage: CGImage, maxSide: Int? = 1024) throws -> PixelBuffer {
@@ -85,19 +90,22 @@ public struct PixelBuffer: Sendable {
         let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
             CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         )
-        guard let ctx = CGContext(
-            data: &rgba,
-            width: w,
-            height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
-        ) else {
-            throw ImarelloError.imageLoadFailed(path: "", reason: "CGContext failed")
+        try rgba.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress,
+                  let ctx = CGContext(
+                    data: base,
+                    width: w,
+                    height: h,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: colorSpace,
+                    bitmapInfo: bitmapInfo.rawValue)
+            else {
+                throw ImarelloError.imageLoadFailed(path: "", reason: "CGContext failed")
+            }
+            ctx.interpolationQuality = .high
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         }
-        ctx.interpolationQuality = .high
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
 
         var rgb = [Float](repeating: 0, count: w * h * 3)
         for i in 0 ..< (w * h) {

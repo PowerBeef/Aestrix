@@ -36,7 +36,10 @@ public final class DirectVAE {
         device = dev
         queue = q
         mlxLib = try dev.makeLibrary(URL: metallibURL)
-        let glueLib = try DirectVAEKernels.makeLibrary(device: dev)
+        let glueLib = try DirectVAEKernels.makeLibrary(
+            device: dev,
+            directMetallibURL: DirectEngineArtifacts.directMetallibURL(
+                beside: metallibURL))
         glue = glueLib
         func gpso(_ n: String) throws -> MTLComputePipelineState {
             guard let f = glueLib.makeFunction(name: n) else {
@@ -109,6 +112,8 @@ public final class DirectVAE {
         H: Int, W: Int, C: Int, O: Int, k: Int,
         tileOverride: (bm: Int, bn: Int)? = nil
     ) throws {
+        try DirectTensorValidation.requireBuffer(
+            wt, floatCount: O * k * k * C, name: wt.label ?? "convolution weight")
         let pad = k / 2
         let implicitM = H * W
         let implicitN = O
@@ -185,15 +190,34 @@ public final class DirectVAE {
         _ enc: MTLComputeCommandEncoder,
         x: MTLBuffer, gamma: MTLBuffer, beta: MTLBuffer, y: MTLBuffer,
         HW: Int, C: Int, silu: Bool, groups: Int = 32, eps: Float = 1e-6
-    ) {
+    ) throws {
+        try DirectTensorValidation.requireBuffer(
+            gamma, floatCount: C, name: gamma.label ?? "groupnorm gamma")
+        try DirectTensorValidation.requireBuffer(
+            beta, floatCount: C, name: beta.label ?? "groupnorm beta")
+        guard C > 0, HW > 0, groups > 0, C.isMultiple(of: groups), C <= 384 else {
+            throw DirectQmmSpike.SpikeError.invalidTensor(
+                "groupnorm expected positive HW, C divisible by groups and C <= 384; got HW=\(HW), C=\(C), groups=\(groups)")
+        }
         let chunks = 256
-        if gnPartial == nil {
+        if gnPartial == nil || gnStats == nil {
             // Sized for the widest channel count (384); reused across calls —
             // hazard tracking serializes successive GNs in one command buffer.
-            gnPartial = device.makeBuffer(length: chunks * 384 * 2 * 4)
-            gnStats = device.makeBuffer(length: 32 * 2 * 4)
+            do {
+                let scratch = try Self.allocateGroupNormScratch { length in
+                    device.makeBuffer(length: length)
+                }
+                gnPartial = scratch.partial
+                gnStats = scratch.stats
+            } catch {
+                gnPartial = nil
+                gnStats = nil
+                throw error
+            }
         }
-        guard let partial = gnPartial, let stats = gnStats else { return }
+        guard let partial = gnPartial, let stats = gnStats else {
+            throw DirectQmmSpike.SpikeError.metal("groupnorm scratch unavailable")
+        }
         var hw32 = Int32(HW), c32 = Int32(C), g32 = Int32(groups), ch32 = Int32(chunks)
         var e = eps
         var s32 = Int32(silu ? 1 : 0)
@@ -234,10 +258,23 @@ public final class DirectVAE {
             threadsPerThreadgroup: MTLSize(width: min(C, 64), height: 4, depth: 1))
     }
 
+    static func allocateGroupNormScratch(
+        allocate: (Int) -> MTLBuffer?
+    ) throws -> (partial: MTLBuffer, stats: MTLBuffer) {
+        guard let partial = allocate(256 * 384 * 2 * 4),
+              let stats = allocate(32 * 2 * 4)
+        else {
+            throw DirectQmmSpike.SpikeError.metal("groupnorm scratch allocation")
+        }
+        return (partial, stats)
+    }
+
     func encodeBiasAct(
         _ enc: MTLComputeCommandEncoder, x: MTLBuffer, bias: MTLBuffer,
         HW: Int, C: Int, silu: Bool
-    ) {
+    ) throws {
+        try DirectTensorValidation.requireBuffer(
+            bias, floatCount: C, name: bias.label ?? "bias")
         enc.setComputePipelineState(biasPSO)
         enc.setBuffer(x, offset: 0, index: 0)
         enc.setBuffer(bias, offset: 0, index: 1)
@@ -272,23 +309,23 @@ public final class DirectVAE {
         H: Int, W: Int, cIn: Int, cOut: Int
     ) throws {
         let hw = H * W
-        encodeGroupNormAct(enc, x: x, gamma: try w("\(prefix).norm1.weight"),
+        try encodeGroupNormAct(enc, x: x, gamma: try w("\(prefix).norm1.weight"),
                            beta: try w("\(prefix).norm1.bias"), y: t1,
                            HW: hw, C: cIn, silu: true)
         try encodeConv(enc, x: t1, wt: try w("\(prefix).conv1.weight"), y: t2,
                        H: H, W: W, C: cIn, O: cOut, k: 3)
-        encodeBiasAct(enc, x: t2, bias: try w("\(prefix).conv1.bias"), HW: hw, C: cOut, silu: false)
-        encodeGroupNormAct(enc, x: t2, gamma: try w("\(prefix).norm2.weight"),
+        try encodeBiasAct(enc, x: t2, bias: try w("\(prefix).conv1.bias"), HW: hw, C: cOut, silu: false)
+        try encodeGroupNormAct(enc, x: t2, gamma: try w("\(prefix).norm2.weight"),
                            beta: try w("\(prefix).norm2.bias"), y: t1,
                            HW: hw, C: cOut, silu: true)
         try encodeConv(enc, x: t1, wt: try w("\(prefix).conv2.weight"), y: t2,
                        H: H, W: W, C: cOut, O: cOut, k: 3)
-        encodeBiasAct(enc, x: t2, bias: try w("\(prefix).conv2.bias"), HW: hw, C: cOut, silu: false)
+        try encodeBiasAct(enc, x: t2, bias: try w("\(prefix).conv2.bias"), HW: hw, C: cOut, silu: false)
         if cIn != cOut {
             // shortcut into y, then add
             try encodeConv(enc, x: x, wt: try w("\(prefix).conv_shortcut.weight"), y: y,
                            H: H, W: W, C: cIn, O: cOut, k: 1)
-            encodeBiasAct(enc, x: y, bias: try w("\(prefix).conv_shortcut.bias"), HW: hw, C: cOut, silu: false)
+            try encodeBiasAct(enc, x: y, bias: try w("\(prefix).conv_shortcut.bias"), HW: hw, C: cOut, silu: false)
             encodeAdd(enc, a: t2, b: y, y: y, n: hw * cOut)
         } else {
             encodeAdd(enc, a: t2, b: x, y: y, n: hw * cOut)
@@ -311,17 +348,17 @@ public enum DirectVAEResnetSpike {
         // Oracle: raw MLX ops, exact component math.
         let raw = try MLX.loadArrays(url: smallDecoderFile)
         let m = try CompVisVAEMapper.remap(raw)
-        func gnOracle(_ t: MLXArray, _ p: String) -> MLXArray {
+        func gnOracle(_ t: MLXArray, _ p: String) throws -> MLXArray {
             let gn = GroupNorm(groupCount: 32, dimensions: C, eps: 1e-6, affine: true, pytorchCompatible: true)
-            try! gn.update(parameters: ModuleParameters.unflattened(
+            try gn.update(parameters: ModuleParameters.unflattened(
                 ["weight": m["\(p).weight"]!, "bias": m["\(p).bias"]!]), verify: [.all])
             return gn(t)
         }
-        var h = gnOracle(x, "\(prefix).norm1")
+        var h = try gnOracle(x, "\(prefix).norm1")
         h = silu(h)
         h = conv2d(h, m["\(prefix).conv1.weight"]!, stride: .init(1), padding: .init(1))
             + m["\(prefix).conv1.bias"]!.reshaped([1, 1, 1, C])
-        h = gnOracle(h, "\(prefix).norm2")
+        h = try gnOracle(h, "\(prefix).norm2")
         h = silu(h)
         h = conv2d(h, m["\(prefix).conv2.weight"]!, stride: .init(1), padding: .init(1))
             + m["\(prefix).conv2.bias"]!.reshaped([1, 1, 1, C])
@@ -409,15 +446,15 @@ extension DirectVAE {
         t1: MTLBuffer, q: MTLBuffer, k: MTLBuffer, v: MTLBuffer, scores: MTLBuffer,
         HW: Int, C: Int
     ) throws {
-        encodeGroupNormAct(enc, x: x, gamma: try w("\(prefix).group_norm.weight"),
+        try encodeGroupNormAct(enc, x: x, gamma: try w("\(prefix).group_norm.weight"),
                            beta: try w("\(prefix).group_norm.bias"), y: t1,
                            HW: HW, C: C, silu: false)
         try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_q.weight"), d: q, m: HW, n: C, k: C, transB: true)
-        encodeBiasAct(enc, x: q, bias: try w("\(prefix).to_q.bias"), HW: HW, C: C, silu: false)
+        try encodeBiasAct(enc, x: q, bias: try w("\(prefix).to_q.bias"), HW: HW, C: C, silu: false)
         try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_k.weight"), d: k, m: HW, n: C, k: C, transB: true)
-        encodeBiasAct(enc, x: k, bias: try w("\(prefix).to_k.bias"), HW: HW, C: C, silu: false)
+        try encodeBiasAct(enc, x: k, bias: try w("\(prefix).to_k.bias"), HW: HW, C: C, silu: false)
         try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_v.weight"), d: v, m: HW, n: C, k: C, transB: true)
-        encodeBiasAct(enc, x: v, bias: try w("\(prefix).to_v.bias"), HW: HW, C: C, silu: false)
+        try encodeBiasAct(enc, x: v, bias: try w("\(prefix).to_v.bias"), HW: HW, C: C, silu: false)
         try encodeSteelGemm(enc, a: q, b: k, d: scores, m: HW, n: HW, k: C, transB: true)
         // softmax rows with scale 1/√C
         enc.setComputePipelineState(softmaxPSO)
@@ -432,7 +469,7 @@ extension DirectVAE {
             threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
         try encodeSteelGemm(enc, a: scores, b: v, d: t1, m: HW, n: C, k: HW, transB: false)
         try encodeSteelGemm(enc, a: t1, b: try w("\(prefix).to_out.weight"), d: q, m: HW, n: C, k: C, transB: true)
-        encodeBiasAct(enc, x: q, bias: try w("\(prefix).to_out.bias"), HW: HW, C: C, silu: false)
+        try encodeBiasAct(enc, x: q, bias: try w("\(prefix).to_out.bias"), HW: HW, C: C, silu: false)
         encodeAdd(enc, a: x, b: q, y: y, n: HW * C)
     }
 }
@@ -470,24 +507,24 @@ public enum DirectVAEMidSpike {
 
         let raw = try MLX.loadArrays(url: smallDecoderFile)
         let m = try CompVisVAEMapper.remap(raw)
-        func gnOracle(_ t: MLXArray, _ p: String) -> MLXArray {
+        func gnOracle(_ t: MLXArray, _ p: String) throws -> MLXArray {
             let gn = GroupNorm(groupCount: 32, dimensions: C, eps: 1e-6, affine: true, pytorchCompatible: true)
-            try! gn.update(parameters: ModuleParameters.unflattened(
+            try gn.update(parameters: ModuleParameters.unflattened(
                 ["weight": m["\(p).weight"]!, "bias": m["\(p).bias"]!]), verify: [.all])
             return gn(t)
         }
-        func resnetOracle(_ input: MLXArray, _ p: String) -> MLXArray {
-            var h = silu(gnOracle(input, "\(p).norm1"))
+        func resnetOracle(_ input: MLXArray, _ p: String) throws -> MLXArray {
+            var h = silu(try gnOracle(input, "\(p).norm1"))
             h = conv2d(h, m["\(p).conv1.weight"]!, stride: .init(1), padding: .init(1))
                 + m["\(p).conv1.bias"]!.reshaped([1, 1, 1, C])
-            h = silu(gnOracle(h, "\(p).norm2"))
+            h = silu(try gnOracle(h, "\(p).norm2"))
             h = conv2d(h, m["\(p).conv2.weight"]!, stride: .init(1), padding: .init(1))
                 + m["\(p).conv2.bias"]!.reshaped([1, 1, 1, C])
             return h + input
         }
-        func attnOracle(_ input: MLXArray) -> MLXArray {
+        func attnOracle(_ input: MLXArray) throws -> MLXArray {
             let p = "decoder.mid_block.attentions.0"
-            let normed = gnOracle(input, "\(p).group_norm").reshaped([hw, C])
+            let normed = try gnOracle(input, "\(p).group_norm").reshaped([hw, C])
             let q = matmul(normed, m["\(p).to_q.weight"]!.transposed()) + m["\(p).to_q.bias"]!
             let k = matmul(normed, m["\(p).to_k.weight"]!.transposed()) + m["\(p).to_k.bias"]!
             let v = matmul(normed, m["\(p).to_v.weight"]!.transposed()) + m["\(p).to_v.bias"]!
@@ -497,9 +534,9 @@ public enum DirectVAEMidSpike {
             out = matmul(out, m["\(p).to_out.weight"]!.transposed()) + m["\(p).to_out.bias"]!
             return input + out.reshaped([1, H, W, C])
         }
-        var h = resnetOracle(x, "decoder.mid_block.resnets.0")
-        h = attnOracle(h)
-        let oracle = resnetOracle(h, "decoder.mid_block.resnets.1")
+        var h = try resnetOracle(x, "decoder.mid_block.resnets.0")
+        h = try attnOracle(h)
+        let oracle = try resnetOracle(h, "decoder.mid_block.resnets.1")
         eval(oracle)
 
         let xData = x.asData(noCopy: false)
@@ -581,7 +618,7 @@ extension DirectVAE {
             threadsPerThreadgroup: MTLSize(width: min(C, 64), height: 4, depth: 1))
         try encodeConv(enc, x: t, wt: try w("\(prefix).conv.weight"), y: y,
                        H: 2 * H, W: 2 * W, C: C, O: C, k: 3)
-        encodeBiasAct(enc, x: y, bias: try w("\(prefix).conv.bias"), HW: 4 * H * W, C: C, silu: false)
+        try encodeBiasAct(enc, x: y, bias: try w("\(prefix).conv.bias"), HW: 4 * H * W, C: C, silu: false)
     }
 
     /// post_quant_conv → conv_in → mid → 4 up blocks → GN+SiLU → conv_out.
@@ -598,10 +635,10 @@ extension DirectVAE {
         var H = H8, W = W8
         try encodeConv(enc, x: z, wt: try w("post_quant_conv.weight"), y: a,
                        H: H, W: W, C: 32, O: 32, k: 1)
-        encodeBiasAct(enc, x: a, bias: try w("post_quant_conv.bias"), HW: H * W, C: 32, silu: false)
+        try encodeBiasAct(enc, x: a, bias: try w("post_quant_conv.bias"), HW: H * W, C: 32, silu: false)
         try encodeConv(enc, x: a, wt: try w("decoder.conv_in.weight"), y: b,
                        H: H, W: W, C: 32, O: 384, k: 3)
-        encodeBiasAct(enc, x: b, bias: try w("decoder.conv_in.bias"), HW: H * W, C: 384, silu: false)
+        try encodeBiasAct(enc, x: b, bias: try w("decoder.conv_in.bias"), HW: H * W, C: 384, silu: false)
         try encodeMid(enc, x: b, y: a, t1: t1, t2: t2, t3: t3, t4: t4,
                       scores: scores, H: H, W: W, C: 384)
         var cur = a, alt = b
@@ -621,12 +658,12 @@ extension DirectVAE {
                 W *= 2
             }
         }
-        encodeGroupNormAct(enc, x: cur, gamma: try w("decoder.conv_norm_out.weight"),
+        try encodeGroupNormAct(enc, x: cur, gamma: try w("decoder.conv_norm_out.weight"),
                            beta: try w("decoder.conv_norm_out.bias"), y: alt,
                            HW: H * W, C: 96, silu: true)
         try encodeConv(enc, x: alt, wt: try w("decoder.conv_out.weight"), y: rgb,
                        H: H, W: W, C: 96, O: 3, k: 3)
-        encodeBiasAct(enc, x: rgb, bias: try w("decoder.conv_out.bias"), HW: H * W, C: 3, silu: false)
+        try encodeBiasAct(enc, x: rgb, bias: try w("decoder.conv_out.bias"), HW: H * W, C: 3, silu: false)
     }
 }
 
@@ -813,9 +850,9 @@ public enum DirectVAETiledSpike {
             smallDecoderFile: smallDecoderDirectory.appendingPathComponent("small_decoder.safetensors"),
             metallibURL: metallibURL)
         let t0 = CFAbsoluteTimeGetCurrent()
-        let direct = Flux2VAE.decodeLatentsTiled(
+        let direct = try Flux2VAE.decodeLatentsTiled(
             latents,
-            decode: { tile in try! vae.decodeTileNCHW(tile) },
+            decode: { tile in try vae.decodeTileNCHW(tile) },
             config: .current)
         eval(direct)
         let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
@@ -875,6 +912,8 @@ extension DirectVAE {
         a: MTLBuffer, b: MTLBuffer, d: MTLBuffer,
         m: Int, n: Int, k: Int, transB: Bool
     ) throws {
+        try DirectTensorValidation.requireBuffer(
+            b, floatCount: n * k, name: b.label ?? "matrix weight")
         let bm = 64
         let bn = transB ? 32 : 64
         let bk = transB ? 32 : 16
@@ -956,10 +995,10 @@ public enum DirectVAEProfileSpike {
         try stage("post_quant+conv_in") { enc in
             try vae.encodeConv(enc, x: zBuf, wt: try vae.w("post_quant_conv.weight"), y: a,
                                H: H, W: W, C: 32, O: 32, k: 1)
-            vae.encodeBiasAct(enc, x: a, bias: try vae.w("post_quant_conv.bias"), HW: H * W, C: 32, silu: false)
+            try vae.encodeBiasAct(enc, x: a, bias: try vae.w("post_quant_conv.bias"), HW: H * W, C: 32, silu: false)
             try vae.encodeConv(enc, x: a, wt: try vae.w("decoder.conv_in.weight"), y: b,
                                H: H, W: W, C: 32, O: 384, k: 3)
-            vae.encodeBiasAct(enc, x: b, bias: try vae.w("decoder.conv_in.bias"), HW: H * W, C: 384, silu: false)
+            try vae.encodeBiasAct(enc, x: b, bias: try vae.w("decoder.conv_in.bias"), HW: H * W, C: 384, silu: false)
         }
         try stage("mid (r·attn·r)") { enc in
             try vae.encodeMid(enc, x: b, y: a, t1: t1, t2: t2, t3: t3, t4: t4,
@@ -988,12 +1027,12 @@ public enum DirectVAEProfileSpike {
             }
         }
         try stage("tail GN+conv_out") { enc in
-            vae.encodeGroupNormAct(enc, x: cur, gamma: try vae.w("decoder.conv_norm_out.weight"),
+            try vae.encodeGroupNormAct(enc, x: cur, gamma: try vae.w("decoder.conv_norm_out.weight"),
                                    beta: try vae.w("decoder.conv_norm_out.bias"), y: alt,
                                    HW: H * W, C: 96, silu: true)
             try vae.encodeConv(enc, x: alt, wt: try vae.w("decoder.conv_out.weight"), y: rgbBuf,
                                H: H, W: W, C: 96, O: 3, k: 3)
-            vae.encodeBiasAct(enc, x: rgbBuf, bias: try vae.w("decoder.conv_out.bias"), HW: H * W, C: 3, silu: false)
+            try vae.encodeBiasAct(enc, x: rgbBuf, bias: try vae.w("decoder.conv_out.bias"), HW: H * W, C: 3, silu: false)
         }
         return report
     }
@@ -1029,7 +1068,7 @@ public enum DirectVAEMicroSpike {
         let g0 = try vae.w("decoder.up_blocks.3.resnets.0.norm1.weight")
         let b0 = try vae.w("decoder.up_blocks.3.resnets.0.norm1.bias")
         try time("groupnorm+silu 192ch") { enc in
-            vae.encodeGroupNormAct(enc, x: a, gamma: g0, beta: b0, y: b, HW: hw, C: 192, silu: true)
+            try vae.encodeGroupNormAct(enc, x: a, gamma: g0, beta: b0, y: b, HW: hw, C: 192, silu: true)
         }
         let cw = try vae.w("decoder.up_blocks.3.resnets.1.conv1.weight")  // 96→96
         try time("conv3x3 96→96") { enc in
@@ -1051,7 +1090,7 @@ public enum DirectVAEMicroSpike {
         }
         let bias = try vae.w("decoder.up_blocks.3.resnets.1.conv1.bias")
         try time("bias+silu 96ch") { enc in
-            vae.encodeBiasAct(enc, x: a, bias: bias, HW: hw, C: 96, silu: true)
+            try vae.encodeBiasAct(enc, x: a, bias: bias, HW: hw, C: 96, silu: true)
         }
         try time("add 96ch") { enc in
             vae.encodeAdd(enc, a: a, b: a, y: b, n: hw * 96)
@@ -1071,6 +1110,8 @@ extension DirectVAE {
         guard let mean = arrays["bn.running_mean"], let v = arrays["bn.running_var"] else {
             throw DirectQmmSpike.SpikeError.missingTensor("bn stats")
         }
+        try DirectTensorValidation.requireShape(mean, [128], name: "bn.running_mean")
+        try DirectTensorValidation.requireShape(v, [128], name: "bn.running_var")
         bnMean = mean.asType(.float32).reshaped([1, -1, 1, 1])
         bnStd = sqrt(v.asType(.float32).reshaped([1, -1, 1, 1]) + 1e-4)
         eval(bnMean!, bnStd!)
@@ -1083,12 +1124,18 @@ extension DirectVAE {
         guard let mean = bnMean, let std = bnStd else {
             throw DirectQmmSpike.SpikeError.missingTensor("bn stats not loaded")
         }
+        guard spatial.ndim == 4, spatial.dim(0) == 1, spatial.dim(1) == 128,
+              spatial.dim(2) > 0, spatial.dim(3) > 0
+        else {
+            throw DirectQmmSpike.SpikeError.invalidTensor(
+                "packed VAE input expected [1, 128, h, w], got \(spatial.shape)")
+        }
         let denormed = spatial.asType(.float32) * std + mean
         let latents = Flux2VAE.unpatchify(denormed)
         eval(latents)
         if tileConfig.shouldTile(height: latents.dim(2), width: latents.dim(3)) {
-            return Flux2VAE.decodeLatentsTiled(
-                latents, decode: { tile in try! self.decodeTileNCHW(tile) },
+            return try Flux2VAE.decodeLatentsTiled(
+                latents, decode: { tile in try self.decodeTileNCHW(tile) },
                 config: tileConfig)
         }
         return try decodeTileNCHW(latents)

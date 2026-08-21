@@ -9,11 +9,13 @@ public struct ImageAnalysisReport: Sendable, Codable, Equatable {
 
     public var technical: TechnicalQuality.Metrics
     public var reference: ReferenceCompare.Metrics?
+    public var faceRegion: FaceRegionCompare.Metrics?
     public var promptAlignment: PromptAlignment.Metrics
     /// CLIP / Vision semantic prompt–image score (P1).
     public var semantic: SemanticAlignment.Metrics?
     /// I2I strength used when generating (P2 strength-aware gates).
     public var i2iStrength: Float?
+    public var vaeTileConfiguration: VAETileEvaluationConfig?
     /// Filled after multimodal vision review (optional).
     public var vision: VisionReview.Assessment?
 
@@ -36,8 +38,8 @@ public struct ImageAnalysisReport: Sendable, Codable, Equatable {
 }
 
 public enum ImageAnalysisReportBuilder {
-    /// Schema 1.4: unstructured-garbage hard fail (TV-static / f16 overflow).
-    public static let schemaVersion = "1.4"
+    /// Schema 1.5: VAE tile provenance and structured detector state.
+    public static let schemaVersion = "1.5"
 
     public static func build(
         imagePath: String,
@@ -45,11 +47,26 @@ public enum ImageAnalysisReportBuilder {
         prompt: String?,
         technical: TechnicalQuality.Metrics,
         reference: ReferenceCompare.Metrics?,
+        faceRegion: FaceRegionCompare.Metrics? = nil,
         promptAlignment: PromptAlignment.Metrics,
         semantic: SemanticAlignment.Metrics? = nil,
-        i2iStrength: Float? = nil
+        i2iStrength: Float? = nil,
+        vaeTileConfiguration: VAETileEvaluationConfig? = nil
     ) -> ImageAnalysisReport {
         var findings: [ImageAnalysisReport.Finding] = []
+
+        if let faceRegion,
+           faceRegion.generatedDetectorStatus == .failed
+            || faceRegion.referenceDetectorStatus == .failed {
+            findings.append(.init(
+                severity: .warn, code: "face_detector_failed",
+                message: "Vision face detection failed: \(faceRegion.detectorError ?? "unknown error")."))
+        } else if let faceRegion,
+                  faceRegion.generatedFaceCount == 0 || faceRegion.referenceFaceCount == 0 {
+            findings.append(.init(
+                severity: .info, code: "no_face_detected",
+                message: "Face detector completed but found no comparable face in one or both images."))
+        }
 
         // Technical gates
         // Soft product photos with bokeh can legitimately sit ~40–120; only warn if very soft.
@@ -62,12 +79,12 @@ public enum ImageAnalysisReportBuilder {
                 )
             ))
         }
-        // Imarello VAE auto-tiles when unpatchified spatial ≥ 96 (~768 px). Flag hard seams.
+        // Only score seams when the recorded runtime configuration tiled.
         if technical.expectsVAETiling, technical.tileSeamScore > 3.0 {
             findings.append(.init(
                 severity: .warn, code: "possible_tile_seam",
                 message: String(
-                    format: "Elevated tile-seam score=%.2f (V=%.2f H=%.2f) on ≥768 canvas — check cosine VAE blend / hard 2×2 seams.",
+                    format: "Elevated tile-seam score=%.2f (V=%.2f H=%.2f) on a tiled decode — inspect VAE blend boundaries.",
                     technical.tileSeamScore, technical.tileSeamVertical, technical.tileSeamHorizontal
                 )
             ))
@@ -320,9 +337,11 @@ public enum ImageAnalysisReportBuilder {
             prompt: prompt,
             technical: technical,
             reference: reference,
+            faceRegion: faceRegion,
             promptAlignment: promptAlignment,
             semantic: semantic,
             i2iStrength: i2iStrength,
+            vaeTileConfiguration: vaeTileConfiguration,
             vision: nil,
             findings: findings,
             overallScore: overall,
@@ -336,6 +355,38 @@ public enum ImageAnalysisReportBuilder {
         _ assessment: VisionReview.Assessment
     ) -> ImageAnalysisReport {
         var r = report
+        let expectedMode: VisionReview.Mode = report.referencePath == nil ? .t2i : .i2i
+        func canonical(_ path: String?) -> String? {
+            path.map {
+                URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path
+            }
+        }
+        var identityIssues: [String] = []
+        if assessment.mode != expectedMode { identityIssues.append("mode") }
+        if canonical(assessment.imagePath) != canonical(report.imagePath) {
+            identityIssues.append("image_path")
+        }
+        if canonical(assessment.referencePath) != canonical(report.referencePath) {
+            identityIssues.append("reference_path")
+        }
+        if assessment.prompt != report.prompt { identityIssues.append("prompt") }
+        let missingAnswers = VisionReview.checklist(mode: expectedMode).compactMap { question in
+            let answer = assessment.answers[question.id]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return answer.isEmpty ? question.id : nil
+        }
+        if !missingAnswers.isEmpty {
+            identityIssues.append("missing_answers=\(missingAnswers.joined(separator: ","))")
+        }
+        guard identityIssues.isEmpty else {
+            r.version = schemaVersion
+            r.findings.append(.init(
+                severity: .fail,
+                code: "vision_assessment_identity_mismatch",
+                message: "Vision assessment was not merged: \(identityIssues.joined(separator: ", "))."))
+            r.summary = "Vision merge rejected — assessment identity/checklist did not match the pixel report."
+            return r
+        }
         r.vision = assessment
         r.version = schemaVersion
 

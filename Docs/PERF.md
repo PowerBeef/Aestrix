@@ -77,7 +77,7 @@ Snapshot path (default):
 
 ### `imarello bench-compare BASE CANDIDATE`
 
-Prints % deltas for e2e, denoise/step, encode, decode, peak RSS, peak MLX active. Lower is better.
+Prints directional deltas for e2e, denoise/step, encode, decode, peak RSS, and peak MLX active only when both reports have comparable schema-1.7 provenance, configuration, successful/failed sample counts, and contamination state. `--force` may expose raw deltas, but labels them incomparable and never declares a winner.
 
 ---
 
@@ -119,7 +119,7 @@ With `--with-quality`: `technical_score`, `color_match` from `ImarelloEval` so y
 
 ## Report schema
 
-JSON schema version: **`1.3`** (`BenchReport.schemaVersion`). Optional `trials[].op_profile` when `--op-profile` is set.
+JSON schema version: **`1.7`** (`BenchReport.schemaVersion`). It adds TE/cache identity, model/snapshot/tokenizer/metallib/build provenance, success/failure and contamination counts, and explicit per-trial quality status. Older reports remain decodable but comparison refuses to infer missing provenance. Optional `trials[].op_profile` remains available when `--op-profile` is set.
 
 Snake_case keys. Load with `BenchReportWriter.loadReport`. Fields: `label`, `created_at`, `system`, `config`, `trials[]`, `aggregate`.
 
@@ -906,18 +906,20 @@ Probes showed **DiT completed** (progress `denoising step=4/4`) and OOM was in *
 
 ## Metal 4 (and what Imarello should / should not do)
 
+> **2026-08-21 update:** the original “do not start a custom engine” recommendation below is historical and was superseded by the measured Direct V1 ladder and the user-authorized V2 plan. V2 uses Metal 4 only as a reversible executor under the same deterministic plan/ABI as the legacy executor. It is not a performance claim or the current product selection. Promotion requires identical-input A/B evidence for CPU encoding, wall-clock stages, RSS/engine/MLX memory, reliability, numerical tolerances, pixel evaluation, and direct PNG inspection.
+
 Metal 4 (macOS 26 / iOS 26 era) adds first-class **ML tensors**, **quantized tensor formats + scales**, **Metal Performance Primitives (MPP) / TensorOps**, tighter ML↔graphics encoding, and (on **M5** and successors) **GPU Neural Accelerators** for high-throughput matmul. This host already reports **Metal Support: Metal 4** (e.g. M2 on macOS 26); that is **API generation**, not “has Neural Accelerators.”
 
 ### How Imarello touches Metal today
 
 | Layer | Role |
 |-------|------|
-| **Imarello** | Swift graph: TE / DiT / VAE, staged residency, no hand-written MTLCommandBuffers |
-| **mlx-swift (pinned)** | Array runtime, `QuantizedLinear` / `quantizedMM`, `MLXFast.scaledDotProductAttention`, `compile` |
-| **Cmlx / metallib** | Prebuilt Metal kernels (`Scripts/ensure-metallib.sh` → ~130 MB full lib, not the 3 KB stub) |
+| **Imarello** | Runtime actor plus qualified Direct V1 and an unpromoted V2 plan/executor path; staged residency remains mandatory |
+| **mlx-swift (pinned)** | Compatibility/editing runtime and source of the full named kernel pack, including Steel and inventoried NAX functions |
+| **Cmlx / metallib** | Full no-JIT MLX pack (`Scripts/ensure-metallib.sh`, ~155 MB) plus separate source-built Direct glue/custom artifact (`ensure-direct-metallib.sh`) |
 | **GPU** | Executes fused matmul / SDPA / conv; unified memory |
 
-There is **no separate “Metal 3 code path” in Imarello** to port. Optimization for Metal 4 is almost entirely **“ride a Metal‑4-aware MLX on a capable OS/GPU”**, not rewrite the DiT in raw `MTL4*` APIs.
+There is no Metal 3 compatibility product path to maintain at the 26.2 floor. V2 may replay the same qualified plan through legacy Metal or an isolated Metal 4 executor; profile selection is deterministic before generation. The Metal 4 executor is optional—loader and placement work may ship while it remains unpromoted.
 
 ### What Metal 4 could mean for FLUX.2-klein (in principle)
 
@@ -934,7 +936,7 @@ Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives fo
 
 ### What we should *not* do
 
-1. **Rewrite DiT/VAE as custom Metal 4 kernels in-repo** — duplicates MLX, breaks quant parity, huge maintenance, fights staged `actor` design.  
+1. **Make Metal 4 a mandatory migration gate** — the legacy executor remains valid unless the isolated Metal 4 route passes numerical/reliability gates and cuts M2 compatibility-backend CPU encoding by at least 10%.
 2. **Assume Metal 4 on the OS == free 2× on M2** — API support ≠ Neural Accelerators.  
 3. **Bypass MLX for MPSGraph/Core ML “because Metal 4”** — different weight format, loses community 4-bit packs and Swift porting path.  
 4. **Treat MetalFX as generation quality** — upscalers don’t replace 4-step distilled denoise math.
@@ -945,7 +947,8 @@ Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives fo
 |--------|-----|--------|
 | **Keep full metallib** (`ensure-metallib.sh`) | Avoids JIT thrash / stub kernels; cold vs warm already a measured issue | Ongoing |
 | **Prefer `MLXFast` / fused ops** (already SDPA) | Uses best available Metal kernels MLX ships | Already |
-| **Stay on a deliberate mlx-swift pin; re-validate newer releases** | Metal 4 / M5 TensorOps land in **MLX**, not Imarello | Medium (when Apple bumps Cmlx) |
+| **Stay on the deliberate mlx-swift pin** | The current fork already packages the required NAX qmm and D=128 attention functions; no pin change is justified for V2 | Ongoing |
+| **Qualify the V2 executor shape-by-shape** | Argument-table ABI, constant uploads, residency, allocator reuse, and feedback timing must pass real qmm/attention/full-consumer gates | Active research |
 | **Record GPU chip + OS in bench `SystemSnapshot`** | Separate “M2 Metal 4 API” vs “M5 Neural Accel” baselines | Small harness tweak |
 | **Optional: lower-res generate + MetalFX/display upscale** | Latency UX on Tier L; not a substitute for DiT opts | Product later |
 | **Profile with Metal capture** (`MTL_CAPTURE_ENABLED`, MLX metal debugger) | See if denoise is ALU-bound vs bandwidth on this GPU | Occasional |
@@ -960,13 +963,9 @@ Apple’s ML research note: MLX uses TensorOps + Metal Performance Primitives fo
 
 ### Verdict
 
-**Optimizing “for Metal 4” in Imarello ≠ writing Metal 4 code.** It means:
+Metal 4 is one candidate executor, not the architecture. The stable architecture is the deterministic plan, centralized ABI, strict artifact/loader validation, explicit lifetimes, and preflight-selected compatibility profile. Keep the M2/Steel route universal; gate NAX/TensorOps by exact shape and device evidence; and retain V1 whenever V2 does not meet the full consumer and end-to-end bars.
 
-1. Stay on the **MLX Metal backend** that adopts MPP / quant tensors / Neural Accelerators.  
-2. Keep graphs **compile- and quant-friendly** (no host `item()` in hot paths — already fixed).  
-3. Treat **M5+** as the big free win for denoise when available; on **M2**, Metal 4 is already the runtime—further gains are algorithmic / residency / model size, not a new Metal dialect.
-
-Do **not** start a parallel custom-Metal DiT. Do **track mlx-swift upgrades** and add GPU model to bench labels when comparing machines.
+Current V2 targets—≤450/360/280 MiB raw 1024² scratch for placement tiers A/B/C, ≤2.30 GiB Tier-B engine-owned memory, and ≥10% M2 CPU-encoding reduction for Metal 4—are **research targets, not measurements**. The latest measured product references remain 20.57 s at 512² and 60.34 s at 1024² until a fresh randomized W1/T≥3 A/B bundle replaces them.
 
 ---
 

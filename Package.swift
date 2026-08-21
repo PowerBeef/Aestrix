@@ -26,7 +26,7 @@ let package = Package(
     dependencies: [
         // Pinned exact deliberately: kernel/runtime ABI must match the metallib
         // Scripts/ensure-metallib.sh builds. Bump only with validation
-        // (CLAUDE.md), then rebuild the metallib (the script detects the bump).
+        // (AGENTS.md), then rebuild the metallib (the script detects the bump).
         // Imarello fork of mlx-swift: core v0.32.1 base build (see the fork's
         // imarello/core-0.32.1 branch; upstream is stuck pre-0.32 — issue #446).
         .package(url: "https://github.com/PowerBeef/mlx-swift.git", revision: "e5b42df9d955f3fd6c543f04a5cee9a8882beb17"),
@@ -36,6 +36,10 @@ let package = Package(
         .target(
             name: "ImarelloCore",
             dependencies: []
+        ),
+        .target(
+            name: "ImarelloPlan",
+            dependencies: ["ImarelloCore"]
         ),
         .target(
             name: "ImarelloWeights",
@@ -48,6 +52,7 @@ let package = Package(
             name: "ImarelloDirect",
             dependencies: [
                 "ImarelloCore",
+                "ImarelloPlan",
                 "ImarelloWeights",
                 "ImarelloText",
                 "ImarelloDiT",
@@ -55,7 +60,8 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
-            ]
+            ],
+            exclude: ["Shaders"]
         ),
         .target(
             name: "ImarelloText",
@@ -135,15 +141,15 @@ let package = Package(
                 "ImarelloDirect",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
-            // Placeholder default Metal library for MLX when using `swift build`
-            // (xcodebuild may also emit a fuller metallib; colocated mlx.metallib is enough for JIT).
-            resources: [
-                .copy("Resources/mlx.metallib"),
-            ]
+            exclude: ["Resources/mlx.metallib"]
         ),
         .testTarget(
             name: "ImarelloCoreTests",
             dependencies: ["ImarelloCore", "ImarelloWeights", "ImarelloRuntime"]
+        ),
+        .testTarget(
+            name: "ImarelloPlanTests",
+            dependencies: ["ImarelloPlan", "ImarelloCore"]
         ),
         .testTarget(
             name: "ImarelloTextTests",
@@ -183,6 +189,14 @@ let package = Package(
             name: "ImarelloVAETests",
             dependencies: [
                 "ImarelloVAE",
+                "ImarelloCore",
+                .product(name: "MLX", package: "mlx-swift"),
+            ]
+        ),
+        .testTarget(
+            name: "ImarelloDirectTests",
+            dependencies: [
+                "ImarelloDirect",
                 "ImarelloCore",
                 .product(name: "MLX", package: "mlx-swift"),
             ]

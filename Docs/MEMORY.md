@@ -22,6 +22,14 @@ Peak ≈ `max(TE, DiT+acts, VAE)` + context + latents + OS slack.
 
 I2I adds VAE encode (then unload) before TE/DiT.
 
+### Direct V2 accounting and targets
+
+V2 reports separate scratch allocation/peak, persistent weights, current conditioning, independent bridge buffers, externally owned mappings, and cumulative uploads. `ownedBytes` is retained only as a compatibility view of current engine-live memory; it is no longer a monotonic upload counter.
+
+The deterministic legacy placement currently reproduces raw DiT scratch of **180 MiB at 512²**, **318.75 MiB at 768²**, and **513 MiB at 1024²**. These are placement reproductions, not new peak-RSS measurements. Tier A/B/C goals (≤450/360/280 MiB raw 1024² scratch, with Tier B ≤2.30 GiB total engine-owned memory) remain research promotion gates until their streaming schedules are implemented and measured. Debug qualification can disable aliasing and use independent placement verification/canaries.
+
+V2 bridge ownership preserves staged residency: TE output must outlive TE weights, final latent must outlive DiT weights, and every mapped region/address-bound buffer remains retained until GPU completion. The V2 prompt cache is an isolated BF16 `[1,512,7680]` namespace and cannot reuse V1 entries with a mismatched fingerprint.
+
 ## Policies
 
 | Policy | Behavior |

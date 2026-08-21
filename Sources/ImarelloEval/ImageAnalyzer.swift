@@ -15,6 +15,7 @@ public enum ImageAnalyzer {
         public var preferCoreMLCLIP: Bool
         /// Skip semantic/CLIP path (faster pure pixel).
         public var skipSemantic: Bool
+        public var vaeTileConfiguration: VAETileEvaluationConfig
 
         public init(
             prompt: String? = nil,
@@ -22,7 +23,8 @@ public enum ImageAnalyzer {
             maxAnalysisSide: Int = 1024,
             i2iStrength: Float? = nil,
             preferCoreMLCLIP: Bool = true,
-            skipSemantic: Bool = false
+            skipSemantic: Bool = false,
+            vaeTileConfiguration: VAETileEvaluationConfig = .productDefault
         ) {
             self.prompt = prompt
             self.referenceURL = referenceURL
@@ -30,6 +32,7 @@ public enum ImageAnalyzer {
             self.i2iStrength = i2iStrength
             self.preferCoreMLCLIP = preferCoreMLCLIP
             self.skipSemantic = skipSemantic
+            self.vaeTileConfiguration = vaeTileConfiguration
         }
     }
 
@@ -37,13 +40,18 @@ public enum ImageAnalyzer {
     public static func analyze(imageURL: URL, options: Options = Options()) throws -> ImageAnalysisReport {
         let (pixels, cgImage) = try PixelBuffer.loadWithCGImage(
             url: imageURL, maxSide: options.maxAnalysisSide)
-        let technical = TechnicalQuality.analyze(pixels)
+        let technical = TechnicalQuality.analyze(
+            pixels, vaeTileConfiguration: options.vaeTileConfiguration)
 
         var refMetrics: ReferenceCompare.Metrics?
+        var faceMetrics: FaceRegionCompare.Metrics?
         var refPath: String?
         if let refURL = options.referenceURL {
             let ref = try PixelBuffer.load(url: refURL, maxSide: options.maxAnalysisSide)
             refMetrics = ReferenceCompare.compare(generated: pixels, reference: ref)
+            faceMetrics = try? FaceRegionCompare.compare(
+                generatedURL: imageURL, referenceURL: refURL,
+                maxSide: options.maxAnalysisSide)
             refPath = refURL.path
         }
 
@@ -67,9 +75,11 @@ public enum ImageAnalyzer {
             prompt: options.prompt,
             technical: technical,
             reference: refMetrics,
+            faceRegion: faceMetrics,
             promptAlignment: promptMetrics,
             semantic: semantic,
-            i2iStrength: options.i2iStrength
+            i2iStrength: options.i2iStrength,
+            vaeTileConfiguration: options.vaeTileConfiguration
         )
     }
 }

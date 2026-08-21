@@ -7,6 +7,11 @@ import Vision
 /// The largest detected face is compared in each image after a modest crop expansion.
 /// This is an image-quality signal, not a biometric identity classifier.
 public enum FaceRegionCompare {
+    public enum DetectorStatus: String, Sendable, Codable, Equatable {
+        case succeeded
+        case failed
+    }
+
     public struct Metrics: Sendable, Codable, Equatable {
         public var generatedFaceCount: Int
         public var referenceFaceCount: Int
@@ -14,6 +19,9 @@ public enum FaceRegionCompare {
         public var msSSIM: Float?
         public var perceptualScore: Float?
         public var fidelityScore: Float?
+        public var generatedDetectorStatus: DetectorStatus?
+        public var referenceDetectorStatus: DetectorStatus?
+        public var detectorError: String?
     }
 
     public static func compare(
@@ -26,8 +34,21 @@ public enum FaceRegionCompare {
             url: generatedURL, maxSide: maxSide)
         let (_, referenceImage) = try PixelBuffer.loadWithCGImage(
             url: referenceURL, maxSide: maxSide)
-        let generatedFaces = detectFaces(in: generatedImage)
-        let referenceFaces = detectFaces(in: referenceImage)
+        let generatedDetection = detectFaces(in: generatedImage)
+        let referenceDetection = detectFaces(in: referenceImage)
+        let generatedFaces = generatedDetection.boxes
+        let referenceFaces = referenceDetection.boxes
+        let detectorErrors = [generatedDetection.error, referenceDetection.error]
+            .compactMap { $0 }
+        if !detectorErrors.isEmpty {
+            return Metrics(
+                generatedFaceCount: generatedFaces.count,
+                referenceFaceCount: referenceFaces.count,
+                ssim: nil, msSSIM: nil, perceptualScore: nil, fidelityScore: nil,
+                generatedDetectorStatus: generatedDetection.status,
+                referenceDetectorStatus: referenceDetection.status,
+                detectorError: detectorErrors.joined(separator: "; "))
+        }
 
         guard let generatedBox = primaryFace(generatedFaces),
               let referenceBox = primaryFace(referenceFaces),
@@ -40,7 +61,10 @@ public enum FaceRegionCompare {
                 ssim: nil,
                 msSSIM: nil,
                 perceptualScore: nil,
-                fidelityScore: nil
+                fidelityScore: nil,
+                generatedDetectorStatus: .succeeded,
+                referenceDetectorStatus: .succeeded,
+                detectorError: nil
             )
         }
 
@@ -54,18 +78,23 @@ public enum FaceRegionCompare {
             ssim: metrics.ssim,
             msSSIM: metrics.msSSIM,
             perceptualScore: metrics.perceptualScore,
-            fidelityScore: metrics.fidelityScore
+            fidelityScore: metrics.fidelityScore,
+            generatedDetectorStatus: .succeeded,
+            referenceDetectorStatus: .succeeded,
+            detectorError: nil
         )
     }
 
-    private static func detectFaces(in image: CGImage) -> [CGRect] {
+    private static func detectFaces(
+        in image: CGImage
+    ) -> (boxes: [CGRect], status: DetectorStatus, error: String?) {
         let request = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
             try handler.perform([request])
-            return request.results?.map(\.boundingBox) ?? []
+            return (request.results?.map(\.boundingBox) ?? [], .succeeded, nil)
         } catch {
-            return []
+            return ([], .failed, String(describing: error))
         }
     }
 

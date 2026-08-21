@@ -1,170 +1,227 @@
 import SwiftUI
 
-/// The one instrument grammar for every state: gate, caption, progress, edit
-/// staging, and errors all speak through this glass row — cells flip, nothing
-/// improvises its own chrome.
-struct StatusRow: View {
-    @Environment(StudioModel.self) private var model
-    @Environment(GenerationEngine.self) private var engine
+struct GenerationAccessory: View {
+    @Environment(StudioSession.self) private var session
+    @Environment(AppNavigation.self) private var navigation
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
-    private enum Cell: Equatable {
-        case running(label: String)
-        case error(String)
-        case saved(String)
-        case editStaged(PrintRecord)
-        case gate(GenerationEngine.RunGate)
-        case caption(PrintRecord)
-        case idle
+    var body: some View {
+        Group {
+            if placement == .inline {
+                CompactGenerationActivity(onOpen: openActivity)
+            } else {
+                expanded
+            }
+        }
     }
 
-    private var cell: Cell {
-        if model.isRunning { return .running(label: model.phaseLabel ?? "Developing") }
-        if let message = model.errorMessage { return .error(message) }
-        if let message = model.saveMessage { return .saved(message) }
-        if let staged = model.pendingEdit { return .editStaged(staged) }
-        if engine.gate != .ready { return .gate(engine.gate) }
-        if let record = model.currentPrint { return .caption(record) }
-        return .idle
+    private var expanded: some View {
+        HStack(spacing: ImarelloTheme.Space.sm) {
+            Button(action: openActivity) {
+                HStack(spacing: ImarelloTheme.Space.sm) {
+                    activitySymbol
+                    VStack(alignment: .leading, spacing: ImarelloTheme.Space.xxs) {
+                        Text(title)
+                            .font(.caption.weight(.semibold))
+                            .textCase(.uppercase)
+                            .kerning(0.8)
+                            .foregroundStyle(.secondary)
+                        Text(detail)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(ImarelloTheme.cream)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                    if let run = session.activity.run {
+                        ElapsedReading(since: run.startedAt)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            trailingActions
+        }
+        .padding(.horizontal, ImarelloTheme.Space.md)
+        .padding(.vertical, ImarelloTheme.Space.xs)
     }
 
-    private var stateTag: String {
-        switch cell {
-        case .running: return model.harnessJobID == nil ? "Developing" : "Mac run"
-        case .error: return "Stopped"
-        case .saved: return "Saved"
-        case .editStaged: return "Edit · 0.8"
-        case .gate(.missingWeights): return "No plates"
-        case .gate(.simulator): return "Preview"
-        case .gate(.ready): return "Ready"
-        case .caption: return "Print"
+    private var activitySymbol: some View {
+        Group {
+            switch session.activity {
+            case .running, .stopping:
+                ProgressView()
+            case .completed:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(ImarelloTheme.copper)
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            case .idle:
+                EmptyView()
+            }
+        }
+        .frame(width: 28, height: 28)
+    }
+
+    @ViewBuilder
+    private var trailingActions: some View {
+        switch session.activity {
+        case .running(let run):
+            if run.owner.isUser {
+                Button("Cancel", action: session.cancel)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("generation.cancel")
+            }
+        case .stopping:
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Stopping")
+        case .completed:
+            Button(action: session.dismissActivity) {
+                Image(systemName: "xmark")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Dismiss completion")
+        case .failed(let failure):
+            if failure.owner.isUser, failure.operation != nil {
+                Button("Retry", action: session.retryFailure)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("generation.retry")
+            }
+            Button(action: session.dismissActivity) {
+                Image(systemName: "xmark")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Dismiss error")
+        case .idle:
+            EmptyView()
+        }
+    }
+
+    private var title: String {
+        switch session.activity {
+        case .running(let run), .stopping(let run):
+            return run.owner.isUser
+                ? run.operation?.actionLabel ?? "Creating"
+                : run.owner.label
+        case .completed: return "Image ready"
+        case .failed: return "Stopped"
         case .idle: return "Ready"
         }
     }
 
+    private var detail: String {
+        switch session.activity {
+        case .running, .stopping:
+            return session.phaseLabel ?? "Creating"
+        case .completed(let image, _, _):
+            return image.caption
+        case .failed(let failure):
+            return failure.message
+        case .idle:
+            return "Ready"
+        }
+    }
+
+    private func openActivity() {
+        navigation.showRoot(for: session.activity.destination)
+        session.acknowledgeCompletion()
+    }
+}
+
+struct CompactGenerationActivity: View {
+    @Environment(StudioSession.self) private var session
+    let onOpen: () -> Void
+
     var body: some View {
-        HStack(spacing: ImarelloTheme.Space.sm) {
-            Text(stateTag)
-                .instrumentLabel()
-                .lineLimit(1)
-                .fixedSize()
-
-            reading
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            trailingAction
-        }
-        .padding(.horizontal, ImarelloTheme.Space.md)
-        .padding(.vertical, ImarelloTheme.Space.sm)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: ImarelloTheme.Radius.control, style: .continuous))
-        .animation(.snappy, value: cell)
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private var reading: some View {
-        switch cell {
-        case .running:
-            HStack(spacing: ImarelloTheme.Space.xs) {
-                Text(model.phaseLabel ?? "Developing")
-                    .instrumentReading()
-                    .contentTransition(.numericText())
-                if let started = model.runStartedAt {
-                    ElapsedReading(since: started)
+        HStack(spacing: ImarelloTheme.Space.xs) {
+            Button(action: onOpen) {
+                HStack(spacing: ImarelloTheme.Space.xs) {
+                    compactProgress
+                    Text(compactLabel)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .lineLimit(1)
                 }
+                .contentShape(Rectangle())
             }
-            .transition(.push(from: .bottom))
-        case .error(let message):
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(ImarelloTheme.cream)
-                .lineLimit(2)
-                .transition(.push(from: .bottom))
-        case .saved(let message):
-            Text(message)
-                .instrumentReading()
-                .transition(.push(from: .bottom))
-        case .editStaged(let record):
-            Text("Develops from \(record.caption)")
-                .instrumentReading()
-                .lineLimit(1)
-                .transition(.push(from: .bottom))
-        case .gate(.missingWeights):
-            Text("Sync weights from the Mac")
-                .instrumentReading()
-                .transition(.push(from: .bottom))
-        case .gate(.simulator):
-            Text("Klein develops on device")
-                .instrumentReading()
-                .transition(.push(from: .bottom))
-        case .gate(.ready), .idle:
-            Text("Set a plate and develop")
-                .instrumentReading()
-                .transition(.push(from: .bottom))
-        case .caption(let record):
-            Text(record.caption + (record.mode == "i2i" ? " · edit" : ""))
-                .instrumentReading()
-                .lineLimit(1)
-                .transition(.push(from: .bottom))
-        }
-    }
+            .buttonStyle(.plain)
 
-    @ViewBuilder
-    private var trailingAction: some View {
-        switch cell {
-        case .running:
-            if model.harnessJobID == nil, !model.isStopping {
-                Button {
-                    model.cancel()
-                } label: {
+            if case .running(let run) = session.activity, run.owner.isUser {
+                Button(action: session.cancel) {
                     Image(systemName: "xmark")
-                        .font(.footnote.weight(.semibold))
+                        .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Cancel the run")
+                .accessibilityIdentifier("generation.cancel")
+            } else if case .failed(let failure) = session.activity {
+                if failure.owner.isUser, failure.operation != nil {
+                    Button("Retry", action: session.retryFailure)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("generation.retry")
+                }
+                Button(action: session.dismissActivity) {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Dismiss error")
+            } else if case .completed = session.activity {
+                Button(action: session.dismissActivity) {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Dismiss completion")
+            }
+        }
+        .padding(.leading, ImarelloTheme.Space.md)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var compactProgress: some View {
+        switch session.activity {
+        case .running(let run), .stopping(let run):
+            if run.progress.phase == .denoising, run.progress.totalSteps > 0 {
+                ProgressView(
+                    value: Double(min(run.progress.totalSteps, max(1, run.progress.step + 1))),
+                    total: Double(run.progress.totalSteps)
+                )
+                .frame(width: 44)
             } else {
                 ProgressView()
                     .controlSize(.small)
             }
-        case .error:
-            HStack(spacing: ImarelloTheme.Space.sm) {
-                if model.lastAction != nil {
-                    Button("Try Again") {
-                        model.errorMessage = nil
-                        model.retryLast()
-                    }
-                    .font(.footnote.weight(.semibold))
-                }
-                Button {
-                    model.errorMessage = nil
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.footnote.weight(.semibold))
-                }
-                .accessibilityLabel("Dismiss error")
-            }
-        case .editStaged:
-            Button {
-                model.pendingEdit = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.semibold))
-            }
-            .accessibilityLabel("Cancel edit")
-        case .saved, .gate, .caption, .idle:
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(ImarelloTheme.copper)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        case .idle:
             EmptyView()
+        }
+    }
+
+    private var compactLabel: String {
+        switch session.activity {
+        case .running, .stopping: return session.phaseLabel ?? "Creating"
+        case .completed: return "Image ready"
+        case .failed: return "Stopped"
+        case .idle: return "Ready"
         }
     }
 }
 
-/// Ticking seconds since the run started, tabular so the row never jitters.
 private struct ElapsedReading: View {
     let since: Date
 
     var body: some View {
         TimelineView(.periodic(from: since, by: 1)) { context in
-            let seconds = max(0, Int(context.date.timeIntervalSince(since)))
-            Text("\(seconds) s")
-                .font(.subheadline)
+            Text("\(max(0, Int(context.date.timeIntervalSince(since)))) s")
+                .font(.footnote)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .contentTransition(.numericText())

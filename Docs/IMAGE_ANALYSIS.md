@@ -7,7 +7,7 @@
 
 **Multimodal agents** should **supplement** pixel metrics: open the PNG, answer the vision checklist, merge into the report.
 
-Schema version: **1.4** (semantic/CLIP + LPIPS-lite + strength-aware I2I + `unstructured_garbage` hard fail).
+Schema version: **1.5** (VAE tile provenance and structured detector status added to the existing semantic/CLIP, LPIPS-lite, strength-aware I2I, and `unstructured_garbage` gates). Older reports remain decodable.
 
 ---
 
@@ -56,7 +56,7 @@ Exit codes:
 | `noise_proxy` | High-frequency residual after blur |
 | `luminance_entropy` | Histogram richness |
 | `spatial_autocorr_lag2` | Horizontal lag-2 luminance correlation (1 ≈ structured, ~0 ≈ speckle) |
-| `expects_vae_tiling` | `true` when max(side) ≥ 768 (Imarello auto-tiles decode) |
+| `expects_vae_tiling` | Derived from the report's recorded VAE threshold/scale (product default: 1024 and above) |
 | `tile_seam_score` / `_vertical` / `_horizontal` | Midline discontinuity / mean gradient (clean often &lt;2.5) |
 | `technical_score` | 0–100 composite (includes mild seam penalty when tiling expected). A flat unclipped field scores **~40** (vacuous noise+clip+seam terms); in `Float` that value is `40.nextDown`, so a `>= 40` floor can never pass a solid-color fixture. |
 
@@ -124,8 +124,8 @@ Pass `--strength` to `analyze-image` (or automatic after `i2i --analyze`):
 | Code | Severity | Notes |
 |------|----------|--------|
 | `color_mismatch` | fail or warn | Fail if one color intent; warn if multi-color |
-| `possible_tile_seam` | warn | seam_score &gt; 3 on ≥768 canvas |
-| `vae_tile_expected` | info | ≥768 canvas; report seam_score |
+| `possible_tile_seam` | warn | seam_score &gt; 3 when recorded VAE configuration says decode tiled |
+| `vae_tile_expected` | info | recorded VAE configuration says decode tiled; report seam_score |
 | `soft_focus` / `highlight_clip` / `low_contrast` | warn | Technical gates |
 | `unstructured_garbage` | **fail** | White-noise snow **or** VAE-decoded rainbow speckle (sharp ≥ 1000, no hue lock). Catches f16-overflow static the old harness missed. |
 | `high_structure_fidelity` / `low_structure_fidelity` | info | I2I SSIM vs reference |
@@ -139,10 +139,10 @@ Pass `--strength` to `analyze-image` (or automatic after `i2i --analyze`):
 |----------------------------|---------------------|
 | **1024² default** | `maxAnalysisSide` default **1024** — full-res analysis for default canvas |
 | **Steel fused FA** (DiT) | Does **not** change PNG path; no metric change required |
-| **VAE cosine-tiled decode** (spatial ≥ 96 ≈ **768 px**) | **`expects_vae_tiling` + `tile_seam_*`** detect hard seams |
+| **VAE cosine-tiled decode** (recorded threshold; product default 128 latent pixels ≈ **1024 px**) | **`expects_vae_tiling` + `tile_seam_*`** detect hard seams without penalizing untiled 768–1008 outputs |
 | **Decode-only VAE** | N/A to PNG metrics |
 | **f16 QKV long seq** | Quality via vision / technical; no direct metric |
-| Bench `--with-quality` | Still uses `technical_score` + `color_match` only |
+| Bench `--with-quality` | Records `succeeded`, `failed`, or `not_applicable`; requested analysis cannot disappear silently |
 
 Pixel eval is **intentionally independent of MLX** so CI/agents work without weights. It scores **output PNGs**, not intermediate latents.
 
@@ -171,7 +171,7 @@ Sources: [PrunaAI objective metrics](https://huggingface.co/blog/PrunaAI/objecti
 4. **Vision layer is agent-manual** — not automated; CI stays pixel-only (by design).  
 5. **Color gate false positives** — multi-object multi-color scenes; mitigated (warn) but not solved.  
 6. **T2I pixel loop exists** — `Scripts/eval-regression.sh` (eval-prompts × seeds 42/0/7 at 512²). No golden *image* set.  
-7. **Tile seams** — instrumented (`seam_score`); cosine VAE tiles still expected at ≥768.  
+7. **Tile seams** — instrumented (`seam_score`) and keyed to recorded runtime configuration; current product fallback begins at 1024.
 
 ### Recommended roadmap (priority)
 

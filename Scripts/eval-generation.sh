@@ -25,12 +25,13 @@ REFERENCE=""
 MODE=""
 JSON_OUT=""
 FAIL_GATE=0
+STRENGTH=""
 
 usage() {
   cat <<'EOF'
 Usage:
   Scripts/eval-generation.sh <image.png> --prompt "..." [--reference src.png] [--mode t2i|i2i]
-                             [--json report.json] [--fail-on-pixel-gate]
+                             [--strength 0.8] [--json report.json] [--fail-on-pixel-gate]
 
 Runs imarello analyze-image (text report + JSON) and writes a vision brief sidecar.
 
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --prompt) PROMPT="${2:-}"; shift 2 ;;
     --reference) REFERENCE="${2:-}"; shift 2 ;;
     --mode) MODE="${2:-}"; shift 2 ;;
+    --strength) STRENGTH="${2:-}"; shift 2 ;;
     --json) JSON_OUT="${2:-}"; shift 2 ;;
     --fail-on-pixel-gate) FAIL_GATE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -62,14 +64,9 @@ if [[ ! -f "$IMAGE" ]]; then
 fi
 
 if [[ ! -x "$IMARELLO" ]]; then
-  if pgrep -x xcodebuild >/dev/null 2>&1 || pgrep -x imarello >/dev/null 2>&1; then
-    echo "error: imarello binary missing and a Metal owner is active; build later" >&2
-    echo "       (swift build -c release && ./Scripts/ensure-metallib.sh)" >&2
-    exit 1
-  fi
-  echo "building imarello…"
-  (cd "$ROOT" && swift build --product imarello)
-  IMARELLO="$ROOT/.build/debug/imarello"
+  echo "error: imarello binary missing: $IMARELLO" >&2
+  echo "       evaluation scripts never launch builds; build it explicitly under the single-owner workflow" >&2
+  exit 1
 fi
 
 if [[ -z "$MODE" ]]; then
@@ -84,12 +81,14 @@ BRIEF_OUT="${STEM}.vision-brief.md"
 ARGS=(analyze-image "$ABS_IMAGE" --json "$JSON_OUT" --vision-mode "$MODE")
 if [[ -n "$PROMPT" ]]; then ARGS+=(--prompt "$PROMPT"); fi
 if [[ -n "$REFERENCE" ]]; then ARGS+=(--reference "$REFERENCE"); fi
+if [[ -n "$STRENGTH" ]]; then ARGS+=(--strength "$STRENGTH"); fi
 
 echo "=== Imarello eval-generation ==="
 echo "image: $ABS_IMAGE"
 echo "mode:  $MODE"
 [[ -n "$PROMPT" ]] && echo "prompt: $PROMPT"
 [[ -n "$REFERENCE" ]] && echo "reference: $REFERENCE"
+[[ -n "$STRENGTH" ]] && echo "strength: $STRENGTH"
 
 set +e
 "$IMARELLO" "${ARGS[@]}"
@@ -100,6 +99,7 @@ set -e
 BRIEF_ARGS=(analyze-image "$ABS_IMAGE" --vision-brief --vision-mode "$MODE")
 if [[ -n "$PROMPT" ]]; then BRIEF_ARGS+=(--prompt "$PROMPT"); fi
 if [[ -n "$REFERENCE" ]]; then BRIEF_ARGS+=(--reference "$REFERENCE"); fi
+if [[ -n "$STRENGTH" ]]; then BRIEF_ARGS+=(--strength "$STRENGTH"); fi
 "$IMARELLO" "${BRIEF_ARGS[@]}" > "$BRIEF_OUT" || true
 echo "vision_brief: $BRIEF_OUT"
 echo "eval_json:    $JSON_OUT"

@@ -6,8 +6,10 @@ public enum ImarelloError: Error, Sendable, LocalizedError {
     case moduleAlreadyLoaded(String)
     case moduleNotLoaded(String)
     case concurrentGenerationNotAllowed
+    case concurrentMetalWorkNotAllowed
     case anotherInstanceRunning(pids: [Int32])
     case hostMemoryPressure(detail: String)
+    case metallibNotReady(String)
     case cancelled
     case outOfMemory(stage: String, detail: String)
     case weightsNotFound(modelID: String, path: String?)
@@ -15,6 +17,8 @@ public enum ImarelloError: Error, Sendable, LocalizedError {
     case notImplemented(String)
     case imageLoadFailed(path: String, reason: String)
     case invalidStrength(Float)
+    case invalidSteps(Int)
+    case invalidRequest(String)
 
     public var errorDescription: String? {
         switch self {
@@ -28,11 +32,15 @@ public enum ImarelloError: Error, Sendable, LocalizedError {
             return "Module not loaded: \(name)"
         case .concurrentGenerationNotAllowed:
             return "Only one generation may run at a time on this pipeline"
+        case .concurrentMetalWorkNotAllowed:
+            return "Another MLX/Metal operation already owns this process"
         case .anotherInstanceRunning(let pids):
             let list = pids.isEmpty ? "unknown pid" : pids.map(String.init).joined(separator: ", ")
             return "Another imarello process is running (\(list)). One Metal owner at a time on this host."
         case .hostMemoryPressure(let detail):
             return "Host memory pressure: \(detail)"
+        case .metallibNotReady(let detail):
+            return "MLX metallib is not ready: \(detail)"
         case .cancelled:
             return "Generation cancelled"
         case .outOfMemory(let stage, let detail):
@@ -47,6 +55,10 @@ public enum ImarelloError: Error, Sendable, LocalizedError {
             return "Failed to load image at \(path): \(reason)"
         case .invalidStrength(let s):
             return "Strength must be in (0, 1], got \(s)"
+        case .invalidSteps(let steps):
+            return "Steps must be at least 1, got \(steps)"
+        case .invalidRequest(let detail):
+            return "Invalid request: \(detail)"
         }
     }
 }

@@ -67,7 +67,12 @@ func applyVAEVariant(_ raw: String, to config: inout ImarelloConfig) throws {
 
 /// Call at the start of any command that may touch MLX.
 func ensureMLXReady() throws {
-    MLXBootstrap.ensureMetallibBesideExecutable()
+    do {
+        try MLXBootstrap.verifyMetallibBesideExecutable()
+    } catch let error as ImarelloError {
+        fputs("error: \(error.localizedDescription)\n", stderr)
+        throw ExitCode.failure
+    }
     do {
         try HostPreflight.acquireForCLI()
     } catch let error as ImarelloError {
@@ -498,13 +503,70 @@ struct T2I: AsyncParsableCommand {
     var refineUpscale: String = "bicubic"
 
     func run() async throws {
-        if teEngine == "direct" {
-            guard embedCache else {
-                throw ValidationError("--te-engine direct requires the embed cache (drop --no-embed-cache)")
+        try validateSteps(steps)
+        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ValidationError("prompt must not be empty")
+        }
+        guard let admissionPreset = WeightPreset(rawValue: weights) else {
+            throw ValidationError("Unknown weights preset: \(weights)")
+        }
+        guard admissionPreset == .bits4 else {
+            throw ValidationError("--weights \(weights) is not a product path (4-bit lock)")
+        }
+        guard TextTokenMode(rawValue: textTokens) != nil else {
+            throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
+        }
+        guard T2IRequest.PadContentMode(rawValue: padContent) != nil else {
+            throw ValidationError("Unknown --pad-content '\(padContent)'; use prompt | clean")
+        }
+        guard VAEDecoderVariant(rawValue: vaeVariant) != nil else {
+            throw ValidationError("Unknown --vae-variant '\(vaeVariant)'")
+        }
+        if let padKeep, !(0 ... 512).contains(padKeep) {
+            throw ValidationError("--pad-keep must be between 0 and 512")
+        }
+        if let compute = attnLinearCompute,
+           !["f16", "float16", "f32", "float32"].contains(compute) {
+            throw ValidationError("unknown --attn-linear-compute '\(compute)'; use f16 | f32")
+        }
+        guard ["direct", "mlx"].contains(teEngine) else {
+            throw ValidationError("unknown --te-engine \(teEngine); use mlx | direct")
+        }
+        guard ["direct", "mlx"].contains(vaeEngine) else {
+            throw ValidationError("unknown --vae-engine \(vaeEngine); use mlx | direct")
+        }
+        guard ["direct", "mlx"].contains(ditEngine) else {
+            throw ValidationError("unknown --dit-engine \(ditEngine); use mlx | direct")
+        }
+        guard !twoStage || (refineStrength.isFinite && refineStrength > 0 && refineStrength < 1) else {
+            throw ValidationError("--refine-strength must be finite and in (0, 1)")
+        }
+        guard refineSteps >= 1 else { throw ValidationError("--refine-steps must be at least 1") }
+        guard ["bicubic", "lanczos"].contains(refineUpscale) else {
+            throw ValidationError("--refine-upscale must be bicubic | lanczos")
+        }
+        let admissionConfig = ImarelloConfig.autoDetectingTier()
+        try DimensionValidation.validate(
+            width: width, height: height,
+            maxSide: admissionConfig.maxSide, tier: admissionConfig.tier
+        )
+        try ensureMLXReady()
+        var ephemeralDirectCacheURL: URL?
+        defer {
+            if let ephemeralDirectCacheURL {
+                try? FileManager.default.removeItem(at: ephemeralDirectCacheURL)
             }
-            try ensureMLXReady()
+        }
+        if teEngine == "direct" {
             let config = ImarelloConfig.autoDetectingTier()
             let snap = try ModelPaths.resolveOrThrow(config: config)
+            let cacheIdentity = PromptEmbedCache.identity(config: config, snapshot: snap)
+            let url = PromptEmbedCache.entryURL(
+                prompt: prompt, modelID: config.modelID, padContent: padContent,
+                identity: cacheIdentity)
+            if embedCache, PromptEmbedCache.load(url: url) != nil {
+                print("te_engine: direct cache hit — encoder load skipped")
+            } else {
             let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
             let metallib = exe.deletingLastPathComponent().appendingPathComponent("mlx.metallib")
             print("te_engine: direct (bare-metal Stage 2) — building engine…")
@@ -518,15 +580,18 @@ struct T2I: AsyncParsableCommand {
             if padContent == "clean" {
                 // Splice: real-token causal encode + cached clean-pad bank.
                 let (real, r, realMS) = try encoder.encodeRealOnly(prompt)
-                let bankURL = PromptEmbedCache.entryURL(prompt: "", modelID: config.modelID)
+                let bankURL = PromptEmbedCache.entryURL(
+                    prompt: "", modelID: config.modelID, identity: cacheIdentity)
                 var bankMS = 0.0
                 let bank: MLXArray
-                if let cached = PromptEmbedCache.load(url: bankURL) {
+                if embedCache, let cached = PromptEmbedCache.load(url: bankURL) {
                     bank = cached.embeds
                 } else {
                     let t0 = CFAbsoluteTimeGetCurrent()
                     let (b, br, _) = try encoder.encode("")
-                    PromptEmbedCache.store(embeds: b, realTokens: br, url: bankURL)
+                    if embedCache {
+                        PromptEmbedCache.store(embeds: b, realTokens: br, url: bankURL)
+                    }
                     bank = b
                     bankMS = (CFAbsoluteTimeGetCurrent() - t0) * 1000
                 }
@@ -540,17 +605,15 @@ struct T2I: AsyncParsableCommand {
             } else {
                 (embeds, realTokens, ms) = try encoder.encode(prompt)
             }
-            let url = PromptEmbedCache.entryURL(
-                prompt: prompt, modelID: config.modelID, padContent: padContent)
             PromptEmbedCache.store(embeds: embeds, realTokens: realTokens, url: url)
+            if !embedCache { ephemeralDirectCacheURL = url }
             print(String(
-                format: "te_engine: direct encode %.0f ms (%d real tokens, pad=%@) — cache pre-seeded, TE stage will be skipped",
-                ms, realTokens, padContent))
+                format: "te_engine: direct encode %.0f ms (%d real tokens, pad=%@) — %@ cache pre-seeded",
+                ms, realTokens, padContent, embedCache ? "persistent" : "ephemeral"))
+            }
         } else if teEngine != "mlx" {
             throw ValidationError("unknown --te-engine " + teEngine + "; use mlx | direct")
         }
-        try ensureMLXReady()
-        try validateSteps(steps)
         applyAttnF16Threshold(attnF16Threshold)
         try applyAttnLinearCompute(attnLinearCompute)
         guard let preset = WeightPreset(rawValue: weights) else {
@@ -563,6 +626,13 @@ struct T2I: AsyncParsableCommand {
         }
         guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
             throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
+        }
+        guard VAEDecoderVariant(rawValue: vaeVariant) != nil else {
+            throw ValidationError("Unknown --vae-variant '\(vaeVariant)'")
+        }
+        if let compute = attnLinearCompute,
+           !["f16", "float16", "f32", "float32"].contains(compute) {
+            throw ValidationError("unknown --attn-linear-compute '\(compute)'; use f16 | f32")
         }
         var config = ImarelloConfig.autoDetectingTier()
         config.apply(preset: preset)
@@ -634,7 +704,8 @@ struct T2I: AsyncParsableCommand {
         if twoStage {
             try await runTwoStage(
                 pipeline: pipeline, textTokenMode: textTokenMode,
-                padContentMode: padContentMode, outURL: outURL)
+                padContentMode: padContentMode, outURL: outURL,
+                effectiveEmbedCache: embedCache || teEngine == "direct")
             return
         }
 
@@ -647,7 +718,7 @@ struct T2I: AsyncParsableCommand {
             seed: seed,
             outputURL: outURL,
             textTokens: textTokenMode,
-            embedCache: embedCache,
+            embedCache: embedCache || teEngine == "direct",
             padContent: padContentMode,
             padKeep: padKeep,
             padBias: padBias
@@ -745,7 +816,8 @@ struct T2I: AsyncParsableCommand {
         pipeline: ImarelloPipeline,
         textTokenMode: TextTokenMode,
         padContentMode: T2IRequest.PadContentMode,
-        outURL: URL?
+        outURL: URL?,
+        effectiveEmbedCache: Bool
     ) async throws {
         guard width == height, width > 512 else {
             throw ValidationError(
@@ -780,7 +852,7 @@ struct T2I: AsyncParsableCommand {
                 T2IRequest(
                     prompt: prompt, width: 512, height: 512, steps: steps,
                     guidance: 1.0, seed: seed, outputURL: stage1URL,
-                    textTokens: textTokenMode, embedCache: embedCache,
+                    textTokens: textTokenMode, embedCache: effectiveEmbedCache,
                     padContent: padContentMode, padKeep: padKeep, padBias: padBias
                 ), onProgress: printProgress)
             print("  stage1 wrote \(stage1URL.path)")
@@ -806,7 +878,7 @@ struct T2I: AsyncParsableCommand {
                     width: width, height: height, steps: refineSteps,
                     guidance: 1.0, seed: seed, outputURL: finalURL,
                     identity: refineIdentity, textTokens: textTokenMode,
-                    embedCache: embedCache
+                    embedCache: effectiveEmbedCache
                 ), onProgress: printProgress)
             print("wrote \(url.path)")
             try runPostGenerationEval(
@@ -906,10 +978,7 @@ struct I2I: AsyncParsableCommand {
     var embedCache: Bool = true
 
     func run() async throws {
-        try ensureMLXReady()
         try validateSteps(steps)
-        applyAttnF16Threshold(attnF16Threshold)
-        try applyAttnLinearCompute(attnLinearCompute)
         guard let preset = WeightPreset(rawValue: weights) else {
             throw ValidationError("Unknown weights preset: \(weights)")
         }
@@ -921,7 +990,7 @@ struct I2I: AsyncParsableCommand {
         guard let textTokenMode = TextTokenMode(rawValue: textTokens) else {
             throw ValidationError("Unknown --text-tokens '\(textTokens)'; use 512 | auto")
         }
-        if strength <= 0 || strength > 1 {
+        if !strength.isFinite || strength <= 0 || strength > 1 {
             throw ValidationError("strength must be in (0, 1], got \(strength)")
         }
 
@@ -929,14 +998,14 @@ struct I2I: AsyncParsableCommand {
         if refLatents { idCfg.useReferenceLatents = true }
         if facePreserve { idCfg.facePreserve = true }
         if let fss = faceStrengthScale {
-            if fss < 0 || fss > 1 {
+            if !fss.isFinite || fss < 0 || fss > 1 {
                 throw ValidationError("face-strength-scale must be in [0, 1], got \(fss)")
             }
             idCfg.faceStrengthScale = fss
             idCfg.facePreserve = true
         }
         if let cp = cleanPull {
-            if cp < 0 || cp > 1 {
+            if !cp.isFinite || cp < 0 || cp > 1 {
                 throw ValidationError("clean-pull must be in [0, 1], got \(cp)")
             }
             idCfg.cleanPullAlpha = cp
@@ -954,6 +1023,19 @@ struct I2I: AsyncParsableCommand {
             }
             idCfg.refDownsample = refDownsample
         }
+
+        let admissionConfig = ImarelloConfig.autoDetectingTier()
+        if let width, let height {
+            try DimensionValidation.validate(
+                width: width, height: height,
+                maxSide: admissionConfig.maxSide, tier: admissionConfig.tier
+            )
+        } else if (width == nil) != (height == nil) {
+            throw ValidationError("--width and --height must be provided together")
+        }
+        try ensureMLXReady()
+        applyAttnF16Threshold(attnF16Threshold)
+        try applyAttnLinearCompute(attnLinearCompute)
 
         var config = ImarelloConfig.autoDetectingTier()
         config.apply(preset: preset)
@@ -1077,6 +1159,22 @@ struct AnalyzeImage: AsyncParsableCommand {
     var skipSemantic: Bool = false
 
     func run() async throws {
+        guard maxSide > 0 else {
+            throw ValidationError("--max-side must be positive")
+        }
+        if let strength,
+           !strength.isFinite || strength <= 0 || strength > 1 {
+            throw ValidationError("--strength must be finite and in (0, 1]")
+        }
+        let requestedMode: VisionReview.Mode?
+        if let visionMode {
+            guard let parsed = VisionReview.Mode(rawValue: visionMode) else {
+                throw ValidationError("--vision-mode must be t2i | i2i")
+            }
+            requestedMode = parsed
+        } else {
+            requestedMode = nil
+        }
         let imageURL = URL(fileURLWithPath: image)
         let options = ImageAnalyzer.Options(
             prompt: prompt,
@@ -1088,9 +1186,7 @@ struct AnalyzeImage: AsyncParsableCommand {
         do {
             let report = try ImageAnalyzer.analyze(imageURL: imageURL, options: options)
             let mode: VisionReview.Mode = {
-                if let visionMode {
-                    return VisionReview.Mode(rawValue: visionMode) ?? .t2i
-                }
+                if let requestedMode { return requestedMode }
                 return reference != nil ? .i2i : .t2i
             }()
 
@@ -1277,13 +1373,15 @@ struct Bench: AsyncParsableCommand {
     var opProfile: Bool = false
 
     func run() async throws {
-        try ensureMLXReady()
         try validateSteps(steps)
         guard trials >= 1 else {
             throw ValidationError("trials must be at least 1, got \(trials)")
         }
         guard warmup >= 0 else {
             throw ValidationError("warmup must be at least 0, got \(warmup)")
+        }
+        guard cooldown.isFinite, cooldown >= 0 else {
+            throw ValidationError("cooldown must be finite and non-negative")
         }
 
         guard let benchMode = BenchMode(rawValue: mode) else {
@@ -1294,6 +1392,36 @@ struct Bench: AsyncParsableCommand {
             print("error: unknown probe-density '\(probeDensity)'")
             throw ExitCode.failure
         }
+        let admissionConfig = ImarelloConfig.autoDetectingTier()
+        try DimensionValidation.validate(
+            width: width, height: height,
+            maxSide: admissionConfig.maxSide, tier: admissionConfig.tier
+        )
+        if let strength, !strength.isFinite || strength <= 0 || strength > 1 {
+            throw ValidationError("--strength must be finite and in (0, 1]")
+        }
+        guard ["direct", "mlx"].contains(vaeEngine) else {
+            throw ValidationError("--vae-engine must be mlx | direct")
+        }
+        guard ["direct", "mlx"].contains(ditEngine) else {
+            throw ValidationError("--dit-engine must be mlx | direct")
+        }
+        guard VAEDecoderVariant(rawValue: vaeVariant) != nil else {
+            throw ValidationError("--vae-variant must be full | small-decoder")
+        }
+        if let textTokens, TextTokenMode(rawValue: textTokens) == nil {
+            throw ValidationError("--text-tokens must be 512 | auto")
+        }
+        if let benchPadContent, T2IRequest.PadContentMode(rawValue: benchPadContent) == nil {
+            throw ValidationError("--pad-content must be prompt | clean")
+        }
+        if let vaeTileThreshold, vaeTileThreshold < 1 {
+            throw ValidationError("--vae-tile-threshold must be positive")
+        }
+        if let vaeAttnChunk, vaeAttnChunk < 0 {
+            throw ValidationError("--vae-attn-chunk must be non-negative")
+        }
+        try ensureMLXReady()
 
         let needsImage = benchMode == .i2i || benchMode == .identityI2I || identity
         if needsImage {
@@ -1302,11 +1430,6 @@ struct Bench: AsyncParsableCommand {
                 throw ExitCode.failure
             }
         }
-        if let strength, strength <= 0 || strength > 1 {
-            print("error: --strength must be in (0, 1]")
-            throw ExitCode.failure
-        }
-
         if benchMode == .resLadder {
             try await runResLadder(density: density)
             return
@@ -1385,6 +1508,8 @@ struct Bench: AsyncParsableCommand {
             padContent: benchPadContent ?? "prompt",
             vaeEngine: vaeEngine,
             ditEngine: ditEngine,
+            teEngine: "mlx",
+            embedCachePolicy: "disabled",
             vaeVariant: vaeVariant,
             evalCache: evalCache ?? EvalCachePolicy.current.profileName,
             vaeAttnChunk: vaeAttnChunk
@@ -1513,6 +1638,9 @@ struct Bench: AsyncParsableCommand {
             try BenchReportWriter.write(report, to: jsonPath)
             print("json: \(jsonPath.path)")
 
+            if withQuality, report.trials.contains(where: { $0.qualityStatus == .failed }) {
+                throw ExitCode.failure
+            }
             if report.trials.contains(where: { $0.error != nil }), !effectiveFailSoft {
                 throw ExitCode.failure
             }
@@ -1536,11 +1664,17 @@ struct Bench: AsyncParsableCommand {
 
     /// Spawn one child process per resolution so Metal OOM does not kill the parent.
     private func runResLadder(density: ProbeDensity) async throws {
-        let sides = ladder.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        guard !sides.isEmpty else {
-            print("error: empty --ladder")
-            throw ExitCode.failure
+        let tokens = ladder.split(separator: ",", omittingEmptySubsequences: false)
+        let sides = try tokens.map { token -> Int in
+            let value = token.trimmingCharacters(in: .whitespaces)
+            guard let side = Int(value), side > 0, side % 16 == 0 else {
+                throw ValidationError(
+                    "every --ladder side must be a positive multiple of 16 (got '\(value)')"
+                )
+            }
+            return side
         }
+        guard !sides.isEmpty else { throw ValidationError("empty --ladder") }
         let exe = CommandLine.arguments[0]
         var childJSONs: [URL] = []
         print("res-ladder sides=\(sides) density=\(density.rawValue) (subprocess per rung)")
@@ -1610,6 +1744,9 @@ struct Bench: AsyncParsableCommand {
             if force {
                 args += ["--force"]
             }
+            if withQuality {
+                args += ["--with-quality"]
+            }
             print("  rung \(side)² …")
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: exe)
@@ -1631,15 +1768,15 @@ struct Bench: AsyncParsableCommand {
             } else {
                 print("  rung \(side) exit=\(status) (no json — likely Metal abort)")
             }
-            // Stop ladder after hard crash without report, or after first error with oom
+            // A fail-soft child can exit zero with a failed/OOM trial. Inspect
+            // every report and stop immediately rather than continuing upward.
+            if let report = try? BenchReportWriter.loadReport(from: out),
+               report.trials.contains(where: { $0.error != nil }) || report.pressure?.oom == true {
+                break
+            }
+            // Stop ladder after hard crash without report.
             if status != 0 {
-                if let last = childJSONs.last,
-                   let rep = try? BenchReportWriter.loadReport(from: last),
-                   rep.trials.contains(where: { $0.error != nil })
-                {
-                    break
-                }
-                if status != 0 && !FileManager.default.fileExists(atPath: out.path) {
+                if !FileManager.default.fileExists(atPath: out.path) {
                     break
                 }
             }
@@ -1667,8 +1804,30 @@ struct Bench: AsyncParsableCommand {
         }
         print(lines.joined(separator: "\n"))
         if let json {
-            let summary = lines.joined(separator: "\n")
-            try summary.write(to: URL(fileURLWithPath: json), atomically: true, encoding: .utf8)
+            let decoded = childJSONs.compactMap { url -> (URL, BenchReport)? in
+                guard let report = try? BenchReportWriter.loadReport(from: url) else { return nil }
+                return (url, report)
+            }
+            let rungs: [[String: Any]] = decoded.map { url, report in
+                [
+                    "side": report.config.width,
+                    "joint_seq": report.pressure?.analytic.jointSeqLen ?? 0,
+                    "succeeded": report.trials.allSatisfy { $0.error == nil },
+                    "errors": report.trials.compactMap(\.error),
+                    "oom": report.pressure?.oom ?? false,
+                    "last_probe": report.pressure?.lastProbeBeforeFailure ?? "",
+                    "peak_mlx_bytes": report.aggregate.peakMlxPeakBytes?.max ?? 0,
+                    "e2e_ms": report.aggregate.e2eMs?.mean ?? 0,
+                    "report_path": url.path,
+                ]
+            }
+            let object: [String: Any] = [
+                "schema_version": "1.0",
+                "label": label,
+                "rungs": rungs,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: URL(fileURLWithPath: json), options: .atomic)
             print("ladder_summary: \(json)")
         }
     }
@@ -1686,11 +1845,15 @@ struct BenchCompare: AsyncParsableCommand {
     @Argument(help: "Candidate report JSON path.")
     var candidate: String
 
+    @Flag(name: .long, help: "Print raw deltas for incomparable reports without better/worse labels.")
+    var force: Bool = false
+
     func run() async throws {
         do {
             let a = try BenchReportWriter.loadReport(from: URL(fileURLWithPath: baseline))
             let b = try BenchReportWriter.loadReport(from: URL(fileURLWithPath: candidate))
-            print(BenchReportWriter.compareText(baseline: a, candidate: b))
+            print(BenchReportWriter.compareText(
+                baseline: a, candidate: b, forceIncomparable: force))
         } catch {
             print("error: \(error)")
             throw ExitCode.failure
@@ -1826,14 +1989,24 @@ struct DirectGenerate: AsyncParsableCommand {
 
     func run() async throws {
         guard !prompts.isEmpty else { throw ValidationError("at least one prompt required") }
-        try ensureMLXReady()
+        guard prompts.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw ValidationError("prompts must not be empty")
+        }
+        let admissionConfig = ImarelloConfig.autoDetectingTier()
+        try DimensionValidation.validate(
+            width: width, height: height,
+            maxSide: admissionConfig.maxSide, tier: admissionConfig.tier
+        )
+        guard seed <= DeviceHarnessJob.maximumSeed else {
+            throw ValidationError("seed must be between 0 and \(DeviceHarnessJob.maximumSeed)")
+        }
         let config = ImarelloConfig.autoDetectingTier()
         let snap = try ModelPaths.resolveOrThrow(config: config)
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        let metallib = exe.deletingLastPathComponent().appendingPathComponent("mlx.metallib")
+        let artifacts = try DirectEngineArtifacts.resolve(relativeTo: exe)
 
         let tBuild = CFAbsoluteTimeGetCurrent()
-        let pipeline = try await DirectPipeline(snapshot: snap, metallibURL: metallib, config: config)
+        let pipeline = DirectPipeline(snapshot: snap, artifacts: artifacts, config: config)
         pipeline.useNAXQmm = nax
         print(String(format: "direct-generate: pipeline built in %.0f ms (engines stay resident)",
                      (CFAbsoluteTimeGetCurrent() - tBuild) * 1000))

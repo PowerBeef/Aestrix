@@ -111,6 +111,9 @@ public enum DirectTEForward {
                     let sc = arrays["layers.\(li).\(name).scales"],
                     let bi = arrays["layers.\(li).\(name).biases"]
                 else { throw DirectQmmSpike.SpikeError.missingTensor("layers.\(li).\(name)") }
+                try DirectTensorValidation.requireQuantized(
+                    weight: w, scales: sc, biases: bi, n: n, k: k,
+                    name: "layers.\(li).\(name)")
                 let s16 = rawScales ? sc : sc.asType(.float16)
                 let b16 = rawScales ? bi : bi.asType(.float16)
                 eval(s16, b16)
@@ -120,9 +123,13 @@ public enum DirectTEForward {
                     try engine.ctx.upload(b16, "L\(li).\(name).b"),
                     n, k))
             }
-            func norm(_ name: String) throws -> MTLBuffer {
+            func norm(_ name: String, count: Int) throws -> MTLBuffer {
                 guard let w = arrays["layers.\(li).\(name).weight"] else {
                     throw DirectQmmSpike.SpikeError.missingTensor("layers.\(li).\(name)")
+                }
+                guard w.shape.reduce(1, *) == count else {
+                    throw DirectQmmSpike.SpikeError.invalidTensor(
+                        "layers.\(li).\(name).weight expected \(count) values, got shape \(w.shape)")
                 }
                 let f = w.asType(.float32)
                 eval(f)
@@ -130,10 +137,10 @@ public enum DirectTEForward {
             }
             engine.layers.append(LayerBuffers(
                 qmm: qmm.map { (w: $0.0, s: $0.1, b: $0.2, n: $0.3, k: $0.4) },
-                wIn: try norm("input_layernorm"),
-                wPost: try norm("post_attention_layernorm"),
-                wQn: try norm("self_attn.q_norm"),
-                wKn: try norm("self_attn.k_norm")))
+                wIn: try norm("input_layernorm", count: hidden),
+                wPost: try norm("post_attention_layernorm", count: hidden),
+                wQn: try norm("self_attn.q_norm", count: headDim),
+                wKn: try norm("self_attn.k_norm", count: headDim)))
         }
     }
 

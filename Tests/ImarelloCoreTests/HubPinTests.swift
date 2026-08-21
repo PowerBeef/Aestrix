@@ -93,6 +93,42 @@ struct HubPinTests {
         #expect(snap.detectedRevision == sha)
     }
 
+    @Test("snapshot completeness requires tokenizer assets, indexes, and every shard")
+    func snapshotCompleteness() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("imarello_snapshot_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let sha = "1cebb9b45c21ece14a42615b16bf5fa4de9b56da"
+        try makeCompleteSnapshot(at: tmp, revision: sha)
+        let snapshot = ModelSnapshot(modelID: "m", root: tmp, expectedRevision: sha)
+        try snapshot.validateLayout()
+
+        try FileManager.default.removeItem(
+            at: tmp.appendingPathComponent("transformer/model-00001-of-00001.safetensors")
+        )
+        #expect(throws: ImarelloError.self) { try snapshot.validateLayout() }
+    }
+
+    @Test("mixed Hugging Face revisions are rejected even without an expected pin")
+    func mixedSnapshotRevisions() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("imarello_snapshot_mixed_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let a = "1cebb9b45c21ece14a42615b16bf5fa4de9b56da"
+        let b = "a80f68acb469352cf31abe41a0869c7705ec7b57"
+        try makeCompleteSnapshot(at: tmp, revision: a)
+        let second = tmp.appendingPathComponent(
+            ".cache/huggingface/download/transformer/0.safetensors.metadata"
+        )
+        try FileManager.default.createDirectory(
+            at: second.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try "\(b)\n".write(to: second, atomically: true, encoding: .utf8)
+        #expect(throws: ImarelloError.self) {
+            try ModelSnapshot(modelID: "m", root: tmp).validateLayout()
+        }
+    }
+
     private struct HubPinsFile: Decodable {
         let schemaVersion: String
         let packs: [String: Pack]
@@ -114,6 +150,33 @@ struct HubPinTests {
         let dec = JSONDecoder()
         dec.keyDecodingStrategy = .convertFromSnakeCase
         return try dec.decode(HubPinsFile.self, from: data)
+    }
+
+    private func makeCompleteSnapshot(at root: URL, revision: String) throws {
+        let fm = FileManager.default
+        let tokenizer = root.appendingPathComponent("tokenizer", isDirectory: true)
+        try fm.createDirectory(at: tokenizer, withIntermediateDirectories: true)
+        for name in ["tokenizer.json", "tokenizer_config.json", "chat_template.jinja"] {
+            try "{}".write(
+                to: tokenizer.appendingPathComponent(name), atomically: true, encoding: .utf8
+            )
+        }
+        for component in ["text_encoder", "transformer", "vae"] {
+            let directory = root.appendingPathComponent(component, isDirectory: true)
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            let shard = "model-00001-of-00001.safetensors"
+            try Data([1]).write(to: directory.appendingPathComponent(shard))
+            let index = #"{"weight_map":{"weight":"model-00001-of-00001.safetensors"}}"#
+            try index.write(
+                to: directory.appendingPathComponent("model.safetensors.index.json"),
+                atomically: true, encoding: .utf8
+            )
+        }
+        let metadata = root.appendingPathComponent(
+            ".cache/huggingface/download/tokenizer/tokenizer.json.metadata"
+        )
+        try fm.createDirectory(at: metadata.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "\(revision)\n".write(to: metadata, atomically: true, encoding: .utf8)
     }
 
     private func repoRoot() -> URL {

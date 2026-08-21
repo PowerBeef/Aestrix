@@ -1,57 +1,61 @@
 # Product
 
-<!-- impeccable:product-schema 1 -->
+<!-- product-schema 1 -->
 
 ## Platform
 
-ios
+iOS 26.2, iPhone-first with a functional adaptive iPad layout. No Mac Catalyst.
 
-## Users
+## Users and purpose
 
-The developer-owner (Patrice) as the primary user, plus people they demo to in person. The owner knows what seeds, canvas sizes, and Klein are; the design may assume that context. No anonymous installs are planned — this is a personal studio and a live showpiece for the Imarello engine.
+Imarello is Patrice's private on-device image creator and live showpiece for the native Swift + MLX FLUX.2 Klein 4B engine. The primary loop is prompt → image → edit → image again, with no server round-trip and no imported photos.
 
-## Product Purpose
+The Simulator is UI-only. Physical-device generation remains blocked before MLX until the main app embeds and selects a complete `iphoneos` no-JIT metallib. Historical pre-no-JIT timings are context, not current functionality.
 
-`Apps/ImarelloIOS` (product name **Imarello**) runs the full FLUX.2 klein 4B pipeline on-device (iPhone 17 Pro class) and lets the owner generate and iterate on images anywhere. Success is the **fast iterate loop**: prompt → print → tweak → print again with minimum friction — the measured ~11.6 s 512² generate *is* the product; every surface serves iteration speed.
+## Product locks
 
-## Positioning
+- FLUX.2 Klein 4B, prequantized 4-bit weights, staged residency.
+- 1024 × 1024 default; 512 × 512 is an explicit resolution choice.
+- Four steps, guidance 1.0, seeded output, no negative prompt.
+- Text-to-image and edit-from-any-Gallery-image at fixed strength 0.8.
+- No photo or file import, presets, favorites, folders, or cloud inference.
+- Image metadata records what ran: `{side} · seed {n}`.
 
-A from-scratch native Swift + MLX runtime (not a wrapper or a server round-trip): the whole diffusion stack — Qwen3 text encoder, MMDiT, VAE — runs staged on the phone's own silicon, offline, in ~12 s at 512². Neighboring apps cannot truthfully claim the same mechanism.
+Weights live under `Caches/Imarello/models/` and are never bundled. Canonical images and the versioned `PrintStore` index live in Application Support; harness pull copies remain under `Caches/Imarello/outputs/`.
 
-## Operating Context
+## Information architecture
 
-- Generation runs on a physical iPhone; the **Simulator is UI-only** (MLX has no Simulator Metal — Generate is a chrome no-op, never faked).
-- Weights (~5 GB) live in the app container (`Caches/Imarello/models/`), synced from a Mac; never bundled. A fresh install may need a resync; the app's gate states must tell that story honestly.
-- A Mac-driven **harness** drops job JSONs into `Caches/Imarello/jobs/inbox/`; the app polls every 2 s while active and runs them through the same pipeline. This contract (paths, result schema, PNG locations under `Caches/Imarello/outputs/`) is frozen — repo scripts depend on it.
-- Generated PNGs persist in `Caches/Imarello/outputs/`.
-- Measured on-device: 512² ≈ 11.6 s; 1024² takes minutes and its anatomy is vision-gated (Klein 4-step limitation).
+The app has four first-class tabs, each with independent session-only navigation:
 
-## Capabilities and Constraints
+1. **Create** — the current image, resolution picker, independent prompt draft, seed options, and Create action.
+2. **Edit** — a canvas-first source picker features the newest Gallery image with a compact strip of remaining sources, followed by an independent edit workspace. Output size is locked to the source and strength is fixed at 0.8.
+3. **Gallery** — the persistent newest-first image grid over the same restrained atmospheric ground as Create.
+4. **Settings** — model/device readiness, Gallery storage, Photos access, and app/build information.
 
-- v1 capabilities: text-to-image (512² / 1024², 4 steps, guidance 1.0, seeded) and in-app image-to-image at **fixed strength 0.8** (value must be visible in the UI — no hidden physics). Editing may start from any in-app print (confirmed): same pipeline, **no photo import** of outside images.
-- Persistent generation **history** with edit-from-any-print is in scope (confirmed).
-- iPhone-first; iPad (`TARGETED_DEVICE_FAMILY "1,2"`) must not break but gets no bespoke layout. **No Mac Catalyst.**
-- Seed entry is a numeric string with a number-pad Done bar; the seed commits before generate; the caption for a finished print is exactly `{side} · seed {n}` for what actually ran.
-- Kernel entitlements (`increased-memory-limit`, `extended-virtual-addressing`) are pinned via `project.yml` `SystemCapabilities`; the Xcode project regenerates via `Scripts/generate-ios-project.sh` — file-set changes require a regen.
-- Engine truth lives in the repo (`CLAUDE.md`, `Docs/IOS.md`); the app links `ImarelloRuntime` from the local package and adds no model code.
+Create and Gallery push the same immersive image detail. Detail retains the system back gesture and provides swipe, zoom, Edit, Share, Save, and Delete. Edit selects that image as the source, switches to the Edit root, locks the source size, and exposes strength 0.8. A successful edit becomes the next source for iterative editing.
 
-## Brand Commitments
+Generation is app-global. A `tabViewBottomAccessory` keeps phase, step, elapsed time, completion, failure, and user cancellation visible while browsing. User work can be cancelled; Mac harness work is identified and cannot be cancelled in-app. Activity returns to the originating Create or Edit workspace, while harness activity defaults to Create.
 
-- Name **Imarello**; the official mark is the 3D cream/gold iris (`Mark` asset, `Docs/assets/readme/imarello-mark.*`).
-- Palette commitment: **darkroom near-black ground**, iris-gold/copper accent, cream ink (colorsets `StudioBackground`, `StageGround`, `AccentColor`, `Cream`). Dark-first. The ground was espresso until 2026-08-16; the owner rejected the brown — prints have to be the only warm thing on screen.
-- **Liquid Glass Regular** (never Clear); prominent/tinted glass on the primary action only.
-- Voice (confirmed): the **darkroom/atelier register** — generations are **prints**, the canvas is the **stage**, capture settings are the **plate**. Used consistently in labels and VoiceOver, without becoming cute or obscuring function.
+Generation Options is transactional: Cancel or interactive dismissal discards the draft; Done validates and commits only the seed. Create resolution remains a separate 512²/1024² control; Edit resolution is locked to the selected source.
 
-## Evidence on Hand
+## Operating contracts
 
-- Real on-device output PNGs in the app container and repo (`Docs/assets/readme/*.jpg` samples; eval artifacts). No fabricated screenshots or claims.
-- Measured performance numbers in `Docs/PERF.md` (device: 512² 11.6 s, 2026-08-16).
-- Prior UI critique history: `.impeccable/critique/2026-08-15…studioview….md` (15/40 against the original form-first build).
+- The frozen Mac harness polls every two seconds only while the scene is active. Its inbox/running/done paths, JSON schema, PNG paths, validation, and durable completion semantics do not change with the UI.
+- The app always fails closed on missing weights or an incomplete no-JIT metallib. Simulator Create/Edit never invokes or imitates the model.
+- Debug UI automation may use `--ui-test-scenario empty|library|pending-edit|running|failed`. These are static UI states backed by real repository sample images and never initialize MLX.
+- `project.yml` is authoritative for the Xcode project, capabilities, entitlements, sources, and test targets.
 
-## Product Principles
+## Brand and interaction principles
 
-1. **The print is the product** — the current image (or its honest absence) owns the screen; controls are furniture.
-2. **Iteration speed over ceremony** — the loop prompt → print → tweak must never gain a step that isn't earning its keep.
-3. **Honest gates** — never fake generation (Simulator), never hide why a control is disabled, never invent progress.
-4. **No hidden physics** — strength 0.8, sizes, seeds, and which print actually ran are always visible truths.
-5. **One brand, precisely** — darkroom black / iris-gold / cream and the darkroom register, executed in details rather than decoration.
+- The image is the product. Chrome is furniture around it.
+- Permanent darkroom black, cream ink, iris-gold action tint, official iris mark.
+- Generated imagery is the only saturated surface. Images are square-cornered with 2-point Gallery gutters.
+- Create, Edit, and Gallery share one atmospheric image language: a sharp image layer over a heavily dimmed, low-resolution blurred backdrop. Gallery applies that atmosphere behind its grid, never to the thumbnails themselves.
+- Use native tabs, navigation bars, sheets, toolbars, and Regular Liquid Glass controls. Do not nest glass or apply it to image/grid content.
+- Exactly one prominent action in context: Create, Edit, or the Edit action in image detail.
+- Use direct, plain-language navigation and action labels: Create, Edit, Gallery, Settings, Image, Source, Resolution, and Generation Options.
+- Never fake progress, runtime readiness, or generation.
+
+## Accessibility contract
+
+No Dynamic Type cap. Composers, activity, actions, and Generation Options reflow at accessibility sizes. Interactive elements have system or explicit 44-point hit regions, meaningful VoiceOver labels and order, non-color state cues, keyboard-safe placement, and support for Button Shapes, Larger Content Viewer, Reduce Motion, Reduce Transparency, and Increased Contrast.

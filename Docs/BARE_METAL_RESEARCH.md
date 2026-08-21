@@ -184,7 +184,7 @@ Bespoke TE next (the §3 anomaly means the *relative* win is largest there), VAE
 
 **The direct engine owns NAX now — and the A19 Pro question is answered: YES.** The engine dispatches `affine_qmm_t_nax_*` by name (ABI recovered from `quantized.cpp::qmm_nax`: byte-identical buffer layout to the Steel qmm — w/s/b/x/y at 0–4, K/N/M at 5–7 — with a 64-tile grid and the alN-by-N name; conditions K%64==0, non-f32, weights transposed). `DirectNAX.probe` mirrors core's `is_nax_available()` (OS ≥ 26.2, arch gen ≥ 17, 'p'-suffix parts ≥ 18); `DirectDiTStep(useNAXQmm:)` routes every DiT projection; `direct-generate --nax` and the adapter carry the flag, refused on ineligible GPUs.
 
-**Device gate (iPhone 17 Pro, iOS 26.6, `ImarelloSpikes` runner): PASS.** `applegpu_g18p` gen 18 → eligible. NAX vs Steel at the DiT shape M=4096/K=3072/N=3072: **cosine 1.0000000, 99.5% bit-exact, max |Δ| 0.0039 (f16-ULP class)** — and **40.0 → 11.8 ms, 3.38×**, on a low-battery phone. qmm is 44–51% of a denoise step ⇒ projected ~1.4–1.5× device denoise once the direct DiT runs there. No NAX attention kernels exist in 0.32.1 — qmm is the whole prize.
+**Device gate (iPhone 17 Pro, iOS 26.6, `ImarelloSpikes` runner): PASS.** `applegpu_g18p` gen 18 → eligible. NAX vs Steel at the DiT shape M=4096/K=3072/N=3072: **cosine 1.0000000, 99.5% bit-exact, max |Δ| 0.0039 (f16-ULP class)** — and **40.0 → 11.8 ms, 3.38×**, on a low-battery phone. qmm is 44–51% of a denoise step ⇒ projected ~1.4–1.5× device denoise once the direct DiT runs there. That 2026-08-19 gate qualified qmm only. Current fork inspection also finds packaged `sdpa_full_self_attention_nax` D=128 variants; V2 inventories their exact symbols and actual J families (1536/2816/4608), but none is promoted until ABI, tensor, full-consumer, and image qualification passes.
 
 Hard-won facts from the device ladder:
 - **PSO creation for NAX kernels SUCCEEDS on non-NAX GPUs** (M2 builds the pipeline fine; only execution needs the hardware) — the arch probe is the only valid gate, never a compile/creation check.
@@ -192,6 +192,14 @@ Hard-won facts from the device ladder:
 - Two more fork fixes shipped en route (`e5b42df`): 0.32.1's CPU `jit_compiler.cpp` calls `std::system` (absent on iOS) — excluded on Apple platforms with a four-symbol stub (`available()` = false → interpreted CPU fallback; GPU untouched; macOS byte-identical fox + 86/86 after the pin move).
 
 Next rungs: device dit-step spike (whole 25-block step, NAX vs Steel), then a full on-device bespoke generate — both need weights reachable from the runner; then the iOS product decision.
+
+## Metal Engine V2 foundation (2026-08-21; unpromoted)
+
+V2 adds a reversible whole-T2I backend seam rather than treating `DirectPipeline` as an automatic product backend. Selection occurs before weight loading; unsupported requests stay on V1, while a V2 failure after start is surfaced without mid-run fallback. The internal `ImarelloPlan` graph now provides deterministic operations, lifetimes, placement, a digest, and independent overlap/alignment verification. Legacy placement reproduces 180/318.75/513 MiB raw scratch at 512/768/1024; this is a proof of the current layout, not a memory-improvement claim.
+
+Production shader strings have moved into source-built `imarello-direct.metallib`, paired with a platform/hash/symbol/function-constant ABI manifest. The full ~155 MB MLX pack remains beside it for MLX editing and compatibility. Loader foundations include strict safetensors validation, page-rounded shared mappings, stage transforms, and explicit mapping/buffer lifetimes. The isolated Metal 4 executor owns argument tables, aligned constant uploads, explicit residency, allocators, and commit feedback; it is not selected by the product and has not yet run the required real qmm/attention qualification.
+
+The worktree also contains V2-only atomic BF16 prompt caching, exact memory ledgers, multi-step conditioner batching, optional stage/trajectory capture manifests, OS 26.4 gating for native int4 tensor types, and signed-app artifact wiring. Focused MLX-free tests and the UI-only Simulator build pass. Full captures/tolerances, mapped native loading throughout, Tier B/C streaming, block/tile captures, Metal 4 performance gates, complete GPU-native handoffs, A/B corpus evidence, and physical-device qualification remain open. Therefore no V2 speed, memory, quality, reliability, or device-runtime claim is made here.
 
 ## 7. References
 

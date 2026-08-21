@@ -16,3 +16,41 @@ public enum DimensionValidation {
         }
     }
 }
+
+public enum RequestValidation {
+    public static func validate(steps: Int) throws {
+        guard steps >= 1 else { throw ImarelloError.invalidSteps(steps) }
+    }
+
+    public static func validate(_ request: T2IRequest) throws {
+        try validate(steps: request.steps)
+        guard request.guidance.isFinite else {
+            throw ImarelloError.invalidRequest("guidance must be finite")
+        }
+        guard request.guidance == 1 else {
+            throw ImarelloError.invalidRequest("Klein guidance is locked to 1.0")
+        }
+        guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ImarelloError.invalidRequest("prompt must not be empty")
+        }
+        if let padKeep = request.padKeep, !(0 ... 512).contains(padKeep) {
+            throw ImarelloError.invalidRequest("padKeep must be between 0 and 512")
+        }
+    }
+
+    public static func validate(_ request: I2IRequest) throws {
+        try validate(steps: request.steps)
+        guard request.strength.isFinite, request.strength > 0, request.strength <= 1 else {
+            throw ImarelloError.invalidStrength(request.strength)
+        }
+        guard request.guidance.isFinite else {
+            throw ImarelloError.invalidRequest("guidance must be finite")
+        }
+        guard request.guidance == 1 else {
+            throw ImarelloError.invalidRequest("Klein guidance is locked to 1.0")
+        }
+        guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ImarelloError.invalidRequest("prompt must not be empty")
+        }
+    }
+}

@@ -90,16 +90,16 @@ if ! [[ "$STEPS" =~ ^[0-9]+$ ]] || (( STEPS < 1 )); then
   echo "error: --steps must be a positive integer (got '$STEPS')" >&2
   exit 1
 fi
-if ! [[ "$SEED" =~ ^[0-9]+$ ]]; then
-  echo "error: --seed must be a non-negative integer (got '$SEED')" >&2
+if ! [[ "$SEED" =~ ^[0-9]+$ ]] || (( SEED > 9999999 )); then
+  echo "error: --seed must be an integer from 0 through 9999999 (got '$SEED')" >&2
   exit 1
 fi
-if ! [[ "$STRENGTH" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+if ! [[ "$STRENGTH" =~ ^[0-9]*\.?[0-9]+$ ]] || ! awk -v value="$STRENGTH" 'BEGIN { exit !(value > 0 && value <= 1) }'; then
   echo "error: --strength must be a number in (0, 1] (got '$STRENGTH')" >&2
   exit 1
 fi
-if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]]; then
-  echo "error: --timeout must be an integer number of seconds (got '$TIMEOUT')" >&2
+if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || (( TIMEOUT < 1 )); then
+  echo "error: --timeout must be a positive integer number of seconds (got '$TIMEOUT')" >&2
   exit 1
 fi
 
@@ -120,15 +120,14 @@ if [[ "$WIDTH" == "1024" && "$TIMEOUT" -eq 180 ]]; then
   TIMEOUT=600
 fi
 
-if pgrep -x imarello >/dev/null 2>&1; then
-  echo "error: another imarello process is running (one Metal owner)." >&2
-  pgrep -lf imarello || true
-  exit 1
-fi
-if pgrep -x xcodebuild >/dev/null 2>&1; then
-  echo "warning: xcodebuild is running — the generation happens on the iPhone," >&2
-  echo "warning: but avoid Mac-side Metal work while it compiles (Docs/HOST_SAFETY.md)." >&2
-fi
+METAL_OWNERS=(Xcode xcodebuild swift swiftc swift-frontend xctest metal metallib imarello aestrix)
+for owner in "${METAL_OWNERS[@]}"; do
+  if pgrep -x "$owner" >/dev/null 2>&1; then
+    echo "error: possible Metal owner '$owner' is active; stop it before device generation." >&2
+    pgrep -lf "$owner" >&2 || true
+    exit 1
+  fi
+done
 
 if [[ -z "$DEVICE" ]]; then
   LIST_JSON="$(mktemp /tmp/imarello-devices.XXXXXX.json)"
@@ -163,7 +162,10 @@ SCRIPT_START_EPOCH="$(date +%s)"
 if [[ -z "$JOB_ID" ]]; then
   JOB_ID="${MODE}-${WIDTH}-s${SEED}-$(date +%Y%m%d%H%M%S)"
 fi
-JOB_ID="$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._-]", "-", sys.argv[1]) or "job")' "$JOB_ID")"
+if ! [[ "$JOB_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+  echo "error: --id must be 1-128 safe, non-hidden [A-Za-z0-9._-] characters" >&2
+  exit 1
+fi
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
   if [[ ! -d "$APP" ]]; then
@@ -180,6 +182,20 @@ xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID" >/dev/null
 
 WORK="$(mktemp -d /tmp/imarello-harness.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
+# Reject reused IDs before submission. The app also refuses collisions, but a
+# host-side check gives an immediate deterministic error and cannot overwrite
+# or accidentally accept an earlier run's result.
+for STATE in inbox running done; do
+  if xcrun devicectl device copy from \
+      --device "$DEVICE" \
+      --domain-type appDataContainer \
+      --domain-identifier "$BUNDLE_ID" \
+      --source "Library/Caches/Imarello/jobs/${STATE}/${JOB_ID}.json" \
+      --destination "$WORK/existing-${STATE}.json" >/dev/null 2>&1; then
+    echo "error: harness job id '$JOB_ID' already exists in jobs/${STATE}; choose a fresh --id" >&2
+    exit 1
+  fi
+done
 JOB_JSON="$WORK/${JOB_ID}.json"
 python3 - "$JOB_JSON" "$JOB_ID" "$MODE" "$PROMPT" "$WIDTH" "$HEIGHT" "$STEPS" "$SEED" "$TEXT_TOKENS" "$STRENGTH" <<'PY'
 import json, sys
@@ -301,6 +317,9 @@ if [[ "$DO_EVAL" -eq 1 ]]; then
     export IMARELLO="$ROOT/.build/release/imarello"
   fi
   EVAL_FLAGS=(--prompt "$PROMPT" --mode "$MODE")
+  if [[ "$MODE" == "i2i" ]]; then
+    EVAL_FLAGS+=(--strength "$STRENGTH")
+  fi
   if [[ "$FAIL_GATE" -eq 1 ]]; then
     EVAL_FLAGS+=(--fail-on-pixel-gate)
   fi

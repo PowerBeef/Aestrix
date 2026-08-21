@@ -26,6 +26,10 @@ targets:
     deploymentTarget: "26.2"
     sources:
       - path: ImarelloIOS
+      - path: ../../outputs/demo/woman_t2i.png
+        buildPhase: resources
+      - path: ../../outputs/demo/woman_i2i.png
+        buildPhase: resources
     attributes:
       SystemCapabilities:
         com.apple.IncreasedMemoryLimit:
@@ -57,6 +61,47 @@ targets:
     dependencies:
       - package: Imarello
         product: ImarelloRuntime
+      - package: Imarello
+        product: ImarelloDirect
+    postBuildScripts:
+      - name: Embed Full no-JIT MLX Metallib
+        script: |
+          "${SRCROOT}/../../Scripts/embed-ios-metallib.sh"
+        inputFiles:
+          - "${SRCROOT}/ImarelloSpikes/mlx-full.metallib"
+          - "${SRCROOT}/ImarelloSpikes/imarello-direct.metallib"
+          - "${SRCROOT}/ImarelloSpikes/imarello-direct-manifest.json"
+        outputFiles:
+          - "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/mlx.metallib"
+          - "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/imarello-direct.metallib"
+          - "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/imarello-direct-manifest.json"
+  ImarelloIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.2"
+    sources:
+      - path: ImarelloIOSTests
+    hostApplication: ImarelloIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.imarello.demo.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Imarello.app/Imarello"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: ImarelloIOS
+  ImarelloIOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.2"
+    sources:
+      - path: ImarelloIOSUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.imarello.demo.uitests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: ImarelloIOS
   ImarelloSpikes:
     type: application
     platform: iOS
@@ -65,10 +110,16 @@ targets:
       - path: ImarelloSpikes
         excludes:
           - "mlx-full.metallib"
+          - "imarello-direct.metallib"
+          - "imarello-direct-manifest.json"
       # Full nojit MLX metallib compiled for iphoneos (Scripts note: the
       # Cmlx-bundle metallib Xcode builds is the thin JIT-era set — gitignored,
       # rebuild via the ensure-metallib recipe with -sdk iphoneos).
       - path: ImarelloSpikes/mlx-full.metallib
+        buildPhase: resources
+      - path: ImarelloSpikes/imarello-direct.metallib
+        buildPhase: resources
+      - path: ImarelloSpikes/imarello-direct-manifest.json
         buildPhase: resources
     settings:
       base:
@@ -88,6 +139,12 @@ schemes:
     build:
       targets:
         ImarelloIOS: all
+        ImarelloIOSTests: [test]
+        ImarelloIOSUITests: [test]
+    test:
+      targets:
+        - ImarelloIOSTests
+        - ImarelloIOSUITests
     run:
       config: Debug
     profile:

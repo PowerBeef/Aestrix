@@ -47,17 +47,18 @@ public enum PromptAlignment {
 
         let lower = prompt.lowercased()
         let words = lower.split { !$0.isLetter && $0 != "#" }.map(String.init)
+        let wordSet = Set(words)
         let wordCount = words.count
 
         var requested: [String] = []
         for (bucket, synonyms) in colorLexicon {
-            for s in synonyms where lower.contains(s) {
+            for s in synonyms where wordSet.contains(s) {
                 if !requested.contains(bucket) { requested.append(bucket) }
             }
         }
-        // Hex colors in prompt → treat as strong color intent (bucket unknown)
-        if lower.contains("#") {
-            if !requested.contains("hex") { requested.append("hex") }
+        let requestedHex = parseHexColors(lower)
+        for hex in requestedHex where !requested.contains(hex.bucket) {
+            requested.append(hex.bucket)
         }
 
         var notes: [String] = []
@@ -77,11 +78,13 @@ public enum PromptAlignment {
                 return false
             }
 
-            if requested.contains("hex") {
-                colorMatch = true // cannot verify hex without parsing; don't fail
-            } else {
-                colorMatch = requested.contains { present($0) }
+            let mean = technical.meanRGB
+            let hexMatch = requestedHex.contains { hex in
+                guard mean.count == 3 else { return false }
+                let dr = mean[0] - hex.r, dg = mean[1] - hex.g, db = mean[2] - hex.b
+                return sqrt(dr * dr + dg * dg + db * db) <= 0.38 || present(hex.bucket)
             }
+            colorMatch = requested.contains(where: present) || hexMatch
 
             if colorMatch == true {
                 let hit = requested.first(where: present) ?? img
@@ -113,7 +116,7 @@ public enum PromptAlignment {
             "text", "typography", "logo", "face", "hands", "fingers", "anatomy",
             "reading", "sign", "watermark", "blurry", "artifact",
         ]
-        let foundHard = hard.filter { lower.contains($0) }
+        let foundHard = hard.filter { wordSet.contains($0) }
         if !foundHard.isEmpty {
             notes.append(
                 "Prompt mentions \(foundHard) — verify visually/VLM; pixel metrics cannot judge these."
@@ -140,5 +143,46 @@ public enum PromptAlignment {
             alignmentScore: max(0, min(100, score)),
             notes: notes
         )
+    }
+
+    private struct HexColor {
+        var r: Float
+        var g: Float
+        var b: Float
+        var bucket: String
+    }
+
+    private static func parseHexColors(_ text: String) -> [HexColor] {
+        guard let regex = try? NSRegularExpression(pattern: #"(?<![0-9a-f])#([0-9a-f]{6})(?![0-9a-f])"#) else {
+            return []
+        }
+        let nsRange = NSRange(text.startIndex ..< text.endIndex, in: text)
+        return regex.matches(in: text, range: nsRange).compactMap { match in
+            guard let digitsRange = Range(match.range(at: 1), in: text),
+                  let value = UInt32(text[digitsRange], radix: 16)
+            else { return nil }
+            let r = Float((value >> 16) & 0xff) / 255
+            let g = Float((value >> 8) & 0xff) / 255
+            let b = Float(value & 0xff) / 255
+            return HexColor(r: r, g: g, b: b, bucket: hueBucket(r: r, g: g, b: b))
+        }
+    }
+
+    private static func hueBucket(r: Float, g: Float, b: Float) -> String {
+        let maxV = max(r, max(g, b)), minV = min(r, min(g, b))
+        let delta = maxV - minV
+        guard maxV > 0.12, delta / maxV >= 0.18 else { return "neutral" }
+        var hue: Float
+        if maxV == r { hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6) }
+        else if maxV == g { hue = 60 * ((b - r) / delta + 2) }
+        else { hue = 60 * ((r - g) / delta + 4) }
+        if hue < 0 { hue += 360 }
+        if hue < 15 || hue >= 345 { return "red" }
+        if hue < 45 { return "orange" }
+        if hue < 70 { return "yellow" }
+        if hue < 160 { return "green" }
+        if hue < 200 { return "cyan" }
+        if hue < 260 { return "blue" }
+        return "purple"
     }
 }

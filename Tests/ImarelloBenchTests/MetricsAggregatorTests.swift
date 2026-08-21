@@ -179,7 +179,7 @@ struct MetricsAggregatorTests {
         #expect(text.contains("dominant=qkv_proj"))
     }
 
-    @Test("compare text non-empty")
+    @Test("legacy reports are decoded but comparison is refused")
     func compareText() {
         func make(_ label: String, e2e: Double, rss: Double) -> BenchReport {
             let trial = BenchTrial(
@@ -214,7 +214,47 @@ struct MetricsAggregatorTests {
             candidate: make("b", e2e: 900, rss: 0.9e9)
         )
         #expect(text.contains("bench-compare"))
-        #expect(text.contains("better") || text.contains("%"))
+        #expect(text.contains("comparison refused"))
+        #expect(!text.contains("✓ better"))
+    }
+
+    @Test("comparison rejects mismatched provenance")
+    func comparisonRequiresMatchingProvenance() {
+        let baseline = comparisonReport(revision: "a")
+        let changed = comparisonReport(revision: "b")
+        #expect(BenchReportWriter.comparisonIssues(
+            baseline: baseline, candidate: changed
+        ).contains("model revision differs"))
+        let refused = BenchReportWriter.compareText(baseline: baseline, candidate: changed)
+        #expect(refused.contains("comparison refused"))
+        let forced = BenchReportWriter.compareText(
+            baseline: baseline, candidate: changed, forceIncomparable: true
+        )
+        #expect(forced.contains("raw deltas only"))
+        #expect(!forced.contains("✓ better"))
+    }
+
+    @Test("comparison rejects missing provenance even when both reports omit it")
+    func comparisonDoesNotInferMissingIdentity() {
+        var baseline = comparisonReport(revision: "same")
+        var candidate = comparisonReport(revision: "same")
+        baseline.provenance?.metallibRevision = nil
+        candidate.provenance?.metallibRevision = nil
+        let issues = BenchReportWriter.comparisonIssues(
+            baseline: baseline, candidate: candidate
+        )
+        #expect(issues.contains("metallib revision is missing"))
+        #expect(issues.contains("candidate metallib revision is missing"))
+    }
+
+    @Test("quality failures are visible in text summaries")
+    func qualityFailureSummary() {
+        var report = comparisonReport(revision: "same")
+        report.trials[0].qualityStatus = .failed
+        report.trials[0].qualityError = "decode failed"
+        let text = BenchReportWriter.textSummary(report)
+        #expect(text.contains("quality: failed"))
+        #expect(text.contains("decode failed"))
     }
 
     @Test("canvas analytics joint seq")
@@ -270,5 +310,46 @@ struct MetricsAggregatorTests {
         #expect(byA.first?.label == "b")
         #expect(byD.first?.label == "b")
         #expect(byA.first?.shareOfRecommendedWS == 0.5)
+    }
+
+    private func comparisonReport(revision: String) -> BenchReport {
+        let trial = BenchTrial(
+            index: 0, cold: false,
+            timingsMs: StageTimingsMs(e2e: 100), memorySamples: [],
+            peakRssBytes: 1, peakMlxActiveBytes: 1,
+            peakMlxPeakBytes: 1, peakMlxCacheBytes: 1
+        )
+        return BenchReport(
+            schemaVersion: BenchReport.currentSchema,
+            label: revision,
+            createdAt: "2026-01-01T00:00:00Z",
+            system: SystemSnapshot(
+                hostname: "host", osVersion: "macOS", processId: 1,
+                physicalMemoryBytes: 8, processorCount: 8,
+                recommendedMaxWorkingSetBytes: nil, thermalState: "nominal",
+                mlxCacheLimitBytes: nil, mlxMemoryLimitBytes: nil,
+                imarelloGitSha: "build", imarelloGitDirty: false,
+                gpuName: "Apple", metalSupport: "Metal 4",
+                hasNeuralAccelerators: false, appleGpuFamilyRaw: 9
+            ),
+            config: BenchConfig(
+                label: "same", trials: 1, warmup: 0,
+                vaeEngine: "direct", ditEngine: "direct",
+                teEngine: "direct", embedCachePolicy: "enabled"
+            ),
+            trials: [trial],
+            aggregate: MetricsAggregator.aggregate(trials: [trial]),
+            pressure: nil,
+            provenance: BenchProvenance(
+                modelRevision: revision,
+                detectedSnapshotRevision: revision,
+                tokenizerFingerprint: "tokenizer", metallibPath: "/m",
+                metallibByteCount: 150_000_000, metallibRevision: "mlx-revision",
+                teEngine: "direct",
+                cachePolicy: "enabled", cacheHitState: "hit",
+                buildRevision: "build", buildDirty: false,
+                successfulSamples: 1, failedSamples: 0, contaminated: false
+            )
+        )
     }
 }

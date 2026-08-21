@@ -1,186 +1,198 @@
-# Agent workflow (Claude Code)
+# Agent workflow (Codex)
 
-How to work on Imarello with Claude Code: which docs to read, which skills, MCP servers, and subagents to use, and the host-safe loops for build / test / generate / eval / bench.
+This is the operational playbook for repository work. The durable safety and product contract lives in [`../AGENTS.md`](../AGENTS.md); current phase, blockers, and backlog live in [`ROADMAP.md`](ROADMAP.md).
 
-**Product locks and host rules live in [`CLAUDE.md`](../CLAUDE.md)** (loaded automatically every session). This file is the operational map. Backlog and pause state: [`ROADMAP.md`](ROADMAP.md).
+## Current operating state
 
-**Pause (2026-08-15):** backend / P9 leftover slices (TAEF2 preview, ref-KV, Δ-DiT, `stagedAggressive`, fused qmm+SwiGLU) are **paused**. Next product phase is **P7 iOS**. Do not start speed work unless the user asks.
+- FLUX.2 Klein 4B, prequantized 4-bit only.
+- Text-to-image defaults to the bespoke direct text encoder, direct DiT, and small direct VAE decoder.
+- Identity/image-to-image still uses the MLX DiT path.
+- Default generation is 1024², four steps, guidance 1.0, staged residency.
+- The package uses the pinned mlx-swift 0.32.1 fork. Inspect `../mlx-swift-fork` first for fork-specific API/ABI truth when that sibling checkout is present, and confirm its revision against `Package.resolved` before relying on it.
+- Reference direct-path timings are 20.6 seconds at 512² and 60.3 seconds at 1024²; identity image-to-image is approximately 36.2 seconds. Memory references are approximately 2 GB RSS and a 1.77 GiB MLX watermark.
+- The iOS app cannot currently perform device generation: its embedded thin JIT-era `Cmlx` metallib is incompatible with the no-JIT runtime. `ImarelloSpikes` proves the full `iphoneos` metallib recipe, but integration and device verification remain blocked work.
 
----
+Treat timings as A/B baselines, not evergreen claims. Read [`PERF.md`](PERF.md), [`MEMORY.md`](MEMORY.md), and [`ROADMAP.md`](ROADMAP.md) before performance work.
 
-## Session start
+## Session startup
 
-1. `CLAUDE.md` is already in context — product goal, locks, host safety.
-2. Read [`ROADMAP.md`](ROADMAP.md) — what is done, parked, or paused.
-3. Load only the skills for the current task (table below). Do not dump the whole catalog into context.
-4. Confirm one Metal owner before any `imarello` generate, bench, or Metal compile (no Xcode/`xcodebuild` build in flight, no second `imarello`).
+1. Read [`../AGENTS.md`](../AGENTS.md), then the active section of [`ROADMAP.md`](ROADMAP.md).
+2. Read the specialized authority for the task: architecture, performance, evaluation, weights, iOS, product, or design.
+3. Run `git status --short`; preserve unrelated user changes.
+4. Select the installed skill route below and read its `SKILL.md` before acting.
+5. If a command could initialize MLX, compile Metal, run Xcode, generate, or benchmark, confirm there is no other Metal owner.
+6. State the validation scope. Documentation-only work stops at documentation/structural checks.
 
----
+## Installed skill routes
 
-## Skills (by task)
+Use the smallest set that fully covers the task. Skill names below are exact.
 
-| Task | Load |
-|------|------|
-| Prompts, CLI examples, I2I UX, eval wording | Project skill **`flux-best-practices`** (`.claude/skills/flux-best-practices/`, auto-discovered). Klein rules: `rules/flux2-models.md`, `t2i-prompting.md`, `i2i-prompting.md`, `negative-prompt-alternatives.md`, `core-principles.md`. **Do not** install flux-3 video skills. |
-| MLX arrays, quant, `eval()`, Metal, wired memory | **`mlx-swift`** |
-| Qwen3 TE port, tokenizer, chat template | **`mlx-swift-lm`** |
-| Swift 6 actors / `MLXArray` is not `Sendable` | **`axiom:axiom-concurrency`** |
-| Apple framework APIs, Swift diagnostics | **`axiom:axiom-apple-docs`** (Xcode-bundled for-LLM docs) |
-| iOS 26 UI, Liquid Glass, HIG | **`axiom:axiom-swiftui`**, **`axiom:axiom-design`**; design work (new surfaces, critique, polish): **`impeccable:impeccable`** — the studio's direction contract lives atop `StudioRootView.swift`, the system in [`../Apps/ImarelloIOS/DESIGN.md`](../Apps/ImarelloIOS/DESIGN.md), the product record in [`../PRODUCT.md`](../PRODUCT.md). A ground-up rebuild ends with the finish-reviewer agent and the documenter agent, not with a screenshot. |
-| Driving the Simulator UI (screenshots, taps, a11y tree, Dynamic Type) | XcodeBuildMCP (`build_run_sim`, `snapshot_ui`, `screenshot`) + `xcui` (`tap`, `swipe`, `a11y set`) and `xcrun simctl ui <udid> content_size …`. **Never** run a Simulator build while a device build or `imarello` generate is running — the first `swift test` of the rebuild hung at 0% CPU under exactly that contention (2026-08-16). |
-| Unit tests, Swift Testing patterns | **`axiom:axiom-testing`** |
-| App-side memory / jank | **`axiom:axiom-performance`** — **speed claims** still go through [`PERF.md`](PERF.md) + `imarello bench` |
-| Hub download, pin, inspect | **`huggingface-skills:hf-cli`** (`hf`) |
-| Library API truth (mlx-swift, SwiftPM, HF) | **Context7** (`context7-mcp` skill + MCP server) |
-| Quality "done" | [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) + Read the PNG (multimodal) |
+| Work | Route |
+|---|---|
+| MLX tensors, modules, quantization, graph behavior | `$swift-mlx` |
+| Qwen/text-model architecture, local inference, MLX LM behavior | `$swift-mlx-lm` |
+| Async/await, actors, `Sendable`, data races | `$axiom-concurrency` |
+| Profiling, memory growth, retain cycles, CPU/GPU performance | `$axiom-performance` |
+| Modern Swift implementation and review | `$axiom-swift` |
+| SwiftUI state, navigation, layout, performance | `$axiom-swiftui` |
+| Product/HIG decisions and app structure | `$axiom-design` |
+| VoiceOver, Dynamic Type, contrast, touch targets | `$axiom-accessibility` |
+| Swift Testing/XCTest design and failure triage | `$axiom-testing` |
+| Build failures, hangs, dependency and environment diagnosis | `$axiom-build` |
+| Apple APIs, compiler diagnostics, Xcode-bundled documentation | `$axiom-apple-docs` |
+| Simulator build/run/UI/log debugging | `$build-ios-apps:ios-debugger-agent` plus XcodeBuildMCP |
+| iOS 26+ Liquid Glass implementation/review | `$build-ios-apps:swiftui-liquid-glass` |
+| SwiftUI navigation, state, layout, controls, screen composition | `$build-ios-apps:swiftui-ui-patterns` |
+| Large-view structure and Observation ownership refactors | `$build-ios-apps:swiftui-view-refactor` |
+| SwiftUI render/update performance audit | `$build-ios-apps:swiftui-performance-audit` |
+| Simulator UI/accessibility, logs, crashes, and trace tooling | `$axiom-tools` (`xcui`, `xclog`, `xcsym`, `xcprof`) |
+| GitHub repository, issue, and PR orientation | `$github:github` |
+| Unresolved PR review threads and requested changes | `$github:gh-address-comments` |
+| Failing GitHub Actions checks | `$github:gh-fix-ci` |
+| Commit, push, and draft PR publication | `$github:yeet`, only after an explicit publication request |
+| Hugging Face downloads, verification, and repository operations | `$hugging-face:hf-cli` |
+| BFL FLUX prompting and product behavior | repo-local `$flux-best-practices` |
 
-Do **not** load Vercel, Chrome DevTools / claude-in-chrome, HF Spaces / SageMaker / Gradio, or dataviz skills for this repo.
+The prompt skill is at [`../.agents/skills/flux-best-practices`](../.agents/skills/flux-best-practices). Its scope is BFL prompt construction, model-facing prompt behavior, and product semantics. It is not authority for DiT/VAE mathematics, Swift/MLX implementation, kernel design, weight conversion, or performance.
 
-BFL skills cover **prompting and product behavior**, not DiT / VAE math. MLX skills cover **implementation**.
+When multiple Apple skills apply, begin with the narrowest specialist. For UI feature work, a common order is `$axiom-design`, `$axiom-swiftui`, `$axiom-accessibility`, then `$axiom-testing`. Add `$axiom-concurrency` whenever async or isolated state is touched.
 
----
+## Documentation and capability routing
 
-## Subagents
+### MLX and library truth
 
-Delegate to specialized agents when the task matches; keep the conclusion, not the file dumps.
+1. Inspect the pinned sibling `../mlx-swift-fork` first when it exists. Confirm the exact commit from `Package.resolved`.
+2. Inspect the checked-out dependency source/build artifacts when necessary.
+3. Use Context7 for upstream library documentation and examples.
+4. Do not let upstream docs override behavior in the pinned fork.
 
-| Situation | Agent |
-|-----------|-------|
-| Xcode / SPM build failure, "No such module", stale-code runs | `axiom:build-fixer` |
-| New `imarello-*.ips` / DiagnosticReports crash (host-safety rule) | `axiom:crash-analyzer` |
-| Simulator UI drive, screenshots, a11y verification | `axiom:simulator-tester` (never sleep-and-rescreenshot) |
-| Swift 6 concurrency audit before landing actor/`Sendable` changes | `axiom:concurrency-auditor` |
-| Swift perf anti-pattern scan (ARC, copies, generics) | `axiom:swift-performance-analyzer` |
-| Failing/flaky test loop | `axiom:test-debugger` |
-| SPM resolution conflicts (mind the exact 0.31.6 mlx-swift pin) | `axiom:spm-conflict-resolver` |
+### Apple truth
 
-**Hard constraint (8 GB host): at most one Metal-owning process at a time.** Never fan out subagents, workflows, or background jobs that each run `imarello` generate/bench, `swift test` with MLX tests, or a Metal compile. Read-only audit agents (Glob/Grep/Read) may run in parallel; anything that touches the GPU is strictly serial.
+Use `$axiom-apple-docs` to search Xcode-bundled Apple documentation and compiler material first. Use the Sosumi MCP server as the fallback for Apple documentation unavailable locally. Do not guess current APIs from memory when availability, signatures, entitlements, or compiler behavior matters.
 
----
+### Simulator and XcodeBuildMCP
 
-## MCP servers
+For Simulator work, use `$build-ios-apps:ios-debugger-agent` and XcodeBuildMCP. Before the first build, run, test, or UI action in a task:
 
-| Server | Use for this repo | Do not use for |
-|--------|-------------------|----------------|
-| **Context7** | Current mlx-swift / Swift / Hugging Face API docs | Inventing Imarello internals |
-| **XcodeBuildMCP** | P7 **Simulator** UI (build_run_sim, screenshot, snapshot_ui); call `session_show_defaults` first | Physical device install (device workflow **not enabled** — use `xcodebuild` + `devicectl`). Daily SPM generate / bench — use `swift build -c release`. **Do not** call `ImarelloPipeline` on the Simulator. No Catalyst. |
-| **GitHub** (MCP or `gh`) | CI (`eval-floors`), PRs, issues on `PowerBeef/Imarello` | Local Metal work |
-| **sosumi** | Apple doc pages when `axiom-apple-docs` is thin | Kernel math |
+1. Call `session_show_defaults`.
+2. If missing, configure the project `Apps/ImarelloIOS/ImarelloIOS.xcodeproj`, the intended scheme, and an available Simulator device.
+3. Build/run with the configured session, inspect logs/UI, and keep every operation serial.
+4. Never initialize the MLX pipeline in Simulator. Simulator verifies UI behavior only.
 
-Ignore for Imarello: `claude-in-chrome`, `chrome-devtools`, `vercel`, `gmail`, `Excalidraw`, `Uber Eats`, HF Spaces/SageMaker tooling.
+The current tools may combine boot, build, and launch operations; use their live schemas rather than memorized command names. Do not launch Xcode merely to inspect source or project settings that can be read directly.
 
----
+Use `$axiom-tools` for the narrow diagnostic artifact: `xcui` for scripted Simulator UI/accessibility validation, `xclog` for console capture, `xcsym` for `.ips`/MetricKit/`.crash` symbolication, and `xcprof` for structured trace analysis. Read the routed reference and follow its procedure inline. These tools remain subject to the one-owner rule whenever they launch, attach to, or profile Apple runtime work.
 
-## Product path (defaults)
+### GitHub
 
-| Knob | Default | Escape hatch |
-|------|---------|--------------|
-| Weights | **4-bit** Klein 4B only | None for users. No 3-bit product path. No user bf16. |
-| Text tokens | `--text-tokens 512` (pad) | `--text-tokens auto` (opt-in trim; faster, weaker conditioning) |
-| VAE decode | BFL **Small Decoder** | `--vae-variant full` (klein AE decoder) |
-| I2I encode | Always klein `encodeOnly` | Do not load `full_encoder_small_decoder.safetensors` |
-| 4-bit Linear | Scaled f16 `quantizedMM` (`÷16`) | `--attn-linear-compute f32` |
-| Canvas | **1024²** | `--width` / `--height` (512 for smokes) |
-| Steps / guidance | 4 / 1.0 | Distilled path; no negatives |
-
-Pins and download: [`WEIGHTS.md`](WEIGHTS.md). Numbers: [`PERF.md`](PERF.md) (8 GB M2, 2026-08-16 post-Tier-2: 512² **23.0 s** / 1024² **71.0 s**, watermark 2.57 / 3.00 GiB).
-
----
-
-## Build / test / generate / eval / bench
-
-Always **release** for generation and benches. `swift build` alone often leaves a **stub** metallib (~3 KB). Forward kernels need the **full** library (~130 MB).
+Prefer the connected GitHub app for structured repository, issue, PR, review, and check context. Use the skill matching the task. Before any `gh` CLI workflow involving Actions, review data, push, or publication, run:
 
 ```bash
-swift build -c release && ./Scripts/ensure-metallib.sh
+gh auth status
+```
+
+Stop if authentication is invalid. Reading GitHub context does not authorize edits, comments, labels, commits, pushes, or PR creation. `$github:yeet` is permitted only when the user explicitly asks to publish local changes.
+
+### Hugging Face
+
+Use `$hugging-face:hf-cli` and the `hf` command, never the deprecated CLI name. Every model or weight download/verification must use the exact repository and pinned revision from [`WEIGHTS.md`](WEIGHTS.md), [`hub-pins.json`](hub-pins.json), or the package configuration. Check authentication and intended destination before any upload or remote mutation. Downloads and uploads require explicit task scope; this workflow does not authorize them by itself.
+
+### Image validation
+
+Use the local image viewer to open generated PNGs directly. AI image-generation tools, captions, and text-only reports are not visual evaluators. Quality completion always combines pixel metrics with human-visible PNG inspection as defined in [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md).
+
+### Optional plugins
+
+Recommended but uninstalled plugins, including Codex Security and Figma, may be proposed for future tasks but are not workflow dependencies. Do not install a plugin or rewrite the workflow around one without user authorization.
+
+## Read-only parallel audits
+
+The primary agent may authorize up to three bounded read-only subagents for independent repository audits or research. Each assignment must state a concrete question and scoped paths. A subagent may search/read and return file-referenced findings only.
+
+Subagents cannot edit, build, test, run scripts, resolve packages, launch Xcode/Simulator/apps, generate or evaluate images, benchmark, profile, initialize MLX/Metal, touch external state, or delegate again. The primary agent owns all edits and all verification, performed serially. See [`../AGENTS.md`](../AGENTS.md) for the blocking policy.
+
+## One-owner preflight
+
+Before MLX, Metal, Xcode, generation, benchmark, or eligible test work:
+
+- inspect relevant active processes;
+- confirm no other agent/user task owns Metal;
+- run exactly one operation in the foreground;
+- wait for cleanup before the next operation;
+- never retry a quiet operation concurrently.
+
+The 8 GB host has a history of watchdog failures and kernel instability under overlapping workloads. This constraint applies even to commands that are usually harmless on larger machines.
+
+## Commands
+
+Commands below are recipes, not permission to run them. Select only the command required by the task and keep it isolated.
+
+### Build and runtime preflight
+
+```bash
+swift build -c release
+./Scripts/ensure-metallib.sh
 .build/release/imarello info
 ```
 
-### Filtered tests (no weights)
+Runtime/generation work requires the full no-JIT metallib, approximately 155 MB. Never accept the thin JIT-era artifact as equivalent.
 
-Do not assume unfiltered `swift test` is safe (Metal FA tests have hung after GPU aborts).
+### Filtered tests only
 
 ```bash
 swift test --filter 'HostPreflight|GoldenMetric|Flux2Math|IdentityPreserve|ImarelloBench|HubPin|Metallib|EvalCachePolicy|TextTokenMode|PromptEmbedCacheKey|VAEAttention|DiTOpProfile|DeviceHarness|Qwen'
 ```
 
-MLX-gated numerics (Metal owner rules apply): `IMARELLO_MLX_TESTS=1 swift test --filter ImarelloDiTTests`.
-
-### Generate + quality (mandatory after any PNG used to judge quality)
-
 ```bash
-# T2I — 512 smoke; omit --width/--height for product 1024²
-.build/release/imarello t2i "$PROMPT" --width 512 --height 512 --steps 4 --seed 42 \
-  --output /tmp/out.png --analyze --vision-brief
-
-# 512² eval-prompts × seeds 42/0/7 (pixel gate)
-IMARELLO=.build/release/imarello ./Scripts/eval-regression.sh
-
-# I2I color/style
-.build/release/imarello i2i "$PROMPT" --image "$REF" --strength 0.8 \
-  --output /tmp/edit.png --analyze --vision-brief
-
-# I2I identity (people)
-.build/release/imarello i2i "$PROMPT" --image "$REF" --strength 0.9 --identity \
-  --output /tmp/edit-id.png --analyze --vision-brief
+./Scripts/ci-eval-floors.sh
 ```
 
-Then **Read the PNG** (multimodal Read tool) and complete the Phase-B checklist in [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md). Pixel metrics alone are not enough. Schema **1.4** includes `unstructured_garbage` (TV-static / f16-overflow speckle).
-
-### Performance (mandatory before "faster / leaner")
-
 ```bash
-.build/release/imarello bench --width 512 --height 512 --warmup 1 --trials 3 \
-  --json /tmp/bench.json
-
-.build/release/imarello bench --mode identity-i2i --image "$REF" \
-  --width 512 --height 512 --strength 0.9 --with-quality \
-  --json /tmp/id-i2i.json
-
-.build/release/imarello bench-compare /tmp/baseline.json /tmp/candidate.json
+IMARELLO_MLX_TESTS=1 swift test --filter ImarelloDiTTests
 ```
 
-1024² T2I bench is OK on this host (~71 s, watermark 3.00 GiB). Do **not** start a 4-trial `identity-i2i` at 1024 unless the user asks. Never decode 1024² untiled (measured Metal abort).
+Unfiltered `swift test` is prohibited. Run the CI wrapper alone; if it builds and then produces no test output, follow `$axiom-build` environment-first triage: capture the exact command and last output, inspect the test process and DiagnosticReports, distinguish compilation from test execution, and avoid concurrent retries. Do not change code until the failing layer is identified.
 
----
+### Generate, evaluate, and inspect
 
-## Host safety (8 GB — blocking)
+Use current CLI help and [`EVAL_WORKFLOW.md`](EVAL_WORKFLOW.md) for exact flags; do not copy historical flags from old reports. Record model revision, prompt, seed, dimensions, steps, guidance, token mode, engines, decoder, and output path.
 
-This machine is 8 GB unified (`Mac14,3`). An IDE agent + `swift build` / Metal compile + DiT starved WindowServer and triggered a watchdog panic.
+The required sequence is:
 
-1. **One Metal owner.** No `imarello` generate / bench / compile-spike while Xcode, another `imarello`, or a second IDE is compiling Metal. No parallel Metal-owning subagents.
-2. Default to filtered unit tests and **512²** smokes.
-3. Never `MLX.compile` the full DiT. Never `dit-compile-spike` without `--force` on an idle machine.
-4. Never `EvalCachePolicy.high` or VAE D=512 `evalEachChunk`.
-5. After a reboot, hang, or new `imarello-*.ips`: stop, inspect DiagnosticReports (`axiom:crash-analyzer`).
-6. Ambient ≠ contaminated: `WindowServer`, Ghostty, `MTLCompilerService`. Another IDE / `swift-package` still mark trials dirty.
+1. Generate one declared case.
+2. Run the pixel evaluator for that exact output/case.
+3. Open the PNG with the local image viewer.
+4. Record metric and visible findings together.
 
-`HostPreflight` takes `~/Library/Caches/Imarello/imarello.lock`. Details: [`HOST_SAFETY.md`](HOST_SAFETY.md).
+Do not parallelize cases on the 8 GB host.
 
----
+### Performance
 
-## P7 iOS (device)
+Follow [`PERF.md`](PERF.md). Capture a before case, make the change, capture the identical after case, and compare with the repository benchmark comparison tooling. Retain wall-clock stage timings, peak RSS, MLX active/cache/watermark values, and quality evidence. A single post-change timing is not an A/B result.
 
-Full recipe: [`IOS.md`](IOS.md). Short version:
+## iOS workflow
 
-1. Simulator = UI only. **Develop** is a no-op. Do not fake Klein. Verify UI with `axiom:simulator-tester` / XcodeBuildMCP sim tools (`build_run_sim`, `snapshot_ui`, `screenshot`) + `xcui`.
-2. After `project.yml` edits: `./Scripts/generate-ios-project.sh`.
-3. Device build needs `-skipPackagePluginValidation`, `-allowProvisioningUpdates`, team `FK2D8X36G2`.
-4. Install / launch with `xcrun devicectl device install app` / `process launch`. **Resync weights after every install** (new data container).
-5. Profile is **`iOS Team Provisioning Profile: app.imarello.demo`** (both kernel entitlements). Do not hand-resign extra keys (`0xe8008015`).
-6. Weights stay on disk (`Caches/Imarello/models/`), never in the bundle. `Scripts/sync-ios-device-weights.sh` resolves symlinked host snapshots and detects any paired iPhone itself (`DEVICE=` overrides).
-7. Drive generate from the Mac with `./Scripts/ios-device-harness.sh --eval` (default 512²; `--mode i2i` edits the last print). Do not ask the user to tap Develop. `--width 1024` needs `--allow-1024`. New job id on every retry.
-8. First generate is **512²**. Eval the PNG on the Mac (`EVAL_WORKFLOW.md`). 1024² same seed is a different sample; vision-check anatomy.
-9. If a run throws `weightsNotFound` while the stage shows the ready state, the pipeline was created before the copy — recreate it (`GenerationEngine.ensureReady` / `hasLocalSnapshot`).
+Read [`IOS.md`](IOS.md), [`../PRODUCT.md`](../PRODUCT.md), and [`../Apps/ImarelloIOS/DESIGN.md`](../Apps/ImarelloIOS/DESIGN.md).
 
----
+- Preserve the frozen `HarnessService` paths, request/result JSON, output naming, launch arguments, and completion behavior.
+- Use Simulator only for UI, layout, navigation, accessibility, and non-MLX state flow.
+- Do not claim model or device-runtime success from Simulator.
+- Do not enable JIT or substitute the thin metallib to bypass the current device blocker.
+- For device-runtime work, first integrate and verify the full `iphoneos` no-JIT metallib using the proven spike recipe; keep this serial and evidence-backed.
+- Use `$build-ios-apps:swiftui-liquid-glass` for native iOS 26+ glass decisions, `$build-ios-apps:swiftui-ui-patterns` for screen composition, `$build-ios-apps:swiftui-view-refactor` for large-view/data-flow cleanup, and `$build-ios-apps:swiftui-performance-audit` for code-first render-performance work.
+- Preserve product and design authority when applying those patterns. The specialized skills do not override `PRODUCT.md` or `DESIGN.md`.
 
 ## Definition of done
 
-| Claim | Required |
-|-------|----------|
-| Generation / quality | PNG + pixel eval + vision checklist (Read the image) + paths/scores in the summary |
-| Faster / leaner | `imarello bench` + `bench-compare` on this host; peak RAM not worse in a way that threatens 8 GB |
-| Docs | Defaults and benches match [`PERF.md`](PERF.md) product-path table; ROADMAP "Last updated" bumped |
+| Change | Required evidence |
+|---|---|
+| Documentation only | `git diff --check`, stale-reference/consistency checks, changed-link validation; no Swift/Metal run |
+| Swift logic without MLX | Narrow filtered test(s), run alone |
+| MLX/model behavior | Narrow MLX test or declared runtime case, memory evidence, one-owner compliance |
+| Output quality | Exact generation record, pixel evaluation, direct PNG inspection |
+| Performance/memory | Comparable benchmark A/B, stage timing, RSS and MLX memory metrics, quality check |
+| SwiftUI/iOS UI | Simulator UI inspection, accessibility validation, narrow tests where applicable; no MLX in Simulator |
+| Device runtime | Full `iphoneos` metallib verification plus physical-device evidence |
+| GitHub review fix | Addressed thread/check evidence and local validation; no publication unless requested |
 
-Do not claim "blue mug works" from metrics alone without opening the image.
+Update the authoritative documentation whenever behavior, baselines, blockers, pins, commands, or schemas actually change. Report unrun validation explicitly.

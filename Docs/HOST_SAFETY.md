@@ -1,6 +1,6 @@
 # Host safety (8 GB Apple Silicon)
 
-**Last updated:** 2026-08-15
+**Last updated:** 2026-08-19
 
 ## What crashed
 
@@ -16,22 +16,22 @@ Class A is **not** “any shell command panics the kernel.” It is **Cursor (El
 ## What we did
 
 - Uncommitted Cursor optimization tree was isolated on **`cursor-opt-quarantine`** and later **deleted** after the safe leftovers were ported. Audit: [`CURSOR_QUARANTINE.md`](CURSOR_QUARANTINE.md).
-- `HostPreflight`: exclusive lock + sibling `imarello` detect. Swap is **not** a run gate.
+- `HostPreflight`: exclusive filesystem lock plus a process-wide `MetalWorkLease` across pipeline generation, load/purge, mutable engine configuration, and benchmarks. The preflight reports possible Xcode, Swift build/test, Imarello/benchmark, and Metal compiler owners. Swap is **not** a run gate.
 - `dit-compile-spike` refused on `DeviceTier.low` unless `--force`.
 
 ## Operator checklist before 1024² or bench
 
 ```bash
-pgrep -x imarello || true     # none (second instance is refused)
-# no second IDE compiling this package
+pgrep -alf 'Xcode|xcodebuild|swift|swiftc|swift-frontend|xctest|metal|metallib|imarello|aestrix'
+# idle MCP servers are infrastructure, not active builds; every actual owner must be absent
 .build/release/imarello t2i "…" --width 512 --height 512
 ```
 
 ## Agent defaults
 
-See **CLAUDE.md → Host safety** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents — and run the test suite **alone**: a filtered run backgrounded alongside Simulator builds hung at 0 % CPU for 25 min (2026-08-16), then passed on a quiet machine.
+See **AGENTS.md → One Metal owner** and [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md). Prefer **filtered** `swift test` (unfiltered Metal FA tests have hung after GPU aborts). No parallel Metal agents — and run the test suite **alone**: a filtered run backgrounded alongside Simulator builds hung at 0 % CPU for 25 min (2026-08-16), then passed on a quiet machine.
 
-1024² T2I is measured-safe on this host (product path ~**71 s**, watermark **3.00 GiB**, post-Tier-2). Default smokes stay **512²**. Do not start a 4-trial `identity-i2i` at 1024 unless asked. **Never decode 1024² untiled** — measured Metal abort (`imarello-2026-08-16-104942.ips`); the VAE tile threshold (128) is load-bearing there.
+1024² T2I has historical measured-safe evidence on this host (current direct baseline ~**60.3 s**, watermark reference **1.77 GiB**). The product default is 1024²; bring-up and diagnostic smokes may still use an explicitly declared 512² case. Do not start a multi-trial `identity-i2i` at 1024 unless asked. **Never decode 1024² untiled** — measured Metal abort (`imarello-2026-08-16-104942.ips`); the VAE tile threshold (128 latent pixels) is load-bearing there.
 
 **Ambient vs competing:** `WindowServer`, Ghostty, `grok`, and `MTLCompilerService` are expected on this session and no longer mark a trial `CONTAMINATED`. Cursor / `swift-package` still do. Swap is recorded only.
 
